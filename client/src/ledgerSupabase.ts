@@ -1,5 +1,6 @@
 import { ethers, type Signer } from 'ethers';
 import type { BlockchainResponse } from './blockchain';
+import { getBlockExplorerBaseUrl } from './explorerConfig';
 
 /**
  * On Vercel, the browser calls same-origin `POST /api/ledger` and `POST /api/my-ledger`
@@ -35,9 +36,7 @@ export type LedgerSubmissionRow = {
 const CONTRACT_ADDRESS =
   process.env.REACT_APP_CONTRACT_ADDRESS || '0x5FbDB2315678afecb367f032d93F642f64180aa3';
 const CHAIN_ID = Number(process.env.REACT_APP_CHAIN_ID || 4801);
-const EXPLORER = (
-  process.env.REACT_APP_BLOCKCHAIN_EXPLORER_URL || 'https://worldchain-sepolia.explorer.alchemy.com'
-).replace(/\/$/, '');
+const EXPLORER = getBlockExplorerBaseUrl();
 
 function apiPath(path: string): string {
   const base = (process.env.REACT_APP_API_BASE || '').replace(/\/$/, '');

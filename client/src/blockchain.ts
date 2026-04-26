@@ -1,13 +1,14 @@
 import { ethers, type TransactionReceipt } from 'ethers';
 import contractABI from './HumanContentLedger.json';
+import { getBlockExplorerBaseUrl } from './explorerConfig';
 
 // Contract configuration
 const CONTRACT_ADDRESS = process.env.REACT_APP_CONTRACT_ADDRESS || '0x5FbDB2315678afecb367f032d93F642f64180aa3';
 const RPC_URL = process.env.REACT_APP_RPC_URL || 'http://127.0.0.1:8545';
 const EXPECTED_CHAIN_ID = Number(process.env.REACT_APP_CHAIN_ID || 31337);
 const NETWORK_NAME = process.env.REACT_APP_NETWORK_NAME || 'Localhost 8545';
-const BLOCK_EXPLORER =
-  process.env.REACT_APP_BLOCKCHAIN_EXPLORER_URL || 'https://worldchain-sepolia.explorer.alchemy.com';
+/** Alchemy Blockscout (World Chain Sepolia); worldscan.org in env is normalized away. */
+const BLOCK_EXPLORER = getBlockExplorerBaseUrl();
 
 // Contract ABI
 const CONTRACT_ABI = contractABI.abi;
@@ -164,7 +165,6 @@ class BlockchainService {
     } catch (err: any) {
       // 4902 = chain not added in MetaMask.
       if (err?.code === 4902) {
-        const blockExplorer = process.env.REACT_APP_BLOCKCHAIN_EXPLORER_URL;
         if (EXPECTED_CHAIN_ID === 31337) {
           await window.ethereum.request({
             method: 'wallet_addEthereumChain',
@@ -186,9 +186,7 @@ class BlockchainService {
                 chainName: NETWORK_NAME,
                 rpcUrls: [RPC_URL],
                 nativeCurrency: { name: 'Ether', symbol: 'ETH', decimals: 18 },
-                blockExplorerUrls: blockExplorer
-                  ? [blockExplorer]
-                  : ['https://worldchain-sepolia.explorer.alchemy.com'],
+                blockExplorerUrls: [BLOCK_EXPLORER],
               },
             ],
           });
@@ -254,7 +252,7 @@ class BlockchainService {
               'https://worldchain-sepolia.g.alchemy.com/public',
             ],
             nativeCurrency: { name: 'Ether', symbol: 'ETH', decimals: 18 },
-            blockExplorerUrls: [BLOCK_EXPLORER || 'https://worldchain-sepolia.explorer.alchemy.com'],
+            blockExplorerUrls: [BLOCK_EXPLORER],
           },
         ],
       });
