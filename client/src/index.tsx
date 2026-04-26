@@ -8,11 +8,31 @@ import reportWebVitals from './reportWebVitals';
 const root = ReactDOM.createRoot(
   document.getElementById('root') as HTMLElement
 );
+const customWorldChainSepolia = {
+  id: 4801,
+  name: 'World Chain Sepolia',
+  network: 'worldchain-sepolia',
+  nativeCurrency: {
+    decimals: 18,
+    name: 'Ether',
+    symbol: 'ETH',
+  },
+  rpcUrls: {
+    default: { http: ['https://worldchain-sepolia.g.alchemy.com/public'] },
+    public: { http: ['https://worldchain-sepolia.g.alchemy.com/public'] },
+  },
+  blockExplorers: {
+    default: { name: 'Worldscan', url: 'https://sepolia.worldscan.org' },
+  },
+} as any;
+
 root.render(
   <React.StrictMode>
     <PrivyProvider
       appId={process.env.REACT_APP_PRIVY_APP_ID || process.env.REACT_APP_PRIVY_ID || ''}
       config={{
+        defaultChain: customWorldChainSepolia,
+        supportedChains: [customWorldChainSepolia],
         loginMethods: ['email', 'google'],
         embeddedWallets: {
           ethereum: {
