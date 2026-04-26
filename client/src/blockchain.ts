@@ -636,7 +636,8 @@ class BlockchainService {
       // NOTE: For MiniKit, submittedTxHash is actually an ERC-4337 UserOpHash, not a standard tx hash!
       // This will cause provider.waitForTransaction to hang for 3 minutes.
       // Skip this for MiniKit and fall right into the smart contract background polling (STEP 3).
-      if (submittedTxHash && !useMiniKit) {
+      const isMiniKitFallback = MiniKit.isInstalled();
+      if (submittedTxHash && !isMiniKitFallback) {
         try {
           const fallbackReceipt = await this.provider.waitForTransaction(
             submittedTxHash,
@@ -677,14 +678,14 @@ class BlockchainService {
       // STEP 3 — Entry often appears a few seconds after a misleading wallet error; wait before any UI error.
       try {
         onProgress?.(
-          useMiniKit 
+          isMiniKitFallback 
             ? '⏳ Waiting for your transaction to be packaged and mined automatically (up to ~60s)…'
             : '⏳ Polling the chain in the background (no new MetaMask request) — up to ~90s for your entry…'
         );
         const longPolled = await this.waitForContentIndexed(data, walletAtSubmit, 90_000, onProgress);
         if (longPolled) {
           console.log('✅ Recovered via background polling', longPolled);
-          return this.successFromIndexedFind(longPolled, walletAtSubmit, useMiniKit ? undefined : submittedTxHash);
+          return this.successFromIndexedFind(longPolled, walletAtSubmit, isMiniKitFallback ? null : submittedTxHash);
         }
       } catch (pollErr) {
         console.warn('blockchain: extended chain poll failed', pollErr);
