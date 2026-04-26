@@ -1,0 +1,45 @@
+# Dependencies
+node_modules/
+**/node_modules/
+
+# Environment & secrets
+.env
+.env.*
+!.env.example
+!**/.env.example
+!**/.env.template
+!**/.env.local.example
+
+# Build outputs
+client/build/
+**/dist/
+**/build/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Test / coverage
+coverage/
+**/.nyc_output/
+
+# Large / vendored (optional local World ID stack — not part of this app)
+contract-deployer/
+
+# Hardhat (if ever tracked from root)
+blockchain/cache/
+blockchain/artifacts/
+blockchain/typechain-types/
+blockchain/coverage/
