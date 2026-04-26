@@ -405,10 +405,9 @@ function App() {
         } catch (e) {
           console.warn('Ledger API sync failed', e);
           setLedgerSyncNote(
-            'On-chain success; database log failed. In Vercel → Project → Environment Variables, set server-only ' +
-              'SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY (no REACT_APP_ prefix—those keys are for the API, not the browser; ' +
-              'never put the service role in a REACT_APP_ var). For /api/ledger-onchain, also set REACT_APP_RPC_URL and ' +
-              'REACT_APP_CONTRACT_ADDRESS. Local: run `vercel dev` in `client/` (plain `npm start` has no /api routes).'
+            'On-chain success; database log failed. In Vercel → Environment Variables, set REACT_APP_SUPABASE_URL and ' +
+              'REACT_APP_SUPABASE_ANON_KEY (and run the latest Supabase migration for anon RLS). Also set REACT_APP_RPC_URL and ' +
+              'REACT_APP_CONTRACT_ADDRESS for on-chain verify. Local: `vercel dev` in `client/` (plain `npm start` has no /api).'
           );
         }
         console.log('🎉 Blockchain submission successful!', result);
@@ -792,8 +791,8 @@ function App() {
             Only you can load this: your wallet signs a short “list my submissions” message. Each row is content and
             signature <strong>hashes</strong> plus the explorer link (same as on-chain, no raw text). The app calls{' '}
             <code>POST /api/ledger</code> and <code>POST /api/my-ledger</code> in this repo (Vercel serverless). Set
-            project env <code>SUPABASE_URL</code> and <code>SUPABASE_SERVICE_ROLE_KEY</code> (not exposed to the
-            browser) and run the SQL migration. Use <code>vercel dev</code> in <code>client/</code> so{' '}
+            project env <code>REACT_APP_SUPABASE_URL</code> and <code>REACT_APP_SUPABASE_ANON_KEY</code> (same names in
+            Vercel for the serverless routes) and run the SQL migrations. Use <code>vercel dev</code> in <code>client/</code> so{' '}
             <code>/api/*</code> exists locally; plain <code>npm start</code> does not serve the API.
           </p>
           <button
