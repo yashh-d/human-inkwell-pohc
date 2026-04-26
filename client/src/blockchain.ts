@@ -1,4 +1,5 @@
 import { ethers, type TransactionReceipt } from 'ethers';
+import { MiniKit, type MiniAppSendTransactionSuccessPayload } from '@worldcoin/minikit-js';
 import contractABI from './HumanContentLedger.json';
 import { getBlockExplorerBaseUrl } from './explorerConfig';
 
@@ -455,128 +456,164 @@ class BlockchainService {
     let walletAtSubmit: string | undefined;
     let submittedTxHash: string | null = null;
     try {
-      console.log('🔗 Connecting to wallet...');
-      const { signer, address } = await this.connectWallet();
-      walletAtSubmit = address;
-      // First on-chain action of the session often fails in MetaMask / in-app
-      // webviews with a stale "have 0" fee pre-check; warming fee data fixes most cases.
-      await this.warmupInjectedProvider();
+      let walletAtSubmit: string | undefined;
+      let signer: ethers.Signer | undefined;
+
+      // When inside the World App, we bypass standard window.ethereum injection
+      const useMiniKit = MiniKit.isInstalled();
+
+      if (useMiniKit) {
+        console.log('📱 Using MiniKit native transaction bridge...');
+        walletAtSubmit = MiniKit.user?.walletAddress || undefined;
+      } else {
+        console.log('🔗 Connecting to browser wallet...');
+        const connected = await this.connectWallet();
+        signer = connected.signer;
+        walletAtSubmit = connected.address;
+        
+        // First on-chain action of the session often fails in MetaMask / in-app
+        // webviews with a stale "have 0" fee pre-check; warming fee data fixes most cases.
+        await this.warmupInjectedProvider();
+      }
 
       console.log('📝 Preparing contract interaction...');
       console.log('Contract Address:', CONTRACT_ADDRESS);
-      console.log('User Address:', address);
+      console.log('User Address:', walletAtSubmit);
       console.log('Submission Data:', data);
 
-      // Create contract instance with signer
-      const contractWithSigner = this.contract.connect(signer);
-
-      // Sanity check: confirm contract bytecode actually exists on the wallet's network.
-      // If MetaMask is on the wrong chain, the address will have no code and any read
-      // would return "0x" with a confusing BAD_DATA error from ethers.
-      const code = await signer.provider!.getCode(CONTRACT_ADDRESS);
-      if (!code || code === '0x') {
-        throw new Error(
-          `No contract found at ${CONTRACT_ADDRESS} on your wallet's current network. ` +
-            `Make sure MetaMask is on ${NETWORK_NAME} (chain ${EXPECTED_CHAIN_ID}) and REACT_APP_CONTRACT_ADDRESS matches your deployment.`
-        );
-      }
-
-      const balInjected = await this.getWalletNativeBalanceFromInjected(address);
-      const balEthers = await signer.provider!.getBalance(address);
-      // Use the *larger* read: MetaMask and the read RPC can disagree; taking the
-      // minimum falsely showed 0 in some World App / in-app browser cases.
-      const bal = balInjected > balEthers ? balInjected : balEthers;
-      if (bal === BigInt(0)) {
-        throw new Error(
-          `This wallet has 0 ETH for gas on ${NETWORK_NAME} (chain ${EXPECTED_CHAIN_ID}). ` +
-            `Address ${address}. Fund this address on World Chain Sepolia (bridge Sepolia ETH), then retry.`
-        );
-      }
-      await this.assertMetaMaskOnExpectedChain();
-
-      // Check if content already exists
-      const contentExists = await (contractWithSigner as any).contentExists(data.contentHash);
+      // Check if content already exists (can be done with read-only provider)
+      const contentExists = await (this.contract as any).contentExists(data.contentHash);
       if (contentExists) {
         throw new Error('Content with this hash already exists on the blockchain');
       }
 
       // Check if human signature already exists
-      const entryId = await (contractWithSigner as any).getEntryIdBySignatureHash(data.humanSignatureHash);
+      const entryId = await (this.contract as any).getEntryIdBySignatureHash(data.humanSignatureHash);
       if (entryId > 0) {
         throw new Error('This biometric signature has already been used');
       }
 
       console.log('⛓️ Submitting to blockchain...');
-      onProgress?.('⏳ When your wallet opens, approve the World Chain transaction…');
+      onProgress?.('⏳ Generating transaction...');
 
       const typingScaled = Math.floor(data.typingSpeed * 1000);
-      const store = (contractWithSigner as any).getFunction
-        ? (contractWithSigner as any).getFunction('storeContent')
-        : null;
+      let gasOverrides: Record<string, string | bigint> = { gasLimit: BigInt(500_000) };
+      let contractWithSigner: ethers.Contract | undefined;
 
-      // Estimate gas conservatively. Successful storeContent txs on World Chain Sepolia
-      // use ~270k–340k gas. We keep gasLimit small so MetaMask's pre-flight
-      // (balance >= gasLimit * maxFeePerGas) does not falsely reject when fee data
-      // is volatile. If estimateGas fails, use a tight 500k fallback.
-      let gasLimit: bigint;
-      try {
-        if (store) {
-          const est = await store.estimateGas(
+      if (!useMiniKit && signer) {
+        contractWithSigner = this.contract.connect(signer) as ethers.Contract;
+        
+        // Sanity check: confirm contract bytecode actually exists on the wallet's network.
+        const code = await signer.provider!.getCode(CONTRACT_ADDRESS);
+        if (!code || code === '0x') {
+          throw new Error(
+            `No contract found at ${CONTRACT_ADDRESS} on your wallet's current network. ` +
+              `Make sure MetaMask is on ${NETWORK_NAME} (chain ${EXPECTED_CHAIN_ID}) and REACT_APP_CONTRACT_ADDRESS matches your deployment.`
+          );
+        }
+
+        const balInjected = await this.getWalletNativeBalanceFromInjected(walletAtSubmit!);
+        const balEthers = await signer.provider!.getBalance(walletAtSubmit!);
+        const bal = balInjected > balEthers ? balInjected : balEthers;
+        if (bal === BigInt(0)) {
+          throw new Error(
+            `This wallet has 0 ETH for gas on ${NETWORK_NAME} (chain ${EXPECTED_CHAIN_ID}). ` +
+              `Address ${walletAtSubmit}. Fund this address on World Chain Sepolia (bridge Sepolia ETH), then retry.`
+          );
+        }
+        await this.assertMetaMaskOnExpectedChain();
+
+        const store = (contractWithSigner as any).getFunction
+          ? (contractWithSigner as any).getFunction('storeContent')
+          : null;
+
+        let gasLimit: bigint;
+        try {
+          if (store) {
+            const est = await store.estimateGas(
+              data.contentHash,
+              data.humanSignatureHash,
+              data.keystrokeCount,
+              typingScaled
+            );
+            const boosted = (est * BigInt(125)) / BigInt(100);
+            gasLimit = boosted > BigInt(600_000) ? BigInt(600_000) : boosted;
+            if (gasLimit < est) gasLimit = est;
+          } else {
+            gasLimit = BigInt(500_000);
+          }
+        } catch {
+          gasLimit = BigInt(500_000);
+        }
+        
+        gasOverrides = { gasLimit };
+      }
+
+      let tx: any;
+      
+      if (useMiniKit) {
+        // --- 📱 MINIKIT PATH ---
+        onProgress?.('⏳ Please confirm the transaction in World App...');
+        const { finalPayload } = await MiniKit.commandsAsync.sendTransaction({
+          transaction: [{
+            address: CONTRACT_ADDRESS,
+            abi: CONTRACT_ABI as any,
+            functionName: 'storeContent',
+            args: [
+              data.contentHash,
+              data.humanSignatureHash,
+              data.keystrokeCount,
+              typingScaled
+            ]
+          }]
+        });
+
+        if (finalPayload.status === 'error') {
+          // Pass the error out so our recovery mechanism or catch block handles it
+          const errPayload = finalPayload as any;
+          throw new Error(`MiniKit transaction failed: ${errPayload.error_code || 'Unknown error'}`);
+        }
+
+        const successPayload = finalPayload as MiniAppSendTransactionSuccessPayload;
+        submittedTxHash = successPayload.transaction_id;
+        console.log('📋 MiniKit Transaction submitted:', submittedTxHash);
+        
+        onProgress?.('⏳ Transaction sent via World App — waiting for block confirmation…');
+        
+        // We don't have an ethers tx object to wait() on, so we artificially delay
+        // and let the catch-block recovery logic resolve the receipt via public RPC polling.
+        throw new Error('MINIKIT_AWAIT_RECEIPT');
+        
+      } else {
+        // --- 💻 BROWSER WALLET PATH ---
+        try {
+          tx = await (contractWithSigner as any).storeContent(
             data.contentHash,
             data.humanSignatureHash,
             data.keystrokeCount,
-            typingScaled
+            typingScaled,
+            gasOverrides
           );
-          // 1.25x estimate, capped at 600k to keep max-fee math reasonable.
-          const boosted = (est * BigInt(125)) / BigInt(100);
-          gasLimit = boosted > BigInt(600_000) ? BigInt(600_000) : boosted;
-          if (gasLimit < est) gasLimit = est;
-        } else {
-          gasLimit = BigInt(500_000);
+        } catch (sendErr: any) {
+          const possibleHash =
+            sendErr?.transactionHash ||
+            sendErr?.receipt?.hash ||
+            sendErr?.info?.transactionHash ||
+            sendErr?.info?.error?.data?.txHash ||
+            null;
+          if (possibleHash) submittedTxHash = String(possibleHash);
+          throw sendErr;
         }
-      } catch {
-        gasLimit = BigInt(500_000);
+        submittedTxHash = tx.hash;
+        console.log('📋 Transaction submitted:', tx.hash);
+        console.log('⏳ Waiting for confirmation...');
+        onProgress?.('⏳ Transaction sent — waiting for block confirmation…');
+
+        const receipt = await tx.wait();
+        console.log('✅ Transaction confirmed:', receipt);
+
+        return await this.buildSuccessFromReceipt(tx.hash, receipt, walletAtSubmit);
       }
-
-      // IMPORTANT: do NOT override maxFeePerGas / maxPriorityFeePerGas / gasPrice.
-      // The wallet (MetaMask) computes accurate fee suggestions from its own RPC,
-      // including OP-Stack L1 data fees. Forcing values from a public RPC's
-      // getFeeData() can inflate max cost so much that MetaMask's pre-flight
-      // (balance >= gasLimit * maxFeePerGas) reports "have 0 want X" before showing
-      // the confirmation modal — even when the wallet is well funded.
-      const gasOverrides: Record<string, string | bigint> = { gasLimit };
-
-      // One wallet prompt only. Never re-call storeContent: that re-opens MetaMask
-      // in a loop. If the user approved but the client errored, we recover in catch
-      // by polling the public RPC for this contentHash (and tx hash if present).
-      let tx: any;
-      try {
-        tx = await (contractWithSigner as any).storeContent(
-          data.contentHash,
-          data.humanSignatureHash,
-          data.keystrokeCount,
-          typingScaled,
-          gasOverrides
-        );
-      } catch (sendErr: any) {
-        const possibleHash =
-          sendErr?.transactionHash ||
-          sendErr?.receipt?.hash ||
-          sendErr?.info?.transactionHash ||
-          sendErr?.info?.error?.data?.txHash ||
-          null;
-        if (possibleHash) submittedTxHash = String(possibleHash);
-        throw sendErr;
-      }
-      submittedTxHash = tx.hash;
-      console.log('📋 Transaction submitted:', tx.hash);
-      console.log('⏳ Waiting for confirmation...');
-      onProgress?.('⏳ Transaction sent — waiting for block confirmation…');
-
-      const receipt = await tx.wait();
-      console.log('✅ Transaction confirmed:', receipt);
-
-      return await this.buildSuccessFromReceipt(tx.hash, receipt, walletAtSubmit);
       
     } catch (error: any) {
       await new Promise((r) => setTimeout(r, 400));
