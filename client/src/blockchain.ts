@@ -560,8 +560,23 @@ class BlockchainService {
         
         try {
           console.log('[Blockchain] Fetching on-chain nonce for author:', walletAtSubmit);
-          // Get the user's nonce using the Privy-authenticated RPC connection instead of the public node to bypass aggressive CORS/rate-limiting deadlocks
-          const nonce = await (contractWithSigner as any).nonces(walletAtSubmit);
+          // Read nonce via this.contract (REACT_APP_RPC_URL). Privy embedded / Coinbase Smart Wallet
+          // providers often do not support World Chain (4801); routing eth_call through them fails
+          // with CALL_EXCEPTION / missing revert data even though the ledger is fine on public RPC.
+          let nonce: bigint;
+          try {
+            nonce = await (this.contract as any).nonces(walletAtSubmit);
+          } catch (nonceErr: any) {
+            const inner =
+              nonceErr instanceof Error ? nonceErr.message : String(nonceErr ?? '');
+            throw new Error(
+              `Could not read EIP-712 nonce from the ledger at ${CONTRACT_ADDRESS}. ` +
+                `That almost always means REACT_APP_CONTRACT_ADDRESS points at a different contract than ` +
+                `this app’s HumanContentLedger (e.g. an older deploy without a working nonces(address) getter). ` +
+                `Redeploy from blockchain/contracts/HumanContentLedger.sol, update the env address, fund the relayer, then retry. ` +
+                `Underlying RPC error: ${inner}`
+            );
+          }
           console.log('[Blockchain] Nonce fetched successfully:', nonce);
 
           const domain = {
@@ -721,6 +736,25 @@ class BlockchainService {
         'Unknown blockchain error';
       const lower = String(raw).toLowerCase();
       let message = raw;
+
+      // eth_call to nonces(address) reverted (selector 0x7ecebe00). Common cause: REACT_APP_CONTRACT_ADDRESS
+      // points at an older / different bytecode than this app’s HumanContentLedger (on-chain ≠ repo artifact).
+      const revertCallData: string =
+        (typeof (error as any)?.transaction?.data === 'string' && (error as any).transaction.data) ||
+        (typeof (error as any)?.info?.error?.transaction?.data === 'string' &&
+          (error as any).info.error.transaction.data) ||
+        '';
+      if (
+        error?.code === 'CALL_EXCEPTION' &&
+        revertCallData.startsWith('0x7ecebe00') &&
+        !String(raw).includes('Could not read EIP-712 nonce')
+      ) {
+        message =
+          `The ledger at ${CONTRACT_ADDRESS} rejected the EIP-712 nonce read (nonces). ` +
+          `That usually means REACT_APP_CONTRACT_ADDRESS is not the HumanContentLedger from this repo (wrong or stale deploy). ` +
+          `Redeploy from blockchain/contracts/HumanContentLedger.sol, set the new address in env (client + relayer), fund RELAYER_PRIVATE_KEY on chain ${EXPECTED_CHAIN_ID}, redeploy the site, then retry.`;
+      }
+
       const haveWant = this.parseHaveWantFromMetamaskError(error);
       const isInsufficient =
         error?.code === 'INSUFFICIENT_FUNDS' ||
