@@ -3,12 +3,14 @@ Human Inkwell — database (Supabase Postgres only)
 1) Run migrations in order in Supabase Dashboard → SQL (or: supabase db push):
    - supabase/migrations/20260426120000_create_ledger_submissions.sql
    - supabase/migrations/20260427120000_ledger_rls_for_anon_key.sql  (RLS policies for anon key)
+   - supabase/migrations/20260428120000_ledger_public_text.sql  (optional feed text, hash-verified by API)
 
 2) The app does NOT use Supabase Edge Functions. In-repo Vercel API routes in client/api/:
    - GET  /api/debug-supabase  — which env names resolve + test query to ledger_submissions (no secrets)
    - POST /api/ledger-onchain  — insert after on-chain verify (preferred)
    - POST /api/ledger          — insert (wallet-signed, legacy)
    - POST /api/my-ledger       — list for one wallet (wallet-signed)
+   - GET  /api/feed            — public list of is_verified rows (for Feed tab; includes public_text)
 
 3) Vercel → Project → Environment variables:
    REACT_APP_SUPABASE_URL=https://xxxx.supabase.co

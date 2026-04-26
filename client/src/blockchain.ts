@@ -737,7 +737,7 @@ class BlockchainService {
         } else {
           // Likely a stale wallet / UI error after we already waited on-chain; public balance still > 0
           message =
-            "We could not show a final confirmation, but the chain still shows a balance. If you don't see a completed transaction, tap Submit to Blockchain again after a few seconds, or use “Load my ledger” to see if the entry is already there.";
+            "We could not show a final confirmation, but the chain still shows a balance. If you don't see a completed transaction, tap Submit to Blockchain again after a few seconds, or check My content to see if the entry is already there.";
           showExplorer = false;
         }
       } else if (String(raw).toLowerCase().includes('rejected') || String(raw).toLowerCase().includes('denied') || String(raw).toLowerCase().includes('user rejected')) {

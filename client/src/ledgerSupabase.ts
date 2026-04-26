@@ -17,6 +17,7 @@ export async function getInjectedSigner(): Promise<Signer> {
 }
 
 export type LedgerSubmissionRow = {
+  id?: string;
   chain_id: number;
   contract_address: string;
   entry_id: number;
@@ -32,6 +33,8 @@ export type LedgerSubmissionRow = {
   block_timestamp: string | null;
   gas_used: string | null;
   created_at: string;
+  /** Optional; must match on-chain content hash. Shown on public feed. */
+  public_text?: string | null;
 };
 
 const CONTRACT_ADDRESS =
@@ -90,6 +93,8 @@ export async function pushLedgerIndexAfterOnChainSuccess(
     isVerified: boolean;
     worldIdNullifier?: string;
     authorAddress: string;
+    /** If set, stored for the public feed; server checks SHA-256(UTF-8) === contentHash. */
+    publicText?: string;
   }
 ): Promise<void> {
   if (!result.success || !result.transactionHash) return;
@@ -103,7 +108,7 @@ export async function pushLedgerIndexAfterOnChainSuccess(
   const typing_speed_scaled = Math.floor(data.typingSpeed * 1000);
   const author_address = data.authorAddress.toLowerCase();
 
-  const payload = {
+  const payload: Record<string, unknown> = {
     chain_id: CHAIN_ID,
     contract_address: ethers.getAddress(CONTRACT_ADDRESS).toLowerCase(),
     entry_id: result.entryId,
@@ -119,6 +124,9 @@ export async function pushLedgerIndexAfterOnChainSuccess(
     block_timestamp: result.blockTimestampIso ?? null,
     gas_used: result.gasUsed ?? null,
   };
+  if (data.publicText != null && String(data.publicText).trim() !== '') {
+    payload.public_text = data.publicText;
+  }
 
   const res = await fetch(apiPath('/api/ledger-onchain'), {
     method: 'POST',
@@ -238,6 +246,33 @@ export async function fetchMyLedgerRows(signer: Signer): Promise<LedgerSubmissio
     throw new Error(msg || res.statusText);
   }
   const data = (await res.json()) as { ok: boolean; rows?: LedgerSubmissionRow[] };
+  if (!data?.ok || !data.rows) return [];
+  return data.rows;
+}
+
+/**
+ * Public list of World-ID–verified index rows (newest first). GET /api/feed.
+ * Same-origin in production; for local `npm start`, set REACT_APP_API_BASE to your Vercel URL
+ * or run `vercel dev` from `client/`.
+ */
+export async function fetchPublicFeed(limit = 50): Promise<LedgerSubmissionRow[]> {
+  const n = Math.min(100, Math.max(1, limit));
+  const res = await fetch(`${apiPath('/api/feed')}?limit=${n}`, { method: 'GET' });
+  if (!res.ok) {
+    const body = await res.text();
+    let msg = body;
+    try {
+      const j = JSON.parse(body) as { error?: string };
+      if (j?.error) msg = j.error;
+    } catch {
+      /* not json */
+    }
+    throw new Error(msg || res.statusText);
+  }
+  const data = (await res.json()) as { ok?: boolean; rows?: LedgerSubmissionRow[]; error?: string };
+  if (data.error && !data.rows) {
+    throw new Error(data.error);
+  }
   if (!data?.ok || !data.rows) return [];
   return data.rows;
 }

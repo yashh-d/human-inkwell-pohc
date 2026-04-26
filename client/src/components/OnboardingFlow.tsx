@@ -148,10 +148,11 @@ const OnboardingFlow: React.FC<OnboardingFlowProps> = ({ worldIdProps, onComplet
 
           {isLastSlide && (
             <div className="onboarding-slide-panel onboarding-world-wrap">
-              <h2>Connect World ID</h2>
+              <h2>Connect World ID to your writing</h2>
               <p>
-                World ID links proof of personhood to this session, so your attestations and onchain records are tied to
-                one unique human, not a bot or an AI.
+                Human Inkwell is about <strong>content</strong> you type yourself—keystroke timing, hashes, and optional
+                on-chain attestation. World ID ties <strong>proof of personhood</strong> to that work: your writing
+                session is linked to one real human, so it isn’t interchangeable with a bot or anonymous AI output.
               </p>
               <WorldIDWidget {...worldIdProps} layout="onboarding" />
             </div>

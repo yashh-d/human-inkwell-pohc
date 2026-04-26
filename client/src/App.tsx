@@ -6,7 +6,8 @@ import { useWorldID } from './hooks/useWorldID';
 import { useMiniKit } from './hooks/useMiniKit';
 import AppLayout from './layouts/AppLayout';
 import HomePage from './pages/HomePage';
-import PrivateLedgerDemoPage from './pages/PrivateLedgerDemoPage';
+import MyContentPage from './pages/MyContentPage';
+import FeedPage from './pages/FeedPage';
 import WorkflowPage from './pages/WorkflowPage';
 
 function App() {
@@ -23,6 +24,7 @@ function App() {
     handleVerify,
     handleError,
     verifyViaMiniKit,
+    resetVerification,
   } = useWorldID();
 
   if (onboardingOpen) {
@@ -50,9 +52,26 @@ function App() {
       <div className="App">
         <Routes>
           <Route element={<AppLayout />}>
-            <Route path="/" element={<HomePage isInWorldApp={isInWorldApp} onVerifyMiniKit={verifyViaMiniKit} />} />
+            <Route
+              path="/"
+              element={
+                <HomePage
+                  isInWorldApp={isInWorldApp}
+                  onVerifyMiniKit={verifyViaMiniKit}
+                  isVerified={isVerified}
+                  worldIdProof={worldIdProof}
+                  worldIdError={worldIdError}
+                  worldIdLoading={worldIdLoading}
+                  onWorldIdVerify={handleVerify}
+                  onWorldIdError={handleError}
+                  onWorldIdReset={resetVerification}
+                />
+              }
+            />
             <Route path="/workflow" element={<WorkflowPage />} />
-            <Route path="/ledger" element={<PrivateLedgerDemoPage />} />
+            <Route path="/feed" element={<FeedPage />} />
+            <Route path="/my-content" element={<MyContentPage />} />
+            <Route path="/ledger" element={<Navigate to="/my-content" replace />} />
             <Route path="*" element={<Navigate to="/" replace />} />
           </Route>
         </Routes>

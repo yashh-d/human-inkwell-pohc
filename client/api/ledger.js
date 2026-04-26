@@ -6,6 +6,7 @@
 const { createClient } = require('@supabase/supabase-js');
 const { verifyMessage, getAddress, JsonRpcProvider, Contract } = require('ethers');
 const { getSupabaseCreds } = require('./_supabaseEnv');
+const { parsePublicText } = require('./_contentHash');
 
 const LEDGER_READ_ABI = [
   'function getContentEntry(uint256 _entryId) view returns (tuple(string contentHash, string humanSignatureHash, string worldIdNullifier, address author, uint256 timestamp, uint256 keystrokeCount, uint256 typingSpeed, bool isVerified))',
@@ -85,6 +86,7 @@ async function buildRowFromChainVerification(body) {
     block_number,
     block_timestamp,
     gas_used,
+    public_text,
   } = body;
 
   if (
@@ -204,6 +206,21 @@ async function buildRowFromChainVerification(body) {
         ? receipt.gasUsed.toString()
         : null;
 
+  let publicTextForRow = null;
+  if (public_text != null && String(public_text).trim() !== '') {
+    const pt = parsePublicText(
+      public_text,
+      String(ch)
+        .trim()
+        .toLowerCase()
+        .replace(/^0x/, '')
+    );
+    if (pt.error) {
+      return { code: 400, error: pt.error };
+    }
+    publicTextForRow = pt.public_text;
+  }
+
   const row = {
     chain_id: Number(chain_id),
     contract_address: caddr.toLowerCase(),
@@ -219,6 +236,7 @@ async function buildRowFromChainVerification(body) {
     block_number: Number.isFinite(bn) ? bn : null,
     block_timestamp: block_timestamp || null,
     gas_used: gu,
+    public_text: publicTextForRow,
   };
   return { row };
 }
@@ -279,6 +297,7 @@ module.exports = async (req, res) => {
     block_number,
     block_timestamp,
     gas_used,
+    public_text,
   } = body;
 
   if (
@@ -326,6 +345,21 @@ module.exports = async (req, res) => {
     return send(res, 500, { error: supaErr });
   }
 
+  let publicTextForSign = null;
+  if (public_text != null && String(public_text).trim() !== '') {
+    const pt = parsePublicText(
+      public_text,
+      String(content_hash)
+        .trim()
+        .toLowerCase()
+        .replace(/^0x/, '')
+    );
+    if (pt.error) {
+      return send(res, 400, { error: pt.error });
+    }
+    publicTextForSign = pt.public_text;
+  }
+
   const supabase = createClient(supabaseUrl, supabaseKey, { auth: { persistSession: false } });
   const row = {
     chain_id: Number(chain_id),
@@ -342,6 +376,7 @@ module.exports = async (req, res) => {
     block_number: block_number != null ? Number(block_number) : null,
     block_timestamp: block_timestamp || null,
     gas_used: gas_used || null,
+    public_text: publicTextForSign,
   };
 
   const ins = await insertRow(supabase, row);

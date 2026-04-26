@@ -6,6 +6,7 @@
 const { createClient } = require('@supabase/supabase-js');
 const { JsonRpcProvider, Contract, getAddress } = require('ethers');
 const { getSupabaseCreds } = require('./_supabaseEnv');
+const { parsePublicText } = require('./_contentHash');
 const humanContentArtifact = require('../src/HumanContentLedger.json');
 
 const ABI = humanContentArtifact.abi;
@@ -96,6 +97,7 @@ module.exports = async (req, res) => {
     block_number,
     block_timestamp,
     gas_used,
+    public_text,
   } = body;
 
   if (
@@ -227,6 +229,16 @@ module.exports = async (req, res) => {
     return send(res, 401, { error: 'transaction from does not match author' });
   }
 
+  const chNorm = String(content_hash).trim().toLowerCase().replace(/^0x/, '');
+  let publicTextForRow = null;
+  if (public_text != null && String(public_text).trim() !== '') {
+    const pt = parsePublicText(public_text, chNorm);
+    if (pt.error) {
+      return send(res, 400, { error: pt.error });
+    }
+    publicTextForRow = pt.public_text;
+  }
+
   const supabase = createClient(supabaseUrl, supabaseKey, { auth: { persistSession: false } });
   const row = {
     chain_id: Number(chain_id),
@@ -248,6 +260,7 @@ module.exports = async (req, res) => {
         : receipt.gasUsed != null
           ? String(receipt.gasUsed)
           : null,
+    public_text: publicTextForRow,
   };
 
   const { error } = await supabase.from('ledger_submissions').insert(row);

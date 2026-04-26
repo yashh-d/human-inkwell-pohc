@@ -33,11 +33,12 @@ const WorkflowPage: React.FC = () => {
               1
             </div>
             <div className="hi-workflow-page__step-body">
-              <h3 className="hi-workflow-page__step-title">World ID: verify proof of personhood</h3>
+              <h3 className="hi-workflow-page__step-title">World ID: verify the human behind your writing</h3>
               <p>
-                Use the World ID widget to prove you are a real, unique person—without giving this app your name, email, or
-                other identity details in the clear. The proof is cryptographic; your wallet session may reference a
-                nullifier that prevents double-counting similar attestations, depending on the integration.
+                Use the World ID widget to prove you are a real, unique person—tied to the <strong>content</strong> you
+                will author in the next steps. The proof is cryptographic; it lets your on-chain and session attestations
+                refer to a human author of this <strong>writing</strong>, not a bot, without giving this app your name or
+                email in the clear.
               </p>
             </div>
           </li>
@@ -93,8 +94,9 @@ const WorkflowPage: React.FC = () => {
               <p>
                 Once included in a block, the attestation is <strong>immutable</strong> in the sense usual for onchain
                 data: the ledger entry does not &ldquo;update&rdquo; to replace your hashes with your original text. The
-                plaintext of what you wrote remains offchain unless you share it yourself. Demo UIs (like the private
-                ledger table) may show a short <strong>preview in your session</strong> only; production systems typically
+                plaintext of what you wrote remains offchain unless you share it yourself. Demo UIs (like the {' '}
+                <strong>My content</strong> page) may show a short <strong>preview in your session</strong> only; production
+                systems typically
                 index only hashes, transaction pointers, and metadata you explicitly define.
               </p>
             </div>

@@ -1,11 +1,12 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { Link } from 'react-router-dom';
+import { ISuccessResult, IErrorState } from '@worldcoin/idkit';
 import { useKeystrokeCapture } from '../hooks/useKeystrokeCapture';
 import { useBiometricProcessor } from '../hooks/useBiometricProcessor';
 import { hashContent } from '../utils/crypto';
-import { useWorldID } from '../hooks/useWorldID';
 import WorldIDWidget from '../components/WorldIDWidget';
 import { blockchainService } from '../blockchain';
+import { pushLedgerIndexAfterOnChainSuccess } from '../ledgerSupabase';
 
 // Define interfaces for detailed biometric data
 interface BiometricFeatures {
@@ -71,12 +72,29 @@ function BiometricTimingRows({ s }: { s: FeatureStatistics }) {
   );
 }
 
-interface HomePageProps {
+export interface HomePageProps {
   isInWorldApp?: boolean;
   onVerifyMiniKit?: () => Promise<void>;
+  isVerified: boolean;
+  worldIdProof: ISuccessResult | null;
+  worldIdError: IErrorState | null;
+  worldIdLoading: boolean;
+  onWorldIdVerify: (proof: ISuccessResult) => Promise<void>;
+  onWorldIdError: (error: IErrorState) => void;
+  onWorldIdReset: () => void;
 }
 
-function HomePage({ isInWorldApp = false, onVerifyMiniKit }: HomePageProps) {
+function HomePage({
+  isInWorldApp = false,
+  onVerifyMiniKit,
+  isVerified,
+  worldIdProof,
+  worldIdError,
+  worldIdLoading,
+  onWorldIdVerify,
+  onWorldIdError,
+  onWorldIdReset,
+}: HomePageProps) {
   const [content, setContent] = useState<string>('');
   const [humanSignatureHash, setHumanSignatureHash] = useState<string>('');
   const [contentHash, setContentHash] = useState<string>('');
@@ -99,20 +117,12 @@ function HomePage({ isInWorldApp = false, onVerifyMiniKit }: HomePageProps) {
     explorerAddressUrl?: string;
     statusNote?: string;
   } | null>(null);
+  /** When true, send the typed text to the public feed API (server verifies it matches the on-chain content hash). */
+  const [publishTextToFeed, setPublishTextToFeed] = useState(true);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   
   const { startCapture, stopCapture, getRawKeystrokeData, getTabAwayCount, resetCapture, isCapturing } = useKeystrokeCapture();
   const { generateHumanSignatureHash } = useBiometricProcessor();
-  const { 
-    isVerified, 
-    worldIdProof, 
-    error: worldIdError, 
-    isLoading: worldIdLoading, 
-    handleVerify, 
-    handleError, 
-    resetVerification 
-  } = useWorldID();
-
   // Function to calculate statistics
   const calculateStatistics = (values: number[]): FeatureStatistics => {
     if (values.length === 0) {
@@ -388,6 +398,23 @@ function HomePage({ isInWorldApp = false, onVerifyMiniKit }: HomePageProps) {
         });
         setProcessingStatus('✅ Submitted to Human Content Ledger.');
         console.log('🎉 Blockchain submission successful!', result);
+
+        if (result.entryId != null && result.walletAddress) {
+          try {
+            await pushLedgerIndexAfterOnChainSuccess(result, {
+              contentHash,
+              humanSignatureHash,
+              keystrokeCount: biometricData.totalKeystrokes,
+              typingSpeed: biometricData.rawFeatures.typingSpeed,
+              isVerified,
+              worldIdNullifier: worldIdProof?.nullifier_hash,
+              authorAddress: result.walletAddress,
+              publicText: publishTextToFeed ? content : undefined,
+            });
+          } catch (e) {
+            console.warn('Off-chain feed index (Supabase) failed:', e);
+          }
+        }
       } else {
         setProcessingStatus(
           result.quietUi
@@ -422,19 +449,44 @@ function HomePage({ isInWorldApp = false, onVerifyMiniKit }: HomePageProps) {
     setBlockchainErrorHelp(null);
     setBlockchainSuccess(null);
     resetCapture();
-    resetVerification();
+    onWorldIdReset();
   };
 
   return (
     <>
+        <div className="hi-page-tldr">
+          <h2 className="hi-page-tldr__title">On this page</h2>
+          <p className="hi-page-tldr__steps">
+            <span className="hi-page-tldr__step">
+              <strong>1</strong> World ID above
+            </span>
+            <span className="hi-page-tldr__sep" aria-hidden>
+              →
+            </span>
+            <span className="hi-page-tldr__step">
+              <strong>2</strong> Write, then local hashes
+            </span>
+            <span className="hi-page-tldr__sep" aria-hidden>
+              →
+            </span>
+            <span className="hi-page-tldr__step">
+              <strong>3</strong> Submit on chain
+            </span>
+          </p>
+          <p className="hi-page-tldr__privacy">
+            Plaintext and raw timing stay in your browser; only hashes and attestation hit the network.{' '}
+            <Link to="/workflow">How it works</Link>
+          </p>
+        </div>
+
         <div className="hi-block">
           <WorldIDWidget
             isVerified={isVerified}
             worldIdProof={worldIdProof}
             error={worldIdError}
             isLoading={worldIdLoading}
-            onVerify={handleVerify}
-            onError={handleError}
+            onVerify={onWorldIdVerify}
+            onError={onWorldIdError}
             onVerifyMiniKit={onVerifyMiniKit}
             isInWorldApp={isInWorldApp}
           />
@@ -443,9 +495,8 @@ function HomePage({ isInWorldApp = false, onVerifyMiniKit }: HomePageProps) {
         <div className="hi-section">
           <h2>Write your content</h2>
           <p>
-            Your authorship is captured through behavioral biometrics including keystroke dynamics, hold times, flight
-            intervals, and digraph latencies. All signals are processed locally in your browser and never transmitted to
-            a server.
+            Type below: we use hold, flight, and digraph timing from your session to build a compact signature—processed
+            locally, not on our servers.
           </p>
           {!isCapturing ? (
             <div className="hi-session-gate">
@@ -457,17 +508,20 @@ function HomePage({ isInWorldApp = false, onVerifyMiniKit }: HomePageProps) {
               >
                 Start your creative session
               </button>
-              <div className="hi-session-gate__hint" role="note">
-                Keystroke timing is recorded only after you begin.
-                <br />
-                You can start a new session anytime.
+              <p className="hi-session-gate__lede">
+                Nothing is recorded until you start. Your words and how you type them are captured only after you begin.
+              </p>
+              <div className="hi-cyan-glow-box" role="note">
+                <strong>What we capture:</strong> the text you write plus typing timing—hold, flight, and
+                down–down intervals. Processed in your browser; not logged to our servers.
               </div>
+              <p className="hi-session-gate__foot">You can end and start a new session whenever you like.</p>
             </div>
           ) : (
             <div className="hi-capture-status hi-capture-status--active" role="status">
               <div className="hi-capture-status__row">
-                <span>
-                  <strong>Status:</strong> Capturing keystrokes
+                <span className="hi-capture-status__label">
+                  <strong>Status:</strong> Capturing your writing
                 </span>
                 <button
                   type="button"
@@ -477,6 +531,9 @@ function HomePage({ isInWorldApp = false, onVerifyMiniKit }: HomePageProps) {
                 >
                   New session
                 </button>
+              </div>
+              <div className="hi-cyan-glow-box hi-cyan-glow-box--tight" aria-label="What is being recorded">
+                Text + typing timing
               </div>
             </div>
           )}
@@ -548,6 +605,18 @@ function HomePage({ isInWorldApp = false, onVerifyMiniKit }: HomePageProps) {
             }
           />
         </div>
+
+        <label className="hi-feed-publish">
+          <input
+            type="checkbox"
+            checked={publishTextToFeed}
+            onChange={(e) => setPublishTextToFeed(e.target.checked)}
+          />
+          <span>
+            Post my text on the <Link to="/feed">public feed</Link> (server checks it matches your on-chain hash; max 20k
+            characters).
+          </span>
+        </label>
         
         <div className="hi-btn-row">
           {isCapturing && <span className="hi-capture-pill">Capturing…</span>}
@@ -747,37 +816,6 @@ function HomePage({ isInWorldApp = false, onVerifyMiniKit }: HomePageProps) {
             <p className="hi-content-hash-note">SHA-256 of your UTF-8 text (what the chain stores as a hash, not the text)</p>
           </div>
         )}
-        
-        <div className="hi-workflow">
-          <h3>Workflow</h3>
-          <ol>
-            <li>
-              <strong>World ID:</strong> verify proof of personhood in the widget above
-            </li>
-            <li>
-              <strong>Capture:</strong> type in the field so your keystroke timing can be recorded
-            </li>
-            <li>
-              <strong>Hash locally:</strong> your human signature and content hashes are computed in your browser
-            </li>
-            <li>
-              <strong>Submit onchain:</strong> send a transaction to the Human Content Ledger with your wallet
-            </li>
-            <li>
-              <strong>Permanence:</strong> the ledger stores your attestation and hashes onchain, never your plaintext
-            </li>
-          </ol>
-          <h4>Privacy and security</h4>
-          <ul>
-            <li>World ID proves you&rsquo;re human without sharing your identity in plain text</li>
-            <li>Biometric feature vectors and hashes are processed locally before you submit</li>
-            <li>Only hashes go onchain in this app, never the content itself</li>
-            <li>See the contract for exact fields stored</li>
-          </ul>
-          <p className="hi-workflow__more">
-            <Link to="/workflow">How it works — full guide and privacy details</Link>
-          </p>
-        </div>
     </>
   );
 }

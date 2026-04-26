@@ -87,7 +87,7 @@ module.exports = async (req, res) => {
   const { data, error } = await supabase
     .from('ledger_submissions')
     .select(
-      'chain_id, contract_address, entry_id, author_address, transaction_hash, content_hash, human_signature_hash, world_id_nullifier, is_verified, keystroke_count, typing_speed_scaled, block_number, block_timestamp, gas_used, created_at'
+      'id, chain_id, contract_address, entry_id, author_address, transaction_hash, content_hash, human_signature_hash, world_id_nullifier, is_verified, keystroke_count, typing_speed_scaled, block_number, block_timestamp, gas_used, created_at, public_text'
     )
     .eq('author_address', addr)
     .order('created_at', { ascending: false })

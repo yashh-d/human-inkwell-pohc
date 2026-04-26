@@ -42,14 +42,38 @@ const WorldIDWidget: React.FC<WorldIDWidgetProps> = ({
   const origin = typeof window !== 'undefined' ? window.location.origin : '(server)';
 
   return (
-    <div className={isOnboarding ? 'world-id-section world-id-section--onboarding' : 'world-id-section'}>
-      {/* ─── Environment indicator ─── */}
-      <div className="world-id-env-badge" role="status">
-        <span className={`env-dot ${isInWorldApp ? 'env-dot--worldapp' : 'env-dot--browser'}`} />
-        <span className="env-label">
-          {isInWorldApp ? 'World App' : 'Browser'}
-        </span>
-      </div>
+    <div
+      className={[
+        isOnboarding ? 'world-id-section world-id-section--onboarding' : 'world-id-section',
+        isInWorldApp && isVerified ? 'world-id-section--worldapp-verified' : '',
+      ]
+        .filter(Boolean)
+        .join(' ')}
+    >
+      {/* ─── Environment indicator (replaced by verified chip in World App after success) ─── */}
+      {!(isInWorldApp && isVerified) && (
+        <div className="world-id-env-badge" role="status">
+          <span className={`env-dot ${isInWorldApp ? 'env-dot--worldapp' : 'env-dot--browser'}`} />
+          <span className="env-label">{isInWorldApp ? 'World App' : 'Browser'}</span>
+        </div>
+      )}
+      {isInWorldApp && isVerified && (
+        <div className="world-id-verified-banner" role="status" aria-live="polite">
+          <span className="world-id-verified-banner__icon" aria-hidden>
+            <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" strokeWidth="2.2">
+              <path d="M7 12.5l3 3L17 8" strokeLinecap="round" strokeLinejoin="round" />
+              <circle cx="12" cy="12" r="9" opacity="0.35" />
+            </svg>
+          </span>
+          <div className="world-id-verified-banner__text">
+            <span className="world-id-verified-banner__title">World ID — verified</span>
+            <span className="world-id-verified-banner__sub">
+              You’re verified as human for this session—your writing can be tied to a real person, not a bot or generic AI
+              output.
+            </span>
+          </div>
+        </div>
+      )}
 
       {isPlaceholderAppId && !isInWorldApp && (
         <div role="alert" className="hi-config-alert">
@@ -67,36 +91,51 @@ const WorldIDWidget: React.FC<WorldIDWidgetProps> = ({
         <div className="section-header">
           <h3 className="world-id-h3">
             <WorldMarkIcon size="md" />
-            <span>World ID Human Verification</span>
+            <span>World ID & your content</span>
           </h3>
         </div>
       )}
 
-      {/* ─── Verified state (same for both paths) ─── */}
+      {/* ─── Verified state — compact banner above + optional proof details (World App / mobile) ─── */}
       {isVerified && (
         <div className="world-id-status">
           <div className="status-verified">
-            <div className="status-badge success">Verified ✓</div>
-            <div className="world-id-details">
-              <div className="detail-item">
-                <span className="label">Verification Level:</span>
-                <span className="value">{worldIdProof?.verification_level}</span>
-              </div>
-              <div className="detail-item">
-                <span className="label">Nullifier Hash:</span>
-                <span className="value hash">{worldIdProof?.nullifier_hash}</span>
-              </div>
-              <div className="detail-item">
-                <span className="label">Merkle Root:</span>
-                <span className="value hash">{worldIdProof?.merkle_root}</span>
-              </div>
-              {isInWorldApp && (
-                <div className="detail-item">
-                  <span className="label">Verified via:</span>
-                  <span className="value">World App (native)</span>
+            {!(isInWorldApp && isVerified) && <div className="status-badge success">Verified ✓</div>}
+
+            {isInWorldApp ? (
+              <details className="world-id-proof-collapse">
+                <summary>Verification data</summary>
+                <div className="world-id-details world-id-details--in-banner">
+                  <div className="detail-item">
+                    <span className="label">Level</span>
+                    <span className="value">{worldIdProof?.verification_level}</span>
+                  </div>
+                  <div className="detail-item">
+                    <span className="label">Nullifier</span>
+                    <span className="value hash world-id-details__hash--wrap">{worldIdProof?.nullifier_hash}</span>
+                  </div>
+                  <div className="detail-item">
+                    <span className="label">Merkle root</span>
+                    <span className="value hash world-id-details__hash--wrap">{worldIdProof?.merkle_root}</span>
+                  </div>
                 </div>
-              )}
-            </div>
+              </details>
+            ) : (
+              <div className="world-id-details">
+                <div className="detail-item">
+                  <span className="label">Verification Level:</span>
+                  <span className="value">{worldIdProof?.verification_level}</span>
+                </div>
+                <div className="detail-item">
+                  <span className="label">Nullifier Hash:</span>
+                  <span className="value hash">{worldIdProof?.nullifier_hash}</span>
+                </div>
+                <div className="detail-item">
+                  <span className="label">Merkle Root:</span>
+                  <span className="value hash">{worldIdProof?.merkle_root}</span>
+                </div>
+              </div>
+            )}
           </div>
         </div>
       )}
@@ -111,8 +150,9 @@ const WorldIDWidget: React.FC<WorldIDWidgetProps> = ({
 
       {!isVerified && !isOnboarding && (
         <p className="world-id-why">
-          World ID links proof of personhood to this session, so your attestations and onchain records are tied to one
-          unique human, not a bot or an AI.
+          <strong>Writing + proof of personhood:</strong> World ID connects a verified human to the <em>content</em> you
+          compose here. The text is hashed; your on-chain attestation and records can show this work came from a real
+          person, not a bot or faceless LLM—so your session’s writing and your identity line up.
         </p>
       )}
 

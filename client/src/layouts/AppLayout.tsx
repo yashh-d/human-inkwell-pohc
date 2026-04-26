@@ -3,13 +3,16 @@ import { Outlet, useLocation } from 'react-router-dom';
 import BrandHeader from '../components/BrandHeader';
 import PoweredByWorld from '../components/PoweredByWorld';
 
-const LEDGER_PATH = '/ledger';
+const MY_CONTENT_PATH = '/my-content';
 const WORKFLOW_PATH = '/workflow';
+const FEED_PATH = '/feed';
 
 const SUBTITLE: Record<string, string> = {
   '/': 'Onchain proof that a verified human wrote this content, with biometric typing signatures and World ID attestation on World Chain.',
-  [LEDGER_PATH]:
-    'Example of a wallet-bound index: a link to the onchain transaction, your content and signature hashes, and a short content preview (session-only; in production, only hashes and the tx are stored).',
+  [FEED_PATH]:
+    'Demo feed: a channel-style header plus a mixed timeline (professional, academic, personal). Real posts ship from Home to chain.',
+  [MY_CONTENT_PATH]:
+    'Your attested writing in one place—X-style posts, LinkedIn, blogs, articles, and more. Demo index: format, preview, hashes, and on-chain link.',
   [WORKFLOW_PATH]:
     'End-to-end: World ID, local keystroke capture, hashing, and onchain attestation—plus what stays offchain and out of the contract as plaintext.',
 };

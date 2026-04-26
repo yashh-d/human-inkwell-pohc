@@ -13,34 +13,10 @@ interface MiniKitUser {
 interface UseMiniKitReturn {
   /** True when the app is running inside the World App webview */
   isInWorldApp: boolean;
-  /** User info from World App (only available inside World App) */
+  /** User info from MiniKit state (only available inside World App) */
   miniKitUser: MiniKitUser | null;
   /** Whether MiniKit.install() has been attempted */
   isReady: boolean;
-}
-
-/**
- * Safely read user data from window.WorldApp (v1.x API).
- * MiniKit v1.x does NOT have MiniKit.user — the data is on the raw
- * window.WorldApp object that the World App webview injects.
- */
-function readWorldAppUser(): MiniKitUser | null {
-  try {
-    const wa = (window as any).WorldApp;
-    if (!wa) return null;
-    return {
-      walletAddress: wa.wallet_address ?? undefined,
-      verificationStatus: wa.verification_status
-        ? {
-            isOrbVerified: Boolean(wa.verification_status.is_orb_verified),
-            isDocumentVerified: Boolean(wa.verification_status.is_document_verified),
-            isSecureDocumentVerified: Boolean(wa.verification_status.is_secure_document_verified),
-          }
-        : undefined,
-    };
-  } catch {
-    return null;
-  }
 }
 
 /**
@@ -57,18 +33,28 @@ export function useMiniKit(): UseMiniKitReturn {
 
   useEffect(() => {
     try {
-      // MiniKit.install() reads window.WorldApp and sets window.MiniKit
-      const result = MiniKit.install();
-      console.log('[MiniKit] install() result:', result);
+      // MiniKit.install() initialises the SDK and reads window.WorldApp
+      MiniKit.install();
 
       const installed = MiniKit.isInstalled();
       setIsInWorldApp(installed);
 
       if (installed) {
-        // v1.x: user data is on window.WorldApp, NOT MiniKit.user
-        const user = readWorldAppUser();
-        setMiniKitUser(user);
-        console.log('[MiniKit] Running inside World App, user:', user);
+        // Read user state populated by MiniKit at init
+        const user = (MiniKit as any).user;
+        if (user) {
+          setMiniKitUser({
+            walletAddress: user.walletAddress,
+            verificationStatus: user.verificationStatus
+              ? {
+                  isOrbVerified: user.verificationStatus.isOrbVerified ?? false,
+                  isDocumentVerified: user.verificationStatus.isDocumentVerified ?? false,
+                  isSecureDocumentVerified: user.verificationStatus.isSecureDocumentVerified ?? false,
+                }
+              : undefined,
+          });
+        }
+        console.log('[MiniKit] Running inside World App');
       } else {
         console.log('[MiniKit] Running in standard browser');
       }

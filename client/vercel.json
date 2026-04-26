@@ -1,5 +1,6 @@
 {
   "installCommand": "npm install",
   "buildCommand": "CI= npm run build",
-  "outputDirectory": "build"
+  "outputDirectory": "build",
+  "rewrites": [{ "source": "/(.*)", "destination": "/index.html" }]
 }
