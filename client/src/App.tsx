@@ -6,6 +6,13 @@ import { hashContent } from './utils/crypto';
 import { useWorldID } from './hooks/useWorldID';
 import WorldIDWidget from './components/WorldIDWidget';
 import { blockchainService } from './blockchain';
+import {
+  getInjectedSigner,
+  syncLedgerToSupabase,
+  fetchMyLedgerRows,
+  explorerTxUrl,
+  type LedgerSubmissionRow,
+} from './ledgerSupabase';
 
 // Define interfaces for detailed biometric data
 interface BiometricFeatures {
@@ -63,6 +70,10 @@ function App() {
     explorerAddressUrl?: string;
     statusNote?: string;
   } | null>(null);
+  const [myLedgerRows, setMyLedgerRows] = useState<LedgerSubmissionRow[] | null>(null);
+  const [myLedgerError, setMyLedgerError] = useState<string | null>(null);
+  const [isLoadingMyLedger, setIsLoadingMyLedger] = useState(false);
+  const [ledgerSyncNote, setLedgerSyncNote] = useState<string | null>(null);
 
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   
@@ -367,6 +378,26 @@ function App() {
           statusNote: result.statusNote,
         });
         setProcessingStatus('✅ Submitted to Human Content Ledger.');
+        setLedgerSyncNote(null);
+        try {
+          if (result.entryId != null) {
+            const signer = await getInjectedSigner();
+            await syncLedgerToSupabase(signer, result, {
+              contentHash,
+              humanSignatureHash,
+              keystrokeCount: biometricData.totalKeystrokes,
+              typingSpeed: biometricData.rawFeatures.typingSpeed,
+              isVerified: isVerified,
+              worldIdNullifier: worldIdProof?.nullifier_hash,
+            });
+            setLedgerSyncNote('Saved to your private ledger log (Supabase).');
+          }
+        } catch (e) {
+          console.warn('Supabase sync skipped or failed', e);
+          if (process.env.REACT_APP_SUPABASE_URL) {
+            setLedgerSyncNote('On-chain success; cloud ledger sync failed (check function deploy and env).');
+          }
+        }
         console.log('🎉 Blockchain submission successful!', result);
       } else {
         setProcessingStatus(`❌ Blockchain submission failed: ${result.error || 'Unknown blockchain error'}`);
@@ -384,6 +415,21 @@ function App() {
     }
   };
 
+  const handleLoadMyLedger = async () => {
+    setMyLedgerError(null);
+    setIsLoadingMyLedger(true);
+    setMyLedgerRows(null);
+    try {
+      const signer = await getInjectedSigner();
+      const rows = await fetchMyLedgerRows(signer);
+      setMyLedgerRows(rows);
+    } catch (e) {
+      setMyLedgerError(e instanceof Error ? e.message : 'Failed to load ledger');
+    } finally {
+      setIsLoadingMyLedger(false);
+    }
+  };
+
   const handleResetAll = () => {
     setContent('');
     setHumanSignatureHash('');
@@ -392,6 +438,9 @@ function App() {
     setProcessingStatus('');
     setBlockchainErrorHelp(null);
     setBlockchainSuccess(null);
+    setMyLedgerRows(null);
+    setMyLedgerError(null);
+    setLedgerSyncNote(null);
     resetCapture();
     resetVerification();
   };
@@ -702,8 +751,92 @@ function App() {
                 </a>
               </div>
             )}
+            {ledgerSyncNote && (
+              <p style={{ marginTop: 10, marginBottom: 0, fontSize: 13, color: '#0a4d2e' }}>{ledgerSyncNote}</p>
+            )}
           </div>
         )}
+
+        <div
+          style={{
+            marginBottom: 24,
+            padding: 16,
+            backgroundColor: '#f0f4ff',
+            border: '1px solid #c3d4ff',
+            borderRadius: 6,
+          }}
+        >
+          <h3 style={{ marginTop: 0 }}>My on-chain log (Supabase)</h3>
+          <p style={{ fontSize: 14, color: '#333', lineHeight: 1.4 }}>
+            Only you can load this: your wallet must sign a short “list my submissions” message. Rows show content
+            and signature <strong>hashes</strong> and the transaction link — not raw text (same privacy model as the
+            contract). Configure <code>REACT_APP_SUPABASE_URL</code> and <code>REACT_APP_SUPABASE_ANON_KEY</code> and
+            deploy Edge Functions <code>add-ledger-submission</code> and <code>get-my-ledger</code>.
+          </p>
+          <button
+            type="button"
+            onClick={handleLoadMyLedger}
+            disabled={isLoadingMyLedger}
+            style={{
+              padding: '10px 16px',
+              backgroundColor: isLoadingMyLedger ? '#6c757d' : '#0d6efd',
+              color: '#fff',
+              border: 'none',
+              borderRadius: 4,
+              cursor: isLoadingMyLedger ? 'not-allowed' : 'pointer',
+              marginRight: 8,
+            }}
+          >
+            {isLoadingMyLedger ? 'Loading…' : 'Load my submissions'}
+          </button>
+          {myLedgerError && (
+            <p style={{ color: '#b02a37', fontSize: 14, marginTop: 8 }}>{myLedgerError}</p>
+          )}
+          {myLedgerRows && myLedgerRows.length === 0 && !myLedgerError && (
+            <p style={{ fontSize: 14, marginTop: 8, color: '#666' }}>No rows in your ledger yet (submit on-chain with Supabase env set).</p>
+          )}
+          {myLedgerRows && myLedgerRows.length > 0 && (
+            <div style={{ overflowX: 'auto', marginTop: 12 }}>
+              <table
+                style={{
+                  width: '100%',
+                  borderCollapse: 'collapse',
+                  fontSize: 12,
+                  background: '#fff',
+                }}
+              >
+                <thead>
+                  <tr style={{ borderBottom: '1px solid #ccc', textAlign: 'left' }}>
+                    <th style={{ padding: 6 }}>Entry</th>
+                    <th style={{ padding: 6 }}>Content hash (trunc.)</th>
+                    <th style={{ padding: 6 }}>Tx (explorer)</th>
+                    <th style={{ padding: 6 }}>World ID</th>
+                    <th style={{ padding: 6 }}>When (indexed)</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {myLedgerRows.map((r) => (
+                    <tr key={`${r.chain_id}-${r.entry_id}-${r.transaction_hash}`} style={{ borderBottom: '1px solid #eee' }}>
+                      <td style={{ padding: 6 }}>#{r.entry_id}</td>
+                      <td style={{ padding: 6, fontFamily: 'monospace' }}>
+                        {r.content_hash.slice(0, 10)}…{r.content_hash.slice(-6)}
+                      </td>
+                      <td style={{ padding: 6 }}>
+                        <a href={explorerTxUrl(r.transaction_hash)} target="_blank" rel="noopener noreferrer" style={{ color: '#0d6efd' }}>
+                          View
+                        </a>
+                      </td>
+                      <td style={{ padding: 6 }}>{r.is_verified ? 'Yes' : '—'}</td>
+                      <td style={{ padding: 6, whiteSpace: 'nowrap' }}>
+                        {r.created_at ? new Date(r.created_at).toLocaleString() : '—'}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
         
         {/* 🎯 DETAILED BIOMETRIC DATA DISPLAY */}
         {biometricData && (

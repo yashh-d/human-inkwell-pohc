@@ -26,6 +26,9 @@ export interface BlockchainResponse {
   entryId?: number;
   error?: string;
   gasUsed?: string;
+  blockNumber?: number;
+  /** From mined block, ISO string, when a receipt was available. */
+  blockTimestampIso?: string;
   /** Block explorer URL for the *transaction* (set on success). */
   explorerTxUrl?: string;
   /** Block explorer URL for the *contract* (set on success). */
@@ -256,18 +259,32 @@ class BlockchainService {
     return undefined;
   }
 
-  private buildSuccessFromReceipt(
+  private async buildSuccessFromReceipt(
     txHash: string,
     receipt: TransactionReceipt,
     walletAtSubmit: string | undefined
-  ): BlockchainResponse {
+  ): Promise<BlockchainResponse> {
     const baseExplorer = BLOCK_EXPLORER.replace(/\/$/, '');
     const entryId = this.entryIdFromContentStoredLogs(receipt);
+    const blockNumber = Number(receipt.blockNumber);
+    let blockTimestampIso: string | undefined;
+    if (Number.isFinite(blockNumber)) {
+      try {
+        const block = await this.provider.getBlock(blockNumber);
+        if (block) {
+          blockTimestampIso = new Date(Number(block.timestamp) * 1000).toISOString();
+        }
+      } catch {
+        /* ignore */
+      }
+    }
     return {
       success: true,
       transactionHash: txHash,
       entryId,
       gasUsed: receipt.gasUsed.toString(),
+      blockNumber: Number.isFinite(blockNumber) ? blockNumber : undefined,
+      blockTimestampIso,
       explorerTxUrl: `${baseExplorer}/tx/${txHash}`,
       explorerContractUrl: `${baseExplorer}/address/${CONTRACT_ADDRESS}`,
       explorerAddressUrl: walletAtSubmit
@@ -459,7 +476,7 @@ class BlockchainService {
       const receipt = await tx.wait();
       console.log('✅ Transaction confirmed:', receipt);
 
-      return this.buildSuccessFromReceipt(tx.hash, receipt, walletAtSubmit);
+      return await this.buildSuccessFromReceipt(tx.hash, receipt, walletAtSubmit);
       
     } catch (error: any) {
       // STEP 1 — Ask the contract directly. The wallet/ethers error may be
@@ -512,7 +529,7 @@ class BlockchainService {
               };
             }
             console.log('✅ Recovered via public RPC after wallet wait() failed', submittedTxHash);
-            return this.buildSuccessFromReceipt(submittedTxHash, fallbackReceipt, walletAtSubmit);
+            return await this.buildSuccessFromReceipt(submittedTxHash, fallbackReceipt, walletAtSubmit);
           }
         } catch (recoverErr) {
           console.warn('blockchain: public-RPC receipt recovery failed', recoverErr);
