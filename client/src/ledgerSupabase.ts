@@ -1,7 +1,11 @@
-import { createClient, type SupabaseClient } from '@supabase/supabase-js';
 import { ethers, type Signer } from 'ethers';
 import type { BlockchainResponse } from './blockchain';
 
+/**
+ * On Vercel, the browser calls same-origin `POST /api/ledger` and `POST /api/my-ledger`
+ * (see `api/ledger.js`, `api/my-ledger.js`). For local `npm start`, those routes
+ * do not run — use `vercel dev` in `client/`, or point `REACT_APP_API_BASE` at a deployed app.
+ */
 export async function getInjectedSigner(): Promise<Signer> {
   if (!window.ethereum) {
     throw new Error('No wallet. Install MetaMask.');
@@ -31,19 +35,21 @@ export type LedgerSubmissionRow = {
 const CONTRACT_ADDRESS =
   process.env.REACT_APP_CONTRACT_ADDRESS || '0x5FbDB2315678afecb367f032d93F642f64180aa3';
 const CHAIN_ID = Number(process.env.REACT_APP_CHAIN_ID || 4801);
-const EXPLORER = (process.env.REACT_APP_BLOCKCHAIN_EXPLORER_URL || 'https://worldchain-sepolia.explorer.alchemy.com').replace(
-  /\/$/,
-  ''
-);
+const EXPLORER = (
+  process.env.REACT_APP_BLOCKCHAIN_EXPLORER_URL || 'https://worldchain-sepolia.explorer.alchemy.com'
+).replace(/\/$/, '');
 
-function getSupabase(): { client: SupabaseClient; url: string; anon: string } | null {
-  const url = process.env.REACT_APP_SUPABASE_URL;
-  const anon = process.env.REACT_APP_SUPABASE_ANON_KEY;
-  if (!url || !anon) return null;
-  return { client: createClient(url, anon), url, anon };
+function apiPath(path: string): string {
+  const base = (process.env.REACT_APP_API_BASE || '').replace(/\/$/, '');
+  if (base) {
+    return `${base}${path.startsWith('/') ? path : `/${path}`}`;
+  }
+  return path.startsWith('/') ? path : `/${path}`;
 }
 
-/** Build exactly the same string as `supabase/functions/add-ledger-submission/index.ts` */
+/**
+ * Build exactly the same string as `api/ledger.js` (buildExpectedMessage).
+ */
 function buildLedgerIndexMessage(p: {
   chain_id: number;
   contract_address: string;
@@ -70,10 +76,6 @@ function buildLedgerIndexMessage(p: {
   ].join('\n');
 }
 
-/**
- * After a successful on-chain submit, index the row in Supabase (wallet-signed).
- * No-op if Supabase env is missing, or if entry/tx is missing.
- */
 export async function syncLedgerToSupabase(
   signer: Signer,
   result: BlockchainResponse,
@@ -86,11 +88,6 @@ export async function syncLedgerToSupabase(
     worldIdNullifier?: string;
   }
 ): Promise<void> {
-  const s = getSupabase();
-  if (!s) {
-    console.warn('ledgerSupabase: REACT_APP_SUPABASE_URL or REACT_APP_SUPABASE_ANON_KEY not set, skipping');
-    return;
-  }
   if (!result.success || !result.transactionHash) return;
   if (result.entryId == null) {
     console.warn('ledgerSupabase: no entryId, cannot index row');
@@ -115,28 +112,40 @@ export async function syncLedgerToSupabase(
   });
   const signature = await signer.signMessage(message);
 
-  const { error } = await s.client.functions.invoke('add-ledger-submission', {
-    body: {
-      message,
-      signature,
-      chain_id: CHAIN_ID,
-      contract_address: ethers.getAddress(CONTRACT_ADDRESS).toLowerCase(),
-      entry_id: result.entryId,
-      author_address,
-      transaction_hash: result.transactionHash.toLowerCase(),
-      content_hash: data.contentHash,
-      human_signature_hash: data.humanSignatureHash,
-      world_id_nullifier,
-      is_verified,
-      keystroke_count: data.keystrokeCount,
-      typing_speed_scaled,
-      block_number: result.blockNumber ?? null,
-      block_timestamp: result.blockTimestampIso ?? null,
-      gas_used: result.gasUsed ?? null,
-    },
+  const payload = {
+    message,
+    signature,
+    chain_id: CHAIN_ID,
+    contract_address: ethers.getAddress(CONTRACT_ADDRESS).toLowerCase(),
+    entry_id: result.entryId,
+    author_address,
+    transaction_hash: result.transactionHash.toLowerCase(),
+    content_hash: data.contentHash,
+    human_signature_hash: data.humanSignatureHash,
+    world_id_nullifier,
+    is_verified,
+    keystroke_count: data.keystrokeCount,
+    typing_speed_scaled,
+    block_number: result.blockNumber ?? null,
+    block_timestamp: result.blockTimestampIso ?? null,
+    gas_used: result.gasUsed ?? null,
+  };
+
+  const res = await fetch(apiPath('/api/ledger'), {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
   });
-  if (error) {
-    console.error('ledgerSupabase: add-ledger-submission failed', error);
+  if (!res.ok) {
+    const body = await res.text();
+    let msg = body;
+    try {
+      const j = JSON.parse(body) as { error?: string };
+      if (j?.error) msg = j.error;
+    } catch {
+      /* not json */
+    }
+    throw new Error(msg || res.statusText);
   }
 }
 
@@ -144,21 +153,28 @@ export function explorerTxUrl(tx: string): string {
   return `${EXPLORER}/tx/${tx.toLowerCase()}`;
 }
 
-/**
- * List rows for the connected wallet only (wallet must sign a short list message).
- */
 export async function fetchMyLedgerRows(signer: Signer): Promise<LedgerSubmissionRow[]> {
-  const s = getSupabase();
-  if (!s) throw new Error('Supabase is not configured (set REACT_APP_SUPABASE_URL and REACT_APP_SUPABASE_ANON_KEY).');
   const author = (await signer.getAddress()).toLowerCase();
   const t = Date.now();
   const message = `Human Inkwell list submissions\nauthor:${author}\ntime:${t}\n`;
   const signature = await signer.signMessage(message);
-  const { data, error } = await s.client.functions.invoke<{
-    ok: boolean;
-    rows?: LedgerSubmissionRow[];
-  }>('get-my-ledger', { body: { message, signature, author_address: author } });
-  if (error) throw new Error(error.message);
+  const res = await fetch(apiPath('/api/my-ledger'), {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ message, signature, author_address: author }),
+  });
+  if (!res.ok) {
+    const body = await res.text();
+    let msg = body;
+    try {
+      const j = JSON.parse(body) as { error?: string };
+      if (j?.error) msg = j.error;
+    } catch {
+      /* not json */
+    }
+    throw new Error(msg || res.statusText);
+  }
+  const data = (await res.json()) as { ok: boolean; rows?: LedgerSubmissionRow[] };
   if (!data?.ok || !data.rows) return [];
   return data.rows;
 }

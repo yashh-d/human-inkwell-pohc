@@ -390,13 +390,14 @@ function App() {
               isVerified: isVerified,
               worldIdNullifier: worldIdProof?.nullifier_hash,
             });
-            setLedgerSyncNote('Saved to your private ledger log (Supabase).');
+            setLedgerSyncNote('Saved to your private ledger (database).');
           }
         } catch (e) {
-          console.warn('Supabase sync skipped or failed', e);
-          if (process.env.REACT_APP_SUPABASE_URL) {
-            setLedgerSyncNote('On-chain success; cloud ledger sync failed (check function deploy and env).');
-          }
+          console.warn('Ledger API sync failed', e);
+          setLedgerSyncNote(
+            'On-chain success; database log failed. On Vercel, set SUPABASE_URL + SUPABASE_SERVICE_ROLE_KEY. ' +
+              'For local dev use `vercel dev` in `client/` (plain `npm start` has no /api routes).'
+          );
         }
         console.log('🎉 Blockchain submission successful!', result);
       } else {
@@ -766,12 +767,14 @@ function App() {
             borderRadius: 6,
           }}
         >
-          <h3 style={{ marginTop: 0 }}>My on-chain log (Supabase)</h3>
+          <h3 style={{ marginTop: 0 }}>My on-chain log</h3>
           <p style={{ fontSize: 14, color: '#333', lineHeight: 1.4 }}>
-            Only you can load this: your wallet must sign a short “list my submissions” message. Rows show content
-            and signature <strong>hashes</strong> and the transaction link — not raw text (same privacy model as the
-            contract). Configure <code>REACT_APP_SUPABASE_URL</code> and <code>REACT_APP_SUPABASE_ANON_KEY</code> and
-            deploy Edge Functions <code>add-ledger-submission</code> and <code>get-my-ledger</code>.
+            Only you can load this: your wallet signs a short “list my submissions” message. Each row is content and
+            signature <strong>hashes</strong> plus the explorer link (same as on-chain, no raw text). The app calls{' '}
+            <code>POST /api/ledger</code> and <code>POST /api/my-ledger</code> in this repo (Vercel serverless). Set
+            project env <code>SUPABASE_URL</code> and <code>SUPABASE_SERVICE_ROLE_KEY</code> (not exposed to the
+            browser) and run the SQL migration. Use <code>vercel dev</code> in <code>client/</code> so{' '}
+            <code>/api/*</code> exists locally; plain <code>npm start</code> does not serve the API.
           </p>
           <button
             type="button"
@@ -793,7 +796,7 @@ function App() {
             <p style={{ color: '#b02a37', fontSize: 14, marginTop: 8 }}>{myLedgerError}</p>
           )}
           {myLedgerRows && myLedgerRows.length === 0 && !myLedgerError && (
-            <p style={{ fontSize: 14, marginTop: 8, color: '#666' }}>No rows in your ledger yet (submit on-chain with Supabase env set).</p>
+            <p style={{ fontSize: 14, marginTop: 8, color: '#666' }}>No rows yet, or the API is not available (add DB env and use vercel dev / deploy).</p>
           )}
           {myLedgerRows && myLedgerRows.length > 0 && (
             <div style={{ overflowX: 'auto', marginTop: 12 }}>
