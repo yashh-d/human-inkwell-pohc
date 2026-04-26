@@ -498,56 +498,13 @@ class BlockchainService {
       onProgress?.('⏳ Generating transaction...');
 
       const typingScaled = Math.floor(data.typingSpeed * 1000);
-      let gasOverrides: Record<string, string | bigint> = { gasLimit: BigInt(500_000) };
       let contractWithSigner: ethers.Contract | undefined;
 
       if (!useMiniKit && signer) {
         contractWithSigner = this.contract.connect(signer) as ethers.Contract;
         
-        // Sanity check: confirm contract bytecode actually exists on the wallet's network.
-        const code = await signer.provider!.getCode(CONTRACT_ADDRESS);
-        if (!code || code === '0x') {
-          throw new Error(
-            `No contract found at ${CONTRACT_ADDRESS} on your wallet's current network. ` +
-              `Make sure MetaMask is on ${NETWORK_NAME} (chain ${EXPECTED_CHAIN_ID}) and REACT_APP_CONTRACT_ADDRESS matches your deployment.`
-          );
-        }
-
-        const balInjected = await this.getWalletNativeBalanceFromInjected(walletAtSubmit!);
-        const balEthers = await signer.provider!.getBalance(walletAtSubmit!);
-        const bal = balInjected > balEthers ? balInjected : balEthers;
-        if (bal === BigInt(0)) {
-          throw new Error(
-            `This wallet has 0 ETH for gas on ${NETWORK_NAME} (chain ${EXPECTED_CHAIN_ID}). ` +
-              `Address ${walletAtSubmit}. Fund this address on World Chain Sepolia (bridge Sepolia ETH), then retry.`
-          );
-        }
+        // Assert network is correct
         await this.assertMetaMaskOnExpectedChain();
-
-        const store = (contractWithSigner as any).getFunction
-          ? (contractWithSigner as any).getFunction('storeContent')
-          : null;
-
-        let gasLimit: bigint;
-        try {
-          if (store) {
-            const est = await store.estimateGas(
-              data.contentHash,
-              data.humanSignatureHash,
-              data.keystrokeCount,
-              typingScaled
-            );
-            const boosted = (est * BigInt(125)) / BigInt(100);
-            gasLimit = boosted > BigInt(600_000) ? BigInt(600_000) : boosted;
-            if (gasLimit < est) gasLimit = est;
-          } else {
-            gasLimit = BigInt(500_000);
-          }
-        } catch {
-          gasLimit = BigInt(500_000);
-        }
-        
-        gasOverrides = { gasLimit };
       }
 
       let tx: any;
@@ -589,34 +546,77 @@ class BlockchainService {
         }
         
       } else {
-        // --- 💻 BROWSER WALLET PATH ---
+        // --- 💻 BROWSER WALLET PATH (Gasless) ---
+        onProgress?.('⏳ Please sign the free intent with your wallet...');
+        
         try {
-          tx = await (contractWithSigner as any).storeContent(
-            data.contentHash,
-            data.humanSignatureHash,
-            data.keystrokeCount,
-            typingScaled,
-            gasOverrides
-          );
+          // Get the user's nonce from the contract
+          const nonce = await (this.contract as any).nonces(walletAtSubmit);
+
+          const domain = {
+            name: "HumanContentLedger",
+            version: "1",
+            chainId: EXPECTED_CHAIN_ID,
+            verifyingContract: CONTRACT_ADDRESS
+          };
+
+          const types = {
+            StoreContent: [
+              { name: 'contentHash', type: 'string' },
+              { name: 'humanSignatureHash', type: 'string' },
+              { name: 'keystrokeCount', type: 'uint256' },
+              { name: 'typingSpeed', type: 'uint256' },
+              { name: 'nonce', type: 'uint256' }
+            ]
+          };
+
+          const value = {
+            contentHash: data.contentHash,
+            humanSignatureHash: data.humanSignatureHash,
+            keystrokeCount: data.keystrokeCount,
+            typingSpeed: typingScaled,
+            nonce: nonce
+          };
+
+          const signature = await signer!.signTypedData(domain, types, value);
+          console.log('Signature generated:', signature);
+
+          onProgress?.('⏳ Signature gathered! Relaying to World Chain...');
+
+          const response = await fetch('/api/relay', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              contentHash: data.contentHash,
+              humanSignatureHash: data.humanSignatureHash,
+              keystrokeCount: data.keystrokeCount,
+              typingSpeed: typingScaled,
+              author: walletAtSubmit,
+              signature: signature
+            })
+          });
+
+          const relayData = await response.json();
+          if (!response.ok) {
+            throw new Error(relayData.error || relayData.details || 'Failed to relay transaction');
+          }
+
+          submittedTxHash = relayData.transactionHash;
+          console.log('📋 Relayed Transaction submitted:', submittedTxHash);
+          onProgress?.('⏳ Transaction relayed — waiting for block confirmation…');
+
+          // We wait for the relayed transaction to be mined
+          const receipt = await this.provider.waitForTransaction(submittedTxHash!);
+          if (!receipt) throw new Error("Transaction disappeared");
+          
+          console.log('✅ Transaction confirmed:', receipt);
+          return await this.buildSuccessFromReceipt(submittedTxHash!, receipt, walletAtSubmit);
+
         } catch (sendErr: any) {
-          const possibleHash =
-            sendErr?.transactionHash ||
-            sendErr?.receipt?.hash ||
-            sendErr?.info?.transactionHash ||
-            sendErr?.info?.error?.data?.txHash ||
-            null;
+          const possibleHash = sendErr?.transactionHash || null;
           if (possibleHash) submittedTxHash = String(possibleHash);
           throw sendErr;
         }
-        submittedTxHash = tx.hash;
-        console.log('📋 Transaction submitted:', tx.hash);
-        console.log('⏳ Waiting for confirmation...');
-        onProgress?.('⏳ Transaction sent — waiting for block confirmation…');
-
-        const receipt = await tx.wait();
-        console.log('✅ Transaction confirmed:', receipt);
-
-        return await this.buildSuccessFromReceipt(tx.hash, receipt, walletAtSubmit);
       }
       
     } catch (error: any) {

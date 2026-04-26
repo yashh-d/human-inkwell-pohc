@@ -1,0 +1,21 @@
+--- client/src/blockchain.ts
++++ client/src/blockchain.ts
+@@ -62,7 +62,8 @@
+ 
+   async connectWallet(): Promise<{ signer: ethers.Signer; address: string }> {
+     if (!window.ethereum) {
+-      throw new Error('MetaMask or similar wallet not found. Please install a web3 wallet.');
++      alert('No Web3 wallet injected! Please open this link strictly inside Chrome with MetaMask or the MetaMask Mobile Browser.');
++      throw new Error('PREFLIGHT_NO_WALLET');
+     }
+ 
+     const provider = new ethers.BrowserProvider(window.ethereum);
+@@ -622,6 +623,11 @@
+       
+     } catch (error: any) {
++      if (error?.message === 'PREFLIGHT_NO_WALLET') {
++         throw new Error('MetaMask or similar wallet not found in this browser context (window.ethereum is undefined). Open this link in a browser with a Web3 wallet extension enabled.');
++      }
+       await new Promise((r) => setTimeout(r, 400));
+       onProgress?.('⏳ Confirming on World Chain (checking the ledger)…');
+       // STEP 1 — Contract may already show the new row even if the wallet errored.

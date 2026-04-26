@@ -1,0 +1,19 @@
+{
+  "name": "human-inkwell-pohc",
+  "version": "1.0.0",
+  "description": "Keystroke biometrics, optional [World ID](https://world.org/world-id), and onchain storage on **World Chain Sepolia** via `HumanContentLedger`.",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "ethers": "^6.16.0"
+  },
+  "devDependencies": {
+    "@vercel/node": "^5.7.13",
+    "typescript": "^6.0.3"
+  }
+}

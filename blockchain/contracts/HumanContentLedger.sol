@@ -1,12 +1,15 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.19;
 
+import "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
+import "@openzeppelin/contracts/utils/cryptography/EIP712.sol";
+
 /**
  * @title HumanContentLedger
  * @dev A smart contract for storing human-verified content with biometric signatures
  * @notice This contract combines World ID proof-of-humanness with biometric keystroke analysis
  */
-contract HumanContentLedger {
+contract HumanContentLedger is EIP712 {
     
     // Struct to store human content entries
     struct ContentEntry {
@@ -40,6 +43,11 @@ contract HumanContentLedger {
     
     // Contract owner
     address public owner;
+
+    // EIP-712 Meta-Transactions
+    mapping(address => uint256) public nonces;
+    bytes32 private constant STORE_TYPEHASH = keccak256("StoreContent(string contentHash,string humanSignatureHash,uint256 keystrokeCount,uint256 typingSpeed,uint256 nonce)");
+    
     
     // Events
     event ContentStored(
@@ -69,7 +77,7 @@ contract HumanContentLedger {
         _;
     }
     
-    constructor() {
+    constructor() EIP712("HumanContentLedger", "1") {
         owner = msg.sender;
     }
     
@@ -86,14 +94,26 @@ contract HumanContentLedger {
         uint256 _keystrokeCount,
         uint256 _typingSpeed
     ) external validHashes(_contentHash, _humanSignatureHash) {
-        
+        _storeContentInternal(_contentHash, _humanSignatureHash, _keystrokeCount, _typingSpeed, msg.sender);
+    }
+    
+    /**
+     * @dev Core internal logic for storing content, to be used by both direct and gasless calls
+     */
+    function _storeContentInternal(
+        string memory _contentHash,
+        string memory _humanSignatureHash,
+        uint256 _keystrokeCount,
+        uint256 _typingSpeed,
+        address _author
+    ) internal {
         uint256 entryId = nextEntryId++;
         
         contentEntries[entryId] = ContentEntry({
             contentHash: _contentHash,
             humanSignatureHash: _humanSignatureHash,
             worldIdNullifier: "",
-            author: msg.sender,
+            author: _author,
             timestamp: block.timestamp,
             keystrokeCount: _keystrokeCount,
             typingSpeed: _typingSpeed,
@@ -103,11 +123,40 @@ contract HumanContentLedger {
         // Update mappings
         contentHashToId[_contentHash] = entryId;
         signatureHashToId[_humanSignatureHash] = entryId;
-        authorToEntries[msg.sender].push(entryId);
+        authorToEntries[_author].push(entryId);
         
-        emit ContentStored(entryId, msg.sender, _contentHash, _humanSignatureHash, false);
+        emit ContentStored(entryId, _author, _contentHash, _humanSignatureHash, false);
     }
-    
+
+    /**
+     * @dev Gasless version of storeContent using EIP-712 signatures. Used by backend relayers.
+     */
+    function storeContentGasless(
+        string memory _contentHash,
+        string memory _humanSignatureHash,
+        uint256 _keystrokeCount,
+        uint256 _typingSpeed,
+        address _author,
+        uint8 v, bytes32 r, bytes32 s
+    ) external validHashes(_contentHash, _humanSignatureHash) {
+        
+        bytes32 structHash = keccak256(abi.encode(
+            STORE_TYPEHASH,
+            keccak256(bytes(_contentHash)),
+            keccak256(bytes(_humanSignatureHash)),
+            _keystrokeCount,
+            _typingSpeed,
+            nonces[_author]++
+        ));
+        
+        bytes32 hash = _hashTypedDataV4(structHash);
+        address signer = ECDSA.recover(hash, v, r, s);
+        
+        require(signer == _author, "Invalid EIP-712 signature");
+        
+        _storeContentInternal(_contentHash, _humanSignatureHash, _keystrokeCount, _typingSpeed, _author);
+    }
+
     /**
      * @dev Store human-verified content with World ID verification
      * @param _contentHash SHA-256 hash of the typed content
