@@ -509,8 +509,11 @@ class BlockchainService {
       if (!useMiniKit && signer) {
         contractWithSigner = this.contract.connect(signer) as ethers.Contract;
         
-        // Assert network is correct (may no longer be strictly needed with Privy but good to try)
-        await this.assertMetaMaskOnExpectedChain(signer);
+        // Assert network is correct (skip for Privy, Privy natively manages the chain internally)
+        if (!options?.privySigner) {
+          console.log('[Blockchain] Running legacy MetaMask network assertion...');
+          await this.assertMetaMaskOnExpectedChain(signer);
+        }
       }
 
       let tx: any;
@@ -556,8 +559,10 @@ class BlockchainService {
         onProgress?.('⏳ Please sign the free intent with your wallet...');
         
         try {
+          console.log('[Blockchain] Fetching on-chain nonce for author:', walletAtSubmit);
           // Get the user's nonce from the contract
           const nonce = await (this.contract as any).nonces(walletAtSubmit);
+          console.log('[Blockchain] Nonce fetched successfully:', nonce);
 
           const domain = {
             name: "HumanContentLedger",
@@ -584,10 +589,12 @@ class BlockchainService {
             nonce: nonce
           };
 
+          console.log('[Blockchain] Invoking Privy signature overlay (signTypedData)...');
           const signature = await signer!.signTypedData(domain, types, value);
-          console.log('Signature generated:', signature);
+          console.log('[Blockchain] Signature generated successfully!', signature);
 
           onProgress?.('⏳ Signature gathered! Relaying to World Chain...');
+          console.log('[Blockchain] Initiating fetch request to Vercel Relayer...');
 
           const response = await fetch('/api/relay', {
             method: 'POST',
