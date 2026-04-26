@@ -186,6 +186,59 @@ class BlockchainService {
     }
   }
 
+  /**
+   * Ask the wallet to (re)add the chain config. If the wallet's current RPC for
+   * this chain is broken, this is the only way to nudge it toward a known-good
+   * RPC URL. MetaMask may either silently update or prompt the user — both are
+   * acceptable outcomes; we just want a healthy RPC for the next attempt.
+   */
+  private async tryRefreshWalletRpc(): Promise<boolean> {
+    if (!window.ethereum) return false;
+    if (EXPECTED_CHAIN_ID !== 4801) return false;
+    const targetHex = '0x' + EXPECTED_CHAIN_ID.toString(16);
+    try {
+      await window.ethereum.request({
+        method: 'wallet_addEthereumChain',
+        params: [
+          {
+            chainId: targetHex,
+            chainName: NETWORK_NAME || 'World Chain Sepolia',
+            rpcUrls: [
+              RPC_URL || 'https://worldchain-sepolia.g.alchemy.com/public',
+              'https://worldchain-sepolia.g.alchemy.com/public',
+            ],
+            nativeCurrency: { name: 'Ether', symbol: 'ETH', decimals: 18 },
+            blockExplorerUrls: [BLOCK_EXPLORER || 'https://worldchain-sepolia.explorer.alchemy.com'],
+          },
+        ],
+      });
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  /** Compare wallet-reported balance to a known-good RPC's balance. */
+  private async detectWalletRpcMismatch(address: string): Promise<{
+    walletBal: bigint;
+    trustedBal: bigint;
+    mismatch: boolean;
+  }> {
+    let walletBal = BigInt(0);
+    let trustedBal = BigInt(0);
+    try {
+      walletBal = await this.getWalletNativeBalanceFromInjected(address);
+    } catch {}
+    try {
+      trustedBal = await this.provider.getBalance(address); // public Alchemy RPC
+    } catch {}
+    return {
+      walletBal,
+      trustedBal,
+      mismatch: trustedBal > BigInt(0) && walletBal === BigInt(0),
+    };
+  }
+
   /** e.g. "insufficient funds for gas * price + value: have 0 want 1203000000000" */
   private parseHaveWantFromMetamaskError(err: any): { have: bigint; want: bigint } | null {
     const s = [
@@ -346,38 +399,64 @@ class BlockchainService {
         'Unknown blockchain error';
       const lower = String(raw).toLowerCase();
       let message = raw;
-      if (
+      const isInsufficient =
         lower.includes('insufficient funds') &&
-        (error?.code === 'INSUFFICIENT_FUNDS' || error?.info?.error?.code === -32603)
-      ) {
+        (error?.code === 'INSUFFICIENT_FUNDS' || error?.info?.error?.code === -32603);
+
+      if (isInsufficient) {
         const who = walletAtSubmit ? ` Wallet: ${walletAtSubmit}.` : '';
         const url = walletAtSubmit
           ? `${BLOCK_EXPLORER.replace(/\/$/, '')}/address/${walletAtSubmit}`
           : '';
         const hw = this.parseHaveWantFromMetamaskError(error);
-        if (hw) {
+
+        // Cross-check against a trusted public RPC. If the trusted RPC shows real
+        // balance but MetaMask says have=0, the wallet's RPC URL for chain 4801
+        // is broken/stale — that is the actual root cause.
+        let trustedEth = '';
+        let isWalletRpcMismatch = false;
+        if (walletAtSubmit) {
+          const cmp = await this.detectWalletRpcMismatch(walletAtSubmit);
+          trustedEth = ethers.formatEther(cmp.trustedBal);
+          isWalletRpcMismatch =
+            cmp.mismatch && (!hw || hw.have === BigInt(0));
+        }
+
+        // Try to nudge the wallet toward a healthy RPC for next time.
+        if (isWalletRpcMismatch) {
+          await this.tryRefreshWalletRpc();
+        }
+
+        if (isWalletRpcMismatch) {
+          message =
+            `Your MetaMask RPC for ${NETWORK_NAME} (chain ${EXPECTED_CHAIN_ID}) is reporting 0 balance, ` +
+            `but the public RPC shows ${trustedEth} ETH at ${walletAtSubmit}. ` +
+            `Fix it in MetaMask: Settings → Networks → ${NETWORK_NAME} → set the RPC URL to ` +
+            `https://worldchain-sepolia.g.alchemy.com/public, save, and try again. ` +
+            `(I just sent MetaMask a request to add this RPC — if a popup appeared, accept it.) ` +
+            (url ? `Address on explorer: ${url}.` : '');
+        } else if (hw) {
           const hEth = ethers.formatEther(hw.have);
           const wEth = ethers.formatEther(hw.want);
           const sameHaveZero = hw.have === BigInt(0);
-          const detail =
-            sameHaveZero
-              ? 'Your wallet is reporting 0 available for this chain’s max fee. '
-              : `Your wallet is reporting ${hEth} ETH on this chain but the transaction needs at least ${wEth} ETH reserved for the max possible fee. `;
+          const detail = sameHaveZero
+            ? 'Your wallet is reporting 0 available for this chain’s max fee. '
+            : `Your wallet is reporting ${hEth} ETH on this chain but the transaction needs at least ${wEth} ETH reserved for the max possible fee. `;
           const opNote =
             EXPECTED_CHAIN_ID === 4801
               ? 'World Chain is an OP-Stack L2: calldata is charged to L1, so the max fee is higher than on normal L1-only gas math. '
               : '';
-          message = `${detail}${opNote}Confirm MetaMask is on ${NETWORK_NAME} (chain ${EXPECTED_CHAIN_ID}) — a wrong network often shows 0 balance. ${who}` +
-            ` If you use a World App in-app browser, try Safari/Chrome with MetaMask, or add more test ETH. ` +
-            (url
-              ? `Address on explorer: ${url}. Open in a normal browser if the link is blocked. `
-              : '') +
-            `If you just changed .env.local, restart npm start and hard-refresh.`;
+          message =
+            `${detail}${opNote}Confirm MetaMask is on ${NETWORK_NAME} (chain ${EXPECTED_CHAIN_ID}) and the same account ${walletAtSubmit ?? ''}. ${who}` +
+            (url ? ` Address on explorer: ${url}.` : '');
         } else {
-          message = `${raw}. ${who}` + (url ? ` Explorer: ${url}.` : '') +
+          message =
+            `${raw}.${who}` +
+            (url ? ` Explorer: ${url}.` : '') +
             ` On World Chain, gas includes an L1 data component — ensure enough ETH for gas on ${NETWORK_NAME} (4801) and the correct network in MetaMask.`;
         }
       }
+
       const explorerAddressUrl = walletAtSubmit
         ? `${BLOCK_EXPLORER.replace(/\/$/, '')}/address/${walletAtSubmit}`
         : undefined;
