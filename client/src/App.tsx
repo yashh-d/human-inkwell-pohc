@@ -405,9 +405,10 @@ function App() {
         } catch (e) {
           console.warn('Ledger API sync failed', e);
           setLedgerSyncNote(
-            'On-chain success; database log failed. On Vercel, set SUPABASE_URL + SUPABASE_SERVICE_ROLE_KEY, ' +
-              'and ensure REACT_APP_RPC_URL + REACT_APP_CONTRACT_ADDRESS are set for on-chain verify. ' +
-              'For local dev use `vercel dev` in `client/` (plain `npm start` has no /api routes).'
+            'On-chain success; database log failed. In Vercel → Project → Environment Variables, set server-only ' +
+              'SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY (no REACT_APP_ prefix—those keys are for the API, not the browser; ' +
+              'never put the service role in a REACT_APP_ var). For /api/ledger-onchain, also set REACT_APP_RPC_URL and ' +
+              'REACT_APP_CONTRACT_ADDRESS. Local: run `vercel dev` in `client/` (plain `npm start` has no /api routes).'
           );
         }
         console.log('🎉 Blockchain submission successful!', result);
