@@ -1,6 +1,8 @@
 import React from 'react';
 import { IDKitWidget, ISuccessResult, IErrorState, VerificationLevel } from '@worldcoin/idkit';
 
+type WorldIDLayout = 'default' | 'onboarding';
+
 interface WorldIDWidgetProps {
   isVerified: boolean;
   worldIdProof: ISuccessResult | null;
@@ -8,6 +10,8 @@ interface WorldIDWidgetProps {
   isLoading: boolean;
   onVerify: (proof: ISuccessResult) => Promise<void>;
   onError: (error: IErrorState) => void;
+  /** Omit inner title blurb and "About" list on onboarding step 4 */
+  layout?: WorldIDLayout;
 }
 
 const STAGING_PLACEHOLDER = 'app_staging_12345';
@@ -19,7 +23,9 @@ const WorldIDWidget: React.FC<WorldIDWidgetProps> = ({
   isLoading,
   onVerify,
   onError,
+  layout = 'default',
 }) => {
+  const isOnboarding = layout === 'onboarding';
   const rawId = process.env.REACT_APP_WORLD_APP_ID;
   const appId = (rawId as `app_${string}`) || (STAGING_PLACEHOLDER as `app_${string}`);
   const action = process.env.REACT_APP_WORLD_ACTION || 'human-content-verification';
@@ -29,7 +35,7 @@ const WorldIDWidget: React.FC<WorldIDWidgetProps> = ({
   const origin = typeof window !== 'undefined' ? window.location.origin : '(server)';
 
   return (
-    <div className="world-id-section">
+    <div className={isOnboarding ? 'world-id-section world-id-section--onboarding' : 'world-id-section'}>
       {isPlaceholderAppId && (
         <div
           role="alert"
@@ -54,12 +60,14 @@ const WorldIDWidget: React.FC<WorldIDWidgetProps> = ({
           {origin}).
         </div>
       )}
-      <div className="section-header">
-        <h3>🌍 World ID Human Verification</h3>
-        <p className="description">
-          Verify your humanness with World ID for blockchain-based content authentication
-        </p>
-      </div>
+      {!isOnboarding && (
+        <div className="section-header">
+          <h3>🌍 World ID Human Verification</h3>
+          <p className="description">
+            Verify your humanness with World ID for blockchain-based content authentication
+          </p>
+        </div>
+      )}
 
       <div className="world-id-status">
         {isVerified ? (
@@ -130,15 +138,17 @@ const WorldIDWidget: React.FC<WorldIDWidgetProps> = ({
         </div>
       )}
 
-      <div className="world-id-info">
-        <h4>About World ID Verification</h4>
-        <ul>
-          <li>🔐 <strong>Privacy-First:</strong> Your biometric data stays on your device</li>
-          <li>🌐 <strong>Proof of Personhood:</strong> Cryptographic proof you're a unique human</li>
-          <li>🔒 <strong>Zero-Knowledge:</strong> No personal information is shared</li>
-          <li>⚡ <strong>Instant:</strong> Verification happens in seconds</li>
-        </ul>
-      </div>
+      {!isOnboarding && (
+        <div className="world-id-info">
+          <h4>About World ID Verification</h4>
+          <ul>
+            <li>🔐 <strong>Privacy-First:</strong> Your biometric data stays on your device</li>
+            <li>🌐 <strong>Proof of Personhood:</strong> Cryptographic proof you&apos;re a unique human</li>
+            <li>🔒 <strong>Zero-Knowledge:</strong> No personal information is shared</li>
+            <li>⚡ <strong>Instant:</strong> Verification happens in seconds</li>
+          </ul>
+        </div>
+      )}
     </div>
   );
 };

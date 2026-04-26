@@ -1,0 +1,222 @@
+/* Full-bleed onboarding: purple family aligned with .world-id-section */
+
+.onboarding-root {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 1.5rem 1.25rem 2rem;
+  box-sizing: border-box;
+  background: radial-gradient(120% 80% at 50% 0%, rgba(118, 75, 162, 0.45) 0%, transparent 55%),
+    radial-gradient(80% 60% at 100% 100%, rgba(102, 126, 234, 0.35) 0%, transparent 45%),
+    linear-gradient(160deg, #1a1033 0%, #2d1b4e 40%, #1c1228 100%);
+  color: #f4f0ff;
+}
+
+.onboarding-card {
+  width: 100%;
+  max-width: 520px;
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 20px;
+  padding: 1.75rem 1.5rem 1.5rem;
+  box-shadow: 0 20px 50px rgba(0, 0, 0, 0.35), inset 0 1px 0 rgba(255, 255, 255, 0.08);
+  backdrop-filter: blur(12px);
+}
+
+.onboarding-brand {
+  text-align: center;
+  margin-bottom: 1.25rem;
+}
+
+.onboarding-brand h1 {
+  margin: 0 0 0.35rem;
+  font-size: clamp(1.35rem, 4.5vw, 1.65rem);
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  color: #fff;
+}
+
+.onboarding-brand p {
+  margin: 0;
+  font-size: 0.9rem;
+  opacity: 0.75;
+  line-height: 1.4;
+}
+
+.onboarding-dots {
+  display: flex;
+  justify-content: center;
+  gap: 0.5rem;
+  margin-bottom: 1.5rem;
+}
+
+.onboarding-dots button {
+  width: 8px;
+  height: 8px;
+  padding: 0;
+  border: none;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.2);
+  cursor: pointer;
+  transition: background 0.2s ease, transform 0.2s ease;
+}
+
+.onboarding-dots button[aria-current='true'] {
+  background: #a78bfa;
+  transform: scale(1.25);
+}
+
+.onboarding-dots button:focus-visible {
+  outline: 2px solid #c4b5fd;
+  outline-offset: 2px;
+}
+
+.onboarding-slide {
+  min-height: 10rem;
+}
+
+.onboarding-slide h2 {
+  margin: 0 0 0.75rem;
+  font-size: clamp(1.15rem, 3.5vw, 1.35rem);
+  font-weight: 600;
+  color: #ede9fe;
+  letter-spacing: -0.02em;
+}
+
+.onboarding-slide p {
+  margin: 0 0 0.75rem;
+  font-size: 0.95rem;
+  line-height: 1.6;
+  color: rgba(244, 240, 255, 0.88);
+  text-align: left;
+}
+
+.onboarding-slide p:last-child {
+  margin-bottom: 0;
+}
+
+/* Slide 4: World ID block */
+.onboarding-world-wrap {
+  margin-top: 0.5rem;
+  text-align: left;
+}
+
+.onboarding-world-wrap .world-id-section {
+  margin-bottom: 0;
+}
+
+.onboarding-world-wrap .world-id-section--onboarding {
+  padding: 1rem 1.1rem;
+  margin-top: 0.35rem;
+}
+
+/* Reduce motion: optional subtle fade; respect prefers-reduced-motion */
+.onboarding-slide-panel {
+  animation: onboardingFadeIn 0.35s ease both;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .onboarding-slide-panel {
+    animation: none;
+  }
+
+  .onboarding-dots button {
+    transition: none;
+  }
+}
+
+@keyframes onboardingFadeIn {
+  from {
+    opacity: 0.65;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+.onboarding-nav {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  margin-top: 1.5rem;
+  padding-top: 1.25rem;
+  border-top: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.onboarding-nav-buttons {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  align-items: center;
+  margin-left: auto;
+}
+
+.onboarding-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 44px;
+  padding: 0.55rem 1.15rem;
+  font-size: 0.95rem;
+  font-weight: 600;
+  border-radius: 10px;
+  border: 1px solid transparent;
+  cursor: pointer;
+  font-family: inherit;
+  transition: background 0.2s ease, border-color 0.2s ease, opacity 0.2s ease;
+}
+
+.onboarding-btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.onboarding-btn--ghost {
+  background: rgba(255, 255, 255, 0.08);
+  color: #e9e3ff;
+  border-color: rgba(255, 255, 255, 0.2);
+}
+
+.onboarding-btn--ghost:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.12);
+}
+
+.onboarding-btn--primary {
+  background: linear-gradient(135deg, #7c3aed 0%, #6366f1 100%);
+  color: #fff;
+  border-color: rgba(255, 255, 255, 0.2);
+  box-shadow: 0 4px 16px rgba(99, 102, 241, 0.35);
+}
+
+.onboarding-btn--primary:hover:not(:disabled) {
+  filter: brightness(1.05);
+}
+
+.onboarding-btn--skip {
+  background: transparent;
+  color: rgba(244, 240, 255, 0.7);
+  border: none;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  min-height: auto;
+  padding: 0.4rem 0.25rem;
+  font-size: 0.875rem;
+  font-weight: 500;
+}
+
+.onboarding-btn--skip:hover:not(:disabled) {
+  color: #fff;
+}
+
+.onboarding-hint {
+  display: block;
+  width: 100%;
+  text-align: center;
+  font-size: 0.75rem;
+  opacity: 0.45;
+  margin-top: 0.75rem;
+}

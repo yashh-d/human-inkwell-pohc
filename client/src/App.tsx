@@ -5,6 +5,7 @@ import { useBiometricProcessor } from './hooks/useBiometricProcessor';
 import { hashContent } from './utils/crypto';
 import { useWorldID } from './hooks/useWorldID';
 import WorldIDWidget from './components/WorldIDWidget';
+import OnboardingFlow, { isOnboardingMarkedDone } from './components/OnboardingFlow';
 import { blockchainService } from './blockchain';
 import {
   getInjectedSigner,
@@ -77,11 +78,12 @@ function App() {
   const [ledgerSyncNote, setLedgerSyncNote] = useState<string | null>(null);
   const [supabaseDebugJson, setSupabaseDebugJson] = useState<string | null>(null);
   const [supabaseDebugLoading, setSupabaseDebugLoading] = useState(false);
+  const [onboardingOpen, setOnboardingOpen] = useState(() => !isOnboardingMarkedDone());
 
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   
   const { startCapture, stopCapture, getRawKeystrokeData, resetCapture, isCapturing } = useKeystrokeCapture();
-  const { extractFeatures, generateHumanSignatureHash } = useBiometricProcessor();
+  const { generateHumanSignatureHash } = useBiometricProcessor();
   const { 
     isVerified, 
     worldIdProof, 
@@ -227,10 +229,6 @@ function App() {
       }
     };
   }, [isCapturing, startCapture, stopCapture]);
-
-  const handleContentChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
-    setContent(e.target.value);
-  };
 
   const handleStartCapture = () => {
     console.log('Manual start capture clicked');
@@ -485,6 +483,24 @@ function App() {
     resetCapture();
     resetVerification();
   };
+
+  if (onboardingOpen) {
+    return (
+      <div className="App">
+        <OnboardingFlow
+          worldIdProps={{
+            isVerified,
+            worldIdProof,
+            error: worldIdError,
+            isLoading: worldIdLoading,
+            onVerify: handleVerify,
+            onError: handleError,
+          }}
+          onComplete={() => setOnboardingOpen(false)}
+        />
+      </div>
+    );
+  }
 
   return (
     <div className="App">
