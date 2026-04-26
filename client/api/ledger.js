@@ -5,6 +5,7 @@
  */
 const { createClient } = require('@supabase/supabase-js');
 const { verifyMessage, getAddress, JsonRpcProvider, Contract } = require('ethers');
+const { getSupabaseCreds } = require('./_supabaseEnv');
 
 const LEDGER_READ_ABI = [
   'function getContentEntry(uint256 _entryId) view returns (tuple(string contentHash, string humanSignatureHash, string worldIdNullifier, address author, uint256 timestamp, uint256 keystrokeCount, uint256 typingSpeed, bool isVerified))',
@@ -245,10 +246,9 @@ module.exports = async (req, res) => {
     if (v.error) {
       return send(res, v.code, { error: v.error });
     }
-    const supabaseUrl = process.env.REACT_APP_SUPABASE_URL;
-    const supabaseKey = process.env.REACT_APP_SUPABASE_ANON_KEY;
-    if (!supabaseUrl || !supabaseKey) {
-      return send(res, 500, { error: 'Server missing REACT_APP_SUPABASE_URL or REACT_APP_SUPABASE_ANON_KEY' });
+    const { url: supabaseUrl, key: supabaseKey, error: supaErr } = getSupabaseCreds();
+    if (supaErr) {
+      return send(res, 500, { error: supaErr });
     }
     const supabase = createClient(supabaseUrl, supabaseKey, { auth: { persistSession: false } });
     const ins = await insertRow(supabase, v.row);
@@ -321,10 +321,9 @@ module.exports = async (req, res) => {
     return send(res, 401, { error: 'Invalid signature for author' });
   }
 
-  const supabaseUrl = process.env.REACT_APP_SUPABASE_URL;
-  const supabaseKey = process.env.REACT_APP_SUPABASE_ANON_KEY;
-  if (!supabaseUrl || !supabaseKey) {
-    return send(res, 500, { error: 'Server missing REACT_APP_SUPABASE_URL or REACT_APP_SUPABASE_ANON_KEY' });
+  const { url: supabaseUrl, key: supabaseKey, error: supaErr } = getSupabaseCreds();
+  if (supaErr) {
+    return send(res, 500, { error: supaErr });
   }
 
   const supabase = createClient(supabaseUrl, supabaseKey, { auth: { persistSession: false } });

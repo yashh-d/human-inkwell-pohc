@@ -5,6 +5,7 @@
  */
 const { createClient } = require('@supabase/supabase-js');
 const { JsonRpcProvider, Contract, getAddress } = require('ethers');
+const { getSupabaseCreds } = require('./_supabaseEnv');
 const humanContentArtifact = require('../src/HumanContentLedger.json');
 
 const ABI = humanContentArtifact.abi;
@@ -109,10 +110,9 @@ module.exports = async (req, res) => {
     return send(res, 400, { error: 'Missing required fields' });
   }
 
-  const supabaseUrl = process.env.REACT_APP_SUPABASE_URL;
-  const supabaseKey = process.env.REACT_APP_SUPABASE_ANON_KEY;
-  if (!supabaseUrl || !supabaseKey) {
-    return send(res, 500, { error: 'Server missing REACT_APP_SUPABASE_URL or REACT_APP_SUPABASE_ANON_KEY' });
+  const { url: supabaseUrl, key: supabaseKey, error: supaErr } = getSupabaseCreds();
+  if (supaErr) {
+    return send(res, 500, { error: supaErr });
   }
 
   const expectedChain = Number(process.env.REACT_APP_CHAIN_ID || 4801);
@@ -122,10 +122,12 @@ module.exports = async (req, res) => {
 
   const rpc =
     (process.env.REACT_APP_RPC_URL && String(process.env.REACT_APP_RPC_URL).trim()) ||
+    (process.env.RPC_URL && String(process.env.RPC_URL).trim()) ||
+    (process.env.WORLDCHAIN_SEPOLIA_URL && String(process.env.WORLDCHAIN_SEPOLIA_URL).trim()) ||
     'https://worldchain-sepolia.g.alchemy.com/public';
   const defaultContract = process.env.REACT_APP_CONTRACT_ADDRESS
     ? String(process.env.REACT_APP_CONTRACT_ADDRESS).trim()
-    : null;
+    : (process.env.CONTRACT_ADDRESS && String(process.env.CONTRACT_ADDRESS).trim()) || null;
 
   let bodyContract;
   try {

@@ -404,10 +404,12 @@ function App() {
           }
         } catch (e) {
           console.warn('Ledger API sync failed', e);
+          const detail = e instanceof Error ? e.message : String(e);
           setLedgerSyncNote(
-            'On-chain success; database log failed. In Vercel → Environment Variables, set REACT_APP_SUPABASE_URL and ' +
-              'REACT_APP_SUPABASE_ANON_KEY (and run the latest Supabase migration for anon RLS). Also set REACT_APP_RPC_URL and ' +
-              'REACT_APP_CONTRACT_ADDRESS for on-chain verify. Local: `vercel dev` in `client/` (plain `npm start` has no /api).'
+            `On-chain success; database log failed. ${detail} ` +
+              'Vercel must expose the same values the API reads: REACT_APP_SUPABASE_URL + REACT_APP_SUPABASE_ANON_KEY (or ' +
+              'legacy SUPABASE_URL + SUPABASE_ANON_KEY or SUPABASE_SERVICE_ROLE_KEY for the key only). Add REACT_APP_CONTRACT_ADDRESS ' +
+              'if verify fails, run the RLS migration in supabase/migrations, redeploy, and for local use `vercel dev` in client/.'
           );
         }
         console.log('🎉 Blockchain submission successful!', result);
