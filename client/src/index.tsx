@@ -19,9 +19,7 @@ root.render(
           accentColor: '#121212',
           logo: 'https://worldcoin.org/logo.png', // Temporary placeholder for logo
         },
-        embeddedWallets: {
-          createOnLogin: 'users-without-wallets',
-        },
+        // We will natively use default Privy wallet rules to let it infer creation based on email/social login
       }}
     >
       <App />
