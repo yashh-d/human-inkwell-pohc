@@ -104,14 +104,20 @@ Duplicate **content** or **signature** strings are rejected by the contract (see
 
 ## World ID
 
-Configured via environment variables in `client/.env.local`:
+This app uses **World ID 4.0** with **@worldcoin/idkit** v4. Proof requests are **signed on the server** (RP key); the browser must not hold `RP_SIGNING_KEY`. Serverless routes live in `client/api/`.
 
-- `REACT_APP_WORLD_APP_ID` — App ID from the [World Developer Portal](https://developer.worldcoin.org).
-- `REACT_APP_WORLD_ACTION` — Action / signal id for the proof.
-- `REACT_APP_WORLD_VERIFICATION_LEVEL` — e.g. `device` (no Orb) or `orb`.
-- `REACT_APP_WORLD_ENABLE_STAGING` — staging flag for IdKit.
+| Variable | Where | Purpose |
+|----------|--------|--------|
+| `REACT_APP_WORLD_APP_ID` | Client (Vercel) | `app_…` from the portal |
+| `REACT_APP_WORLD_RP_ID` | Client (Vercel) | `rp_…` from RP registration (4.0) |
+| `REACT_APP_WORLD_ACTION` | Client | Must match the action in the portal |
+| `REACT_APP_WORLD_SIGNAL` | Client (optional) | String bound into the MNC (device) proof |
+| `REACT_APP_WORLD_ENABLE_STAGING` | Client | `true` to use the simulator / staging |
+| `RP_SIGNING_KEY` | **Vercel only, server** | Hex signing key from the portal (never `REACT_APP_`) |
 
-**Submitting to the blockchain** in this app does *not* require World ID to succeed for `storeContent` (on-chain), but the product can still encourage verification in the UI.
+The UI uses the **MNC (device) credential** via `CredentialRequest('mnc', …)` — not the Orb path.
+
+**Submitting to the blockchain** does *not* require World ID for `storeContent` (on-chain), but the product can still use World ID for off-chain or future verified flows.
 
 ### Vercel, World App, and IDKit (production)
 
@@ -137,8 +143,8 @@ Running on **Vercel** (or any non-localhost host) is not automatic for World ID:
 4. **Stable URL**  
    The World App / bridge often ties a session to the page origin. Test World ID on your **primary** Vercel production URL, not a one-off preview hash URL, unless that preview URL is also in the portal.
 
-5. **Future: World ID 4.0**  
-   World’s current docs may describe **IDKit 4.x** with **RP signatures** and a small **backend** step. This repo still uses **@worldcoin/idkit** ~2.3 (`IDKitWidget`) for the in-browser path. If you upgrade to 4.x, you will add server endpoints to sign requests and may switch widgets—see [docs.world.org](https://docs.world.org/world-id/reference/idkit).
+5. **World ID 4.0 in this repo**  
+   The client uses **IDKit 4** (`IDKitRequestWidget` + MNC constraint) and **Vercel** routes under `client/api/` for `signRequest` and verify forwarding. If the World App still errors, re-check `RP_SIGNING_KEY`, `REACT_APP_WORLD_RP_ID`, and allowlisted origins. Use `npm run dev:vercel` in `client` to test **with** API routes.
 
 ---
 
