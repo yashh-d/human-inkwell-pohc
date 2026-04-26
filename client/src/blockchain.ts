@@ -277,6 +277,53 @@ class BlockchainService {
     };
   }
 
+  /**
+   * After a wallet/ethers error, ask the *trusted* RPC whether the content was
+   * actually stored. Wallet RPCs (and ethers) sometimes throw spuriously *after*
+   * a successful broadcast — but the chain has the truth.
+   */
+  private async findStoredContent(
+    contentHash: string,
+    fromAddress: string | undefined
+  ): Promise<{ entryId: number; txHash?: string } | null> {
+    try {
+      const ledger = new ethers.Contract(CONTRACT_ADDRESS, CONTRACT_ABI, this.provider);
+      const idBig = await (ledger as any).getEntryIdByContentHash(contentHash);
+      const entryId = Number(idBig);
+      if (!entryId || entryId <= 0) return null;
+
+      let txHash: string | undefined;
+      try {
+        const eventFragment = ledger.interface.getEvent('ContentStored');
+        if (eventFragment) {
+          const topic0 = ethers.id(eventFragment.format('sighash'));
+          const entryIdTopic = ethers.zeroPadValue(ethers.toBeHex(BigInt(entryId)), 32);
+          const authorTopic = fromAddress
+            ? ethers.zeroPadValue(fromAddress.toLowerCase(), 32)
+            : null;
+          const head = await this.provider.getBlockNumber();
+          const fromBlock = Math.max(0, head - 50_000);
+          const filter = {
+            address: CONTRACT_ADDRESS,
+            fromBlock,
+            toBlock: 'latest' as const,
+            topics: [topic0, entryIdTopic, authorTopic],
+          };
+          const logs = await this.provider.getLogs(filter as any);
+          if (logs.length > 0) {
+            txHash = logs[logs.length - 1].transactionHash;
+          }
+        }
+      } catch (err) {
+        console.warn('blockchain: log lookup for entryId failed', err);
+      }
+      return { entryId, txHash };
+    } catch (err) {
+      console.warn('blockchain: findStoredContent failed', err);
+      return null;
+    }
+  }
+
   private parseHaveWantFromMetamaskError(err: any): { have: bigint; want: bigint } | null {
     const s = [
       err && typeof err === 'object' && (err as Error).message,
@@ -382,13 +429,29 @@ class BlockchainService {
       // the confirmation modal — even when the wallet is well funded.
       const gasOverrides: Record<string, string | bigint> = { gasLimit };
 
-      const tx = await (contractWithSigner as any).storeContent(
-        data.contentHash,
-        data.humanSignatureHash,
-        data.keystrokeCount,
-        typingScaled,
-        gasOverrides
-      );
+      let tx: any;
+      try {
+        tx = await (contractWithSigner as any).storeContent(
+          data.contentHash,
+          data.humanSignatureHash,
+          data.keystrokeCount,
+          typingScaled,
+          gasOverrides
+        );
+      } catch (sendErr: any) {
+        // Some wallet/ethers paths throw *after* the tx was actually broadcast —
+        // the hash can be on the error object as transactionHash / receipt.hash /
+        // info.transactionHash. Capture it so the recovery branch can poll the
+        // public RPC and report success.
+        const possibleHash =
+          sendErr?.transactionHash ||
+          sendErr?.receipt?.hash ||
+          sendErr?.info?.transactionHash ||
+          sendErr?.info?.error?.data?.txHash ||
+          null;
+        if (possibleHash) submittedTxHash = String(possibleHash);
+        throw sendErr;
+      }
       submittedTxHash = tx.hash;
       console.log('📋 Transaction submitted:', tx.hash);
       console.log('⏳ Waiting for confirmation...');
@@ -399,11 +462,36 @@ class BlockchainService {
       return this.buildSuccessFromReceipt(tx.hash, receipt, walletAtSubmit);
       
     } catch (error: any) {
-      // The wallet's RPC is often the *same* as a good public RPC, but it can
-      // still time out or flake on receipt polling. If we already have a hash,
-      // re-fetch the receipt from the app's public JsonRpcProvider (Alchemy) —
-      // the tx may be mined even though tx.wait() threw. This matches "I see
-      // it on-chain / MetaMask shows success" while the dapp only showed an error.
+      // STEP 1 — Ask the contract directly. The wallet/ethers error may be
+      // misleading (broadcast actually succeeded). If our content hash is now
+      // present on-chain, this submission DID work and we report success.
+      try {
+        const onChain = await this.findStoredContent(data.contentHash, walletAtSubmit);
+        if (onChain) {
+          const baseExplorer = BLOCK_EXPLORER.replace(/\/$/, '');
+          const txHash = onChain.txHash || submittedTxHash || '';
+          console.log('✅ Recovered: content is on-chain despite wallet error', onChain);
+          return {
+            success: true,
+            transactionHash: txHash,
+            entryId: onChain.entryId,
+            explorerTxUrl: txHash ? `${baseExplorer}/tx/${txHash}` : undefined,
+            explorerContractUrl: `${baseExplorer}/address/${CONTRACT_ADDRESS}`,
+            explorerAddressUrl: walletAtSubmit
+              ? `${baseExplorer}/address/${walletAtSubmit}`
+              : undefined,
+            walletAddress: walletAtSubmit,
+            statusNote: txHash
+              ? undefined
+              : 'Confirmation came from the public RPC (your wallet errored after broadcast). Open the explorer to view the tx.',
+          };
+        }
+      } catch (recoverErr) {
+        console.warn('blockchain: post-error contentExists check failed', recoverErr);
+      }
+
+      // STEP 2 — If we got a tx hash but receipt didn't come back yet, poll the
+      // public Alchemy RPC for the receipt directly.
       if (submittedTxHash) {
         try {
           const fallbackReceipt = await this.provider.waitForTransaction(
