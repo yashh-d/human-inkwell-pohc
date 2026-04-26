@@ -633,6 +633,7 @@ class BlockchainService {
       }
       
     } catch (error: any) {
+      console.error('🔥 [CRITICAL BLOCKCHAIN ERROR THROWN IN SUBMIT] 🔥:', error);
       if (error?.message === 'PREFLIGHT_NO_WALLET') {
         throw new Error('MetaMask or similar wallet not found in this specific browser. Please use a browser with a Web3 extension.');
       }
