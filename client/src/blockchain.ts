@@ -108,6 +108,36 @@ class BlockchainService {
     );
   }
 
+  /**
+   * After wallet_switchEthereumChain / addEthereumChain, MetaMask’s internal
+   * EIP-1559 fee + “available for max fee” state can lag for a few hundred ms.
+   * Without this, the first send often throws have=0 / insufficient funds and
+   * the second click works.
+   */
+  private async settleAfterNetworkChange(): Promise<void> {
+    await new Promise((r) => setTimeout(r, 400));
+    await this.warmupInjectedProvider();
+  }
+
+  /**
+   * Force a few reads on the *injected* provider so fee oracles and balance
+   * used for the pre-signing “max cost” check are not stale (common in webviews).
+   */
+  private async warmupInjectedProvider(): Promise<void> {
+    if (!window.ethereum) return;
+    const p = new ethers.BrowserProvider(window.ethereum);
+    for (let i = 0; i < 3; i++) {
+      try {
+        await p.getBlockNumber();
+        await p.getFeeData();
+        await p.getFeeData();
+        return;
+      } catch {
+        await new Promise((r) => setTimeout(r, 120 * (i + 1)));
+      }
+    }
+  }
+
   private async ensureCorrectNetwork(provider: ethers.BrowserProvider): Promise<void> {
     const network = await provider.getNetwork();
     const currentChainId = Number(network.chainId);
@@ -121,6 +151,7 @@ class BlockchainService {
         params: [{ chainId: targetHex }],
       });
       await this.waitForTargetChain(provider);
+      await this.settleAfterNetworkChange();
     } catch (err: any) {
       // 4902 = chain not added in MetaMask.
       if (err?.code === 4902) {
@@ -154,6 +185,7 @@ class BlockchainService {
           });
         }
         await this.waitForTargetChain(provider);
+        await this.settleAfterNetworkChange();
         return;
       }
       if (err?.code === 4001) {
@@ -354,6 +386,29 @@ class BlockchainService {
     return { have: BigInt(m[1]), want: BigInt(m[2]) };
   }
 
+  /** True when the wallet’s “insufficient” error is likely fee-state lag, not a dry wallet. */
+  private isSpuriousFirstSendInsufficient(
+    err: any,
+    balancePositive: boolean
+  ): boolean {
+    if (!balancePositive) return false;
+    const hw = this.parseHaveWantFromMetamaskError(err);
+    if (hw && hw.have === BigInt(0)) return true;
+    const s = String(
+      (err && typeof err === 'object' && (err as Error).message) ||
+        err?.shortMessage ||
+        err?.info?.error?.message ||
+        ''
+    ).toLowerCase();
+    if (err?.code === 'INSUFFICIENT_FUNDS' && s.includes('have 0 ')) {
+      return true;
+    }
+    if (s.includes('insufficient funds') && s.includes('have 0 ')) {
+      return true;
+    }
+    return false;
+  }
+
   async submitContent(data: BlockchainSubmissionData): Promise<BlockchainResponse> {
     let walletAtSubmit: string | undefined;
     let submittedTxHash: string | null = null;
@@ -361,7 +416,10 @@ class BlockchainService {
       console.log('🔗 Connecting to wallet...');
       const { signer, address } = await this.connectWallet();
       walletAtSubmit = address;
-      
+      // First on-chain action of the session often fails in MetaMask / in-app
+      // webviews with a stale "have 0" fee pre-check; warming fee data fixes most cases.
+      await this.warmupInjectedProvider();
+
       console.log('📝 Preparing contract interaction...');
       console.log('Contract Address:', CONTRACT_ADDRESS);
       console.log('User Address:', address);
@@ -392,6 +450,7 @@ class BlockchainService {
             `Address ${address}. Fund this address on World Chain Sepolia (bridge Sepolia ETH), then retry.`
         );
       }
+      await this.assertMetaMaskOnExpectedChain();
 
       // Check if content already exists
       const contentExists = await (contractWithSigner as any).contentExists(data.contentHash);
@@ -436,8 +495,6 @@ class BlockchainService {
         gasLimit = BigInt(500_000);
       }
 
-      await this.assertMetaMaskOnExpectedChain();
-
       // IMPORTANT: do NOT override maxFeePerGas / maxPriorityFeePerGas / gasPrice.
       // The wallet (MetaMask) computes accurate fee suggestions from its own RPC,
       // including OP-Stack L1 data fees. Forcing values from a public RPC's
@@ -447,27 +504,45 @@ class BlockchainService {
       const gasOverrides: Record<string, string | bigint> = { gasLimit };
 
       let tx: any;
-      try {
-        tx = await (contractWithSigner as any).storeContent(
-          data.contentHash,
-          data.humanSignatureHash,
-          data.keystrokeCount,
-          typingScaled,
-          gasOverrides
-        );
-      } catch (sendErr: any) {
-        // Some wallet/ethers paths throw *after* the tx was actually broadcast —
-        // the hash can be on the error object as transactionHash / receipt.hash /
-        // info.transactionHash. Capture it so the recovery branch can poll the
-        // public RPC and report success.
-        const possibleHash =
-          sendErr?.transactionHash ||
-          sendErr?.receipt?.hash ||
-          sendErr?.info?.transactionHash ||
-          sendErr?.info?.error?.data?.txHash ||
-          null;
-        if (possibleHash) submittedTxHash = String(possibleHash);
-        throw sendErr;
+      const havePositiveBalance = bal > BigInt(0);
+      for (let sendAttempt = 0; sendAttempt < 2; sendAttempt++) {
+        try {
+          if (sendAttempt > 0) {
+            await this.warmupInjectedProvider();
+            await new Promise((r) => setTimeout(r, 500));
+            await this.assertMetaMaskOnExpectedChain();
+          }
+          tx = await (contractWithSigner as any).storeContent(
+            data.contentHash,
+            data.humanSignatureHash,
+            data.keystrokeCount,
+            typingScaled,
+            gasOverrides
+          );
+          break;
+        } catch (sendErr: any) {
+          const possibleHash =
+            sendErr?.transactionHash ||
+            sendErr?.receipt?.hash ||
+            sendErr?.info?.transactionHash ||
+            sendErr?.info?.error?.data?.txHash ||
+            null;
+          if (possibleHash) submittedTxHash = String(possibleHash);
+          if (
+            sendAttempt === 0 &&
+            this.isSpuriousFirstSendInsufficient(sendErr, havePositiveBalance) &&
+            !submittedTxHash
+          ) {
+            console.warn(
+              'blockchain: retrying storeContent after spurious insufficient-funds / have=0 (wallet fee state was stale)'
+            );
+            continue;
+          }
+          throw sendErr;
+        }
+      }
+      if (!tx) {
+        throw new Error('storeContent did not return a transaction');
       }
       submittedTxHash = tx.hash;
       console.log('📋 Transaction submitted:', tx.hash);
