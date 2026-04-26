@@ -5,6 +5,12 @@ import { useKeystrokeCapture } from '../hooks/useKeystrokeCapture';
 import { useBiometricProcessor } from '../hooks/useBiometricProcessor';
 import { hashContent } from '../utils/crypto';
 import { humanFocusScoreFromTabAwayCount, HUMAN_FOCUS_SCORE_POINTS_OFF_PER_LEAVE } from '../utils/humanFocusScore';
+import {
+  buildAttestationShareBody,
+  buildAttestationShareForX,
+  xIntentUrl,
+  LINKEDIN_FEED_URL,
+} from '../utils/socialShare';
 import WorldIDWidget from '../components/WorldIDWidget';
 import { blockchainService } from '../blockchain';
 import { pushLedgerIndexAfterOnChainSuccess } from '../ledgerSupabase';
@@ -123,6 +129,8 @@ function HomePage({
   } | null>(null);
   /** When true, send the typed text to the public feed API (server verifies it matches the onchain content hash). */
   const [publishTextToFeed, setPublishTextToFeed] = useState(true);
+  /** Transient line after copy / open share targets */
+  const [shareNote, setShareNote] = useState<string | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const writingSectionRef = useRef<HTMLDivElement>(null);
 
@@ -356,7 +364,9 @@ function HomePage({
     if (lengthDifference > 5) {
       // Likely a paste operation - revert and show warning
       e.preventDefault();
-      setProcessingStatus('⚠️ Large text insertion detected (possible paste). Please type content manually for accurate biometric analysis.');
+      setProcessingStatus(
+        '⚠️ Large text insertion (possible paste). Type manually to keep your biometric signature valid.',
+      );
       return;
     }
     
@@ -365,7 +375,7 @@ function HomePage({
 
   const handleSubmitToBlockchain = async () => {
     if (!humanSignatureHash || !contentHash) {
-      setProcessingStatus('⚠️ Please generate both human signature and content hash before submitting to blockchain.');
+      setProcessingStatus('⚠️ Please sign your manuscript and generate a content hash before you publish to World Chain.');
       return;
     }
 
@@ -391,7 +401,7 @@ function HomePage({
 
       console.log('🔒 Blockchain Submission Data:', submissionData);
 
-      setProcessingStatus('⛓️ Submitting to Human Content Ledger...');
+      setProcessingStatus('⛓️ Publishing to World Chain (Human Content Ledger)…');
       
       // Submit to blockchain (progress + long onchain wait happen inside; avoids false "0 gas" errors on first try)
       const result = await blockchainService.submitContent(submissionData, {
@@ -411,7 +421,7 @@ function HomePage({
           explorerAddressUrl: result.explorerAddressUrl,
           statusNote: result.statusNote,
         });
-        setProcessingStatus('✅ Submitted to Human Content Ledger.');
+        setProcessingStatus('✅ Published to World Chain (Human Content Ledger).');
         console.log('🎉 Blockchain submission successful!', result);
 
         if (result.entryId != null && result.walletAddress) {
@@ -448,7 +458,9 @@ function HomePage({
       
     } catch (error) {
       console.error('Blockchain submission failed:', error);
-      setProcessingStatus(`❌ Blockchain submission failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
+      setProcessingStatus(
+        `❌ Could not publish to World Chain: ${error instanceof Error ? error.message : 'Unknown error'}`,
+      );
     } finally {
       setIsSubmittingToBlockchain(false);
     }
@@ -463,6 +475,7 @@ function HomePage({
     setProcessingStatus('');
     setBlockchainErrorHelp(null);
     setBlockchainSuccess(null);
+    setShareNote(null);
     resetCapture();
     onWorldIdReset();
   };
@@ -474,27 +487,27 @@ function HomePage({
           <ol className="hi-page-tldr__ol" aria-label="Steps on this page">
             <li>
               <div className="hi-page-tldr__body">
-                <span className="hi-page-tldr__head">Verify</span>
+                <span className="hi-page-tldr__head">Authenticate Identity</span>
                 <p className="hi-page-tldr__text">
-                  World ID first: one proof-of-personhood check so this session is tied to a person, not a bot.
+                  Secure your session with a World ID check to instantly distinguish yourself from AI-generated content
                 </p>
               </div>
             </li>
             <li>
               <div className="hi-page-tldr__body">
-                <span className="hi-page-tldr__head">Write &amp; sign locally</span>
+                <span className="hi-page-tldr__head">Generate Your Signature</span>
                 <p className="hi-page-tldr__text">
-                  You type; we turn text, key timing, and page activity into content and human-signature hashes to
-                  prove you wrote it and establish IP.
+                  As you type, we analyze keystroke dynamics and session activity to create a unique biometric hash.
+                  This establishes your intellectual property without storing your raw data.
                 </p>
               </div>
             </li>
             <li>
               <div className="hi-page-tldr__body">
-                <span className="hi-page-tldr__head">Attest on chain</span>
+                <span className="hi-page-tldr__head">Certify on World Chain</span>
                 <p className="hi-page-tldr__text">
-                  If you use a wallet, the transaction commits hashes and proof to the chain, not your full manuscript.
-                  You sign every send.
+                  Claim your proof. This links your biometric signature to your World ID, giving you a verifiable, onchain
+                  record of your unique writing style.
                 </p>
               </div>
             </li>
@@ -519,7 +532,7 @@ function HomePage({
         </div>
 
         <div id="writing" className="hi-section hi-section--writing" ref={writingSectionRef}>
-          <h2>Write your content</h2>
+          <h2>Enter Your Protected Workspace</h2>
           {!isCapturing ? (
             <div className="hi-session-gate">
               <button
@@ -528,23 +541,18 @@ function HomePage({
                 onClick={handleStartCapture}
                 disabled={isProcessing}
               >
-                Start your creative session
+                Start your protected session
               </button>
-              <p className="hi-session-gate__lede">Capture is off until you start.</p>
-              <div className="hi-cyan-glow-box hi-cyan-glow-box--session-note" role="note">
-                <p className="hi-cyan-glow-box__p">
-                  While a session is active we use your <strong>text</strong>, <strong>per-key</strong> hold, flight, and
-                  down-down timing, and <strong>page activity</strong> (a count when this tab or window is hidden). Stays
-                  on your device until you generate signatures or submit.
-                </p>
-              </div>
-              <p className="hi-session-gate__foot">You can end and start a new session whenever you like.</p>
+              <p className="hi-session-gate__lede">
+                Once active, the engine captures your typing rhythm and window activity to verify human authorship. Stay
+                focused in this workspace for the cleanest signature. The biometric data never leaves your device.
+              </p>
             </div>
           ) : (
             <div className="hi-capture-status hi-capture-status--active" role="status">
               <div className="hi-capture-status__row">
                 <span className="hi-capture-status__label">
-                  <strong>Status:</strong> Capturing your writing
+                  <strong>Status:</strong> Protected session active
                 </span>
                 <button
                   type="button"
@@ -570,51 +578,54 @@ function HomePage({
             </div>
           )}
           <p className="hi-warn-line">
-            Copy and paste are disabled to keep biometrics accurate. Type your content manually.
+            Manual typing is required to calibrate your biometric signature. Copy and paste are disabled to ensure the
+            highest level of cryptographic integrity for your work.
           </p>
           <textarea
             ref={textareaRef}
             value={content}
             onChange={handleInputChange}
             disabled={!isCapturing}
-            aria-label="Text to capture keystrokes for biometric signing"
-            title={!isCapturing ? 'Start your creative session to enable typing' : undefined}
+            aria-label="Protected workspace: type to capture keystrokes for your biometric signature"
+            title={!isCapturing ? 'Start a protected session to type in this field' : undefined}
             onInput={(e) => {
               // Additional input validation
               const target = e.target as HTMLTextAreaElement;
               const newValue = target.value;
               if (newValue.length - content.length > 5) {
                 target.value = content;
-                setProcessingStatus('⚠️ Large text insertion detected (possible paste). Please type content manually for accurate biometric analysis.');
+                setProcessingStatus(
+                  '⚠️ Large text insertion (possible paste). Type manually to keep your biometric signature valid.',
+                );
               }
             }}
             onPaste={(e) => {
               e.preventDefault();
               e.stopPropagation();
               console.log('Paste blocked!');
-              setProcessingStatus('⚠️ Copy/paste is disabled. Please type your content manually for accurate biometric analysis.');
+              setProcessingStatus('⚠️ Use the keyboard only here. Paste and copy are off so your biometric signature stays valid.');
             }}
             onCopy={(e) => {
               e.preventDefault();
               e.stopPropagation();
-              setProcessingStatus('⚠️ Copy/paste is disabled. Please type your content manually for accurate biometric analysis.');
+              setProcessingStatus('⚠️ Use the keyboard only here. Copy is off in this field so the signature matches what you type.');
             }}
             onCut={(e) => {
               e.preventDefault();
               e.stopPropagation();
-              setProcessingStatus('⚠️ Copy/paste is disabled. Please type your content manually for accurate biometric analysis.');
+              setProcessingStatus('⚠️ Use the keyboard only here. Cut is off in this field so the signature matches what you type.');
             }}
             onDrop={(e) => {
               e.preventDefault();
               e.stopPropagation();
-              setProcessingStatus('⚠️ Drag and drop is disabled. Please type your content manually for accurate biometric analysis.');
+              setProcessingStatus('⚠️ Drop is disabled. Type in this field so your biometric signature is calibrated to real keystrokes.');
             }}
             onDragOver={(e) => {
               e.preventDefault();
             }}
             onContextMenu={(e) => {
               e.preventDefault();
-              setProcessingStatus('⚠️ Right-click menu is disabled. Please type your content manually for accurate biometric analysis.');
+              setProcessingStatus('⚠️ Right-click is disabled in this field to protect your signature calibration.');
             }}
             onKeyDown={(e) => {
               // Disable common keyboard shortcuts for copy/paste
@@ -623,14 +634,16 @@ function HomePage({
                   e.preventDefault();
                   e.stopPropagation();
                   console.log('Keyboard shortcut blocked:', e.key);
-                  setProcessingStatus('⚠️ Keyboard shortcuts for copy/paste are disabled. Please type your content manually for accurate biometric analysis.');
+                  setProcessingStatus(
+                    '⚠️ Copy/paste shortcuts are off in this field so the biometric record matches manual typing only.',
+                  );
                 }
               }
             }}
             placeholder={
               isCapturing
-                ? 'Start typing: keystroke patterns are used for the biometric analysis; paste is disabled'
-                : 'Start your session above, then type here. Paste is disabled.'
+                ? 'Type in this space. Your rhythm, hold, and flight times shape your unique biometric hash.'
+                : 'Start a protected session above, then type here. This field is your trusted capture surface.'
             }
             className={
               isCapturing ? 'hi-textarea hi-textarea--capturing' : 'hi-textarea hi-textarea--gated'
@@ -657,7 +670,7 @@ function HomePage({
             disabled={isProcessing || !isCapturing || !content.trim()}
             className="hi-btn hi-btn--primary"
           >
-            {isProcessing ? 'Processing…' : 'Generate local signature'}
+            {isProcessing ? 'Signing…' : 'Sign manuscript'}
           </button>
 
           <button 
@@ -666,7 +679,7 @@ function HomePage({
             disabled={isSubmittingToBlockchain || !humanSignatureHash || !contentHash}
             className="hi-btn hi-btn--submit"
           >
-            {isSubmittingToBlockchain ? 'Submitting…' : 'Submit to blockchain'}
+            {isSubmittingToBlockchain ? 'Publishing…' : 'Publish to World Chain'}
           </button>
 
           <button 
@@ -743,6 +756,82 @@ function HomePage({
                 )}
               </div>
             )}
+
+            <div className="hi-success-panel__share">
+              <p className="hi-success-panel__share-title">Share your writing and proof</p>
+              <p className="hi-success-panel__share-desc">
+                Your text plus a line with this onchain transaction (link when the explorer has one, otherwise the
+                hash).
+              </p>
+              <div className="hi-success-panel__share-btns" role="group" aria-label="Share attestation">
+                <button
+                  type="button"
+                  className="hi-btn hi-btn--sm hi-success-panel__share-btn"
+                  onClick={() => {
+                    const { text, truncated } = buildAttestationShareForX(
+                      content,
+                      blockchainSuccess.transactionHash,
+                      blockchainSuccess.explorerTxUrl
+                    );
+                    window.open(xIntentUrl(text), '_blank', 'noopener,noreferrer');
+                    setShareNote(
+                      truncated
+                        ? 'Opened X. Post was shortened to fit; use “Copy all” for the full text and link.'
+                        : 'Opened X with your text and the onchain line.',
+                    );
+                    window.setTimeout(() => setShareNote(null), 6000);
+                  }}
+                >
+                  Post on X
+                </button>
+                <button
+                  type="button"
+                  className="hi-btn hi-btn--sm hi-success-panel__share-btn"
+                  onClick={async () => {
+                    const full = buildAttestationShareBody(
+                      content,
+                      blockchainSuccess.transactionHash,
+                      blockchainSuccess.explorerTxUrl,
+                    );
+                    try {
+                      await navigator.clipboard.writeText(full);
+                      window.open(LINKEDIN_FEED_URL, '_blank', 'noopener,noreferrer');
+                      setShareNote('Copied. Paste into the LinkedIn post box (tab just opened).');
+                    } catch {
+                      setShareNote('Could not copy. Try “Copy all” or allow clipboard access for this site.');
+                    }
+                    window.setTimeout(() => setShareNote(null), 6000);
+                  }}
+                >
+                  LinkedIn
+                </button>
+                <button
+                  type="button"
+                  className="hi-btn hi-btn--sm hi-success-panel__share-btn"
+                  onClick={async () => {
+                    const full = buildAttestationShareBody(
+                      content,
+                      blockchainSuccess.transactionHash,
+                      blockchainSuccess.explorerTxUrl,
+                    );
+                    try {
+                      await navigator.clipboard.writeText(full);
+                      setShareNote('Copied to clipboard.');
+                    } catch {
+                      setShareNote('Copy failed. Your browser may block the clipboard in this view.');
+                    }
+                    window.setTimeout(() => setShareNote(null), 5000);
+                  }}
+                >
+                  Copy all
+                </button>
+              </div>
+              {shareNote ? (
+                <p className="hi-success-panel__share-toast" role="status">
+                  {shareNote}
+                </p>
+              ) : null}
+            </div>
           </div>
         )}
 

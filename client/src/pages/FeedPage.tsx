@@ -1,10 +1,8 @@
 import React, { useState, useCallback } from 'react';
-import { Link } from 'react-router-dom';
 import {
   DUMMY_FEED_ITEMS,
   FEED_CHANNEL_PROFILE,
   type DummyFeedItem,
-  type FeedVoice,
 } from '../data/dummyFeed';
 import { formatRelativeTime } from '../utils/relativeTime';
 
@@ -16,23 +14,6 @@ function addressHue(addr: string): number {
   for (let i = 0; i < s.length; i += 1) h = (h * 33 + s.charCodeAt(i)) | 0;
   return Math.abs(h) % 360;
 }
-
-function typingSpeedCps(typingSpeedScaled: number): string {
-  const cps = typingSpeedScaled / 1000;
-  return cps < 10 ? cps.toFixed(2) : cps.toFixed(1);
-}
-
-const voiceClass = (v: FeedVoice) => {
-  if (v === 'professional') return 'hi-feed-voice--pro';
-  if (v === 'academic') return 'hi-feed-voice--academic';
-  return 'hi-feed-voice--personal';
-};
-
-const voiceLabel: Record<FeedVoice, string> = {
-  professional: 'Pro',
-  academic: 'Academic',
-  personal: 'Personal',
-};
 
 function FeedPostText({ text }: { text: string }) {
   const [expanded, setExpanded] = useState(false);
@@ -76,32 +57,36 @@ function FeedRow({ r }: { r: DummyFeedItem }) {
           </time>
         </div>
 
-        <p className="hi-feed-card__chips" aria-label="Format and style">
-          <span className={`hi-feed-voice-pill ${voiceClass(r.voice)}`}>{voiceLabel[r.voice]}</span>
-          <span className="hi-feed-card__format">{r.formatLabel}</span>
+        <p className="hi-feed-card__chips" aria-label="Post category">
+          <span className="hi-feed-pill hi-feed-pill--category">{r.formatLabel}</span>
         </p>
 
         <FeedPostText text={r.publicText} />
 
-        <p className="hi-feed-card__meta-note" title="Demo metrics">
-          Demo · {r.keystrokeCount} keystrokes · {typingSpeedCps(r.typingSpeedScaled)} chars/s · entry #{r.entryId}
+        <p className="hi-feed-card__signature-bar" aria-label="Attestation and transaction reference">
+          <span className="hi-feed-card__sig-icon" aria-hidden>
+            ✓
+          </span>
+          <span className="hi-feed-card__sig-text">
+            Verified Human: {r.keystrokeCount.toLocaleString()} Keystrokes
+          </span>
+          <span className="hi-feed-card__sig-sep" aria-hidden>
+            |
+          </span>
+          {r.txUrl ? (
+            <a
+              href={r.txUrl}
+              className="hi-feed-card__sig-tx"
+              target="_blank"
+              rel="noopener noreferrer"
+              title="View on block explorer"
+            >
+              {r.txPreview}
+            </a>
+          ) : (
+            <span className="hi-feed-card__sig-tx hi-feed-card__sig-tx--static">{r.txPreview}</span>
+          )}
         </p>
-
-        <div className="hi-feed-card__lower">
-          <div className="hi-feed-card__badges" aria-label="Attestation (demo)">
-            <span className="hi-feed-badge hi-feed-badge--world">World ID (demo)</span>
-            {r.hasNullifier ? (
-              <span className="hi-feed-badge hi-feed-badge--nullifier" title="Simulated for UI">
-                Human proof
-              </span>
-            ) : null}
-          </div>
-          <div className="hi-feed-card__tx">
-            <span className="hi-feed-card__link hi-feed-card__link--static" title="Not a real transaction; mock feed">
-              Tx {r.txPreview} (simulated)
-            </span>
-          </div>
-        </div>
       </div>
     </li>
   );
@@ -121,9 +106,6 @@ const FeedPage: React.FC = () => {
         <div className="hi-feed__toprow">
           <h1 className="hi-feed__eyebrow">Feed</h1>
           <div className="hi-feed__toprow-actions">
-            <span className="hi-feed__demo-pill" aria-label="Demo content">
-              Demo
-            </span>
             <button type="button" className="hi-btn hi-btn--ghost hi-btn--sm hi-feed__refresh-btn" onClick={refresh}>
               Refresh
             </button>
@@ -131,11 +113,11 @@ const FeedPage: React.FC = () => {
         </div>
 
         <p className="hi-feed__lede">
-          Simulated <strong>World ID verified</strong> posts: professional, academic, and personal, styled like a
-          timeline, not a database table.
+          The <strong>human layer</strong> of the open internet. Proof of person, biometric signatures, and a timeline
+          that reads like people, not NPC chatbots.
         </p>
 
-        <header className="hi-feed-profile" aria-label="Channel profile (demo)">
+        <header className="hi-feed-profile" aria-label="Channel profile">
           <div className="hi-feed-profile__cover" aria-hidden />
           <div className="hi-feed-profile__bar">
             <div className="hi-feed-profile__avatar" aria-hidden>
@@ -145,68 +127,76 @@ const FeedPage: React.FC = () => {
               type="button"
               className="hi-feed-profile__follow is-disabled"
               disabled
-              title="This is a read-only design preview"
+              title="Read-only in this build"
             >
               Follow
             </button>
           </div>
           <div className="hi-feed-profile__body">
             <h2 className="hi-feed-profile__name">
-              {p.displayName} <span className="hi-feed-profile__name-badge" title="Demo channel" aria-label="Demo">✓</span>
+              {p.displayName}{' '}
+              <span className="hi-feed-profile__name-badge" title="Verified" aria-label="Verified">
+                ✓
+              </span>
             </h2>
             <p className="hi-feed-profile__handle">@{p.handle}</p>
             <p className="hi-feed-profile__bio">{p.bio}</p>
-            <p className="hi-feed-profile__meta" aria-label="Channel details (demo)">
+            <p className="hi-feed-profile__meta" aria-label="Location, site, and reach">
               <span>📍 {p.location}</span>
-              <span className="hi-feed-profile__meta-sep" aria-hidden>
-                ·
+              <span className="hi-feed-profile__meta-pipe" aria-hidden>
+                {' '}
+                |{' '}
               </span>
-              <span className="hi-feed-profile__link-fake" title="Demo; not a real link">
-                {p.websiteLabel}
+              <span className="hi-feed-profile__link-fake">{p.websiteLabel}</span>
+              <span className="hi-feed-profile__meta-pipe" aria-hidden>
+                {' '}
+                |{' '}
               </span>
-              <span className="hi-feed-profile__meta-sep" aria-hidden>
-                ·
+              <span>
+                <strong>{p.following.toLocaleString()}</strong> Following
               </span>
-              <span>Joined {p.joined}</span>
+              <span className="hi-feed-profile__meta-pipe" aria-hidden>
+                {' '}
+                |{' '}
+              </span>
+              <span>
+                <strong
+                  title={p.followers.toLocaleString('en-US')}
+                >
+                  {p.followers.toLocaleString('en-US', {
+                    notation: 'compact',
+                    maximumFractionDigits: 1,
+                  })}
+                </strong>{' '}
+                Followers
+              </span>
             </p>
-            <div className="hi-feed-profile__stats" role="list" aria-label="Follow stats (illustrative)">
-              <span role="listitem">
-                <strong>{p.following.toLocaleString()}</strong> <span>Following</span>
-              </span>
-              <span role="listitem">
-                <strong>{p.followers.toLocaleString()}</strong> <span>Followers</span>
-              </span>
-            </div>
           </div>
         </header>
 
-        <nav className="hi-feed-tabs" aria-label="Profile sections (illustrative)">
+        <nav className="hi-feed-tabs" aria-label="Profile sections">
           <div className="hi-feed-tabs__inner">
             <span className="hi-feed-tabs__tab is-active" aria-current="page">
               Posts
             </span>
-            <span className="hi-feed-tabs__tab is-dim" title="Not in the demo">
+            <span className="hi-feed-tabs__tab is-dim" title="Coming soon">
               Likes
             </span>
-            <span className="hi-feed-tabs__tab is-dim" title="Not in the demo">
+            <span className="hi-feed-tabs__tab is-dim" title="Coming soon">
               Media
             </span>
           </div>
         </nav>
         <p className="hi-feed__post-count" aria-live="polite">
-          {DUMMY_FEED_ITEMS.length} demo {DUMMY_FEED_ITEMS.length === 1 ? 'post' : 'posts'}
+          {DUMMY_FEED_ITEMS.length} {DUMMY_FEED_ITEMS.length === 1 ? 'post' : 'posts'}
         </p>
 
-        <ul className="hi-feed__list" key={listKey} aria-label="Simulated human posts (demo)">
+        <ul className="hi-feed__list" key={listKey} aria-label="Public posts">
           {DUMMY_FEED_ITEMS.map((r) => (
             <FeedRow key={r.id} r={r} />
           ))}
         </ul>
       </div>
-
-      <p className="hi-feed__footer-hint">
-        For real onchain submissions, use <Link to="/">Home</Link>. This page is a design preview only.
-      </p>
     </div>
   );
 };

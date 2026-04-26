@@ -1,5 +1,4 @@
 import React from 'react';
-import { Link } from 'react-router-dom';
 import { getLedgerContractAddress, getLedgerContractExplorerUrl } from '../ledgerContractLink';
 
 const WorkflowPage: React.FC = () => {
@@ -11,10 +10,8 @@ const WorkflowPage: React.FC = () => {
       <header className="hi-workflow-page__header">
         <h1 className="hi-workflow-page__title">How it works</h1>
         <p className="hi-workflow-page__intro">
-          Human Inkwell ties together <strong>World ID</strong> (proof of personhood), <strong>local keystroke
-          biometrics</strong> (turned into a compact hash, not raw data), and an <strong>onchain attestation</strong> on
-          World Chain. The steps below are the same flow you follow on the{' '}
-          <Link to="/">home</Link> page. This page goes deeper on intent, privacy, and what is stored where.
+          HumanInk is the infrastructure for a post-AI internet. We tie together World ID, local keystroke biometrics,
+          and onchain finality to ensure your voice remains yours in an era of automated noise.
         </p>
       </header>
 
@@ -24,98 +21,106 @@ const WorkflowPage: React.FC = () => {
         </h2>
         <p className="hi-workflow-page__lede">
           As you write, two cryptographic hashes are generated in your browser. One captures your content. The other
-          captures your unique human signature, built from typing biometrics like hold times and rhythm, along with
-          session signals like paste attempts and tab switches. Camera-based liveness is coming next. What lands onchain
-          today is the attestation around those hashes; we are in parallel working toward IPFS-backed storage and clearer
-          IP handling (see <em>Privacy and security</em>).
-        </p>
-        <p className="hi-workflow-page__analytics-note">
-          This app uses Vercel Analytics to measure which pages and flows get use. It is aggregate, privacy-friendly
-          traffic: not your text, not your keystrokes, and not your keys.
+          captures your unique human signature, built from typing biometrics like hold times, flight speed, and rhythm,
+          along with session signals like tab switches and more. Raw timing data never leaves your device. What lands
+          onchain is the attestation around those hashes. IPFS-backed storage and a social layer are on the roadmap
+          below.
         </p>
       </section>
 
-      <section className="hi-workflow-page__section" aria-labelledby="wf-workflow-heading">
-        <h2 id="wf-workflow-heading" className="hi-workflow-page__h2">
-          Workflow
+      <section className="hi-workflow-page__section" aria-labelledby="wf-architecture-heading">
+        <h2 id="wf-architecture-heading" className="hi-workflow-page__h2">
+          System Architecture
         </h2>
         <p className="hi-workflow-page__lede">
-          You complete these in order: World ID, capture, and hashing, then an optional onchain commit when you connect
-          a wallet and submit. The transaction you approve is what actually writes to the ledger.
+          To maintain a credible onchain record while protecting your biometric data, we use a hybrid stack:
         </p>
+        <div className="hi-workflow-page__use-cases">
+          <div className="hi-workflow-page__use-case">
+            <h3 className="hi-workflow-page__use-case-title">Local Device</h3>
+            <p>
+              Raw keystrokes and timing data stay in your browser. We never see your raw keys or per-key rhythm.
+            </p>
+          </div>
+          <div className="hi-workflow-page__use-case">
+            <h3 className="hi-workflow-page__use-case-title">World Chain</h3>
+            <p>
+              The biometric hash and content hash serve as the cryptographic fingerprint of your effort.
+            </p>
+          </div>
+          <div className="hi-workflow-page__use-case">
+            <h3 className="hi-workflow-page__use-case-title">Database &amp; IPFS</h3>
+            <p>
+              The plaintext content you choose to publish so your audience can read it.
+            </p>
+          </div>
+          <div className="hi-workflow-page__use-case">
+            <h3 className="hi-workflow-page__use-case-title">World ID</h3>
+            <p>
+              The proof of personhood that links the session to a unique human without exposing your identity.
+            </p>
+          </div>
+        </div>
+      </section>
 
-        <ol className="hi-workflow-page__steps">
-          <li className="hi-workflow-page__step">
-            <div className="hi-workflow-page__step-mark" aria-hidden>
-              1
-            </div>
-            <div className="hi-workflow-page__step-body">
-              <h3 className="hi-workflow-page__step-title">World ID: verify the human behind your writing</h3>
-              <p>
-                Use the World ID widget to prove you are a real, unique person, tied to the <strong>content</strong> you
-                will author in the next steps. The proof is cryptographic; it lets onchain and session context refer to a
-                human author of this <strong>writing</strong>, not a bot.
-              </p>
-            </div>
+      <section className="hi-workflow-page__section" aria-labelledby="wf-use-cases-heading">
+        <h2 id="wf-use-cases-heading" className="hi-workflow-page__h2">
+          The Strategic Use Cases
+        </h2>
+        <div className="hi-workflow-page__use-cases">
+          <div className="hi-workflow-page__use-case">
+            <h3 className="hi-workflow-page__use-case-title">For Professionals</h3>
+            <p>
+              In a world of deepfakes, professional authority depends on trust. Use HumanInk to sign memos and strategy
+              papers so partners know they are reading your direct thoughts, not a model-generated summary.
+            </p>
+          </div>
+          <div className="hi-workflow-page__use-case">
+            <h3 className="hi-workflow-page__use-case-title">For Academics</h3>
+            <p>
+              Maintain the integrity of original research. By providing a verifiable paper trail of the writing
+              process, researchers protect their IP from being misattributed to AI and satisfy the growing demand for
+              &ldquo;Human Proof&rdquo; in journals.
+            </p>
+          </div>
+          <div className="hi-workflow-page__use-case">
+            <h3 className="hi-workflow-page__use-case-title">For Creators</h3>
+            <p>
+              Stop competing with bots. Build a trusted audience by giving them a cryptographic guarantee that you
+              actually typed your content. Our upcoming Social Feed on the World Mini App will be a zero-slop
+              environment where humanity is the barrier to entry.
+            </p>
+          </div>
+        </div>
+      </section>
+
+      <section className="hi-workflow-page__section" aria-labelledby="wf-roadmap-heading">
+        <h2 id="wf-roadmap-heading" className="hi-workflow-page__h2">
+          Roadmap: Building the Human Layer
+        </h2>
+        <ol className="hi-workflow-page__roadmap">
+          <li>
+            <h3 className="hi-workflow-page__roadmap-title">Infrastructure &amp; Storage</h3>
+            <p>
+              We are improving our smart contract infrastructure to handle global scale while integrating IPFS and
+              Attestation NFTs. This moves your work from a simple &ldquo;post&rdquo; to a verifiable digital asset with
+              on-chain ownership.
+            </p>
           </li>
-          <li className="hi-workflow-page__step">
-            <div className="hi-workflow-page__step-mark" aria-hidden>
-              2
-            </div>
-            <div className="hi-workflow-page__step-body">
-              <h3 className="hi-workflow-page__step-title">Capture: typing, timing, and page activity</h3>
-              <p>
-                When you <strong>start a session</strong>, we read <strong>per-key</strong> timing (keydown / keyup →
-                hold, flight, down-to-down) and the <strong>text</strong> in the field, and we count how many times the
-                page becomes <strong>hidden</strong> during capture (tab or window change, lock screen) as a simple session
-                count. Paste and bulk-insert paths are disabled so the biometric signal matches real typing. That data
-                feeds the feature vector and content hash used for your attestation, not a replayable keylog in the
-                product flow.
-              </p>
-            </div>
+          <li>
+            <h3 className="hi-workflow-page__roadmap-title">High-Stakes Verification</h3>
+            <p>
+              For academic and legal use cases, we are introducing optional camera-based liveness checks. This creates the
+              &ldquo;Gold Standard&rdquo; of authenticity by combining keystroke biometrics with facial verification.
+            </p>
           </li>
-          <li className="hi-workflow-page__step">
-            <div className="hi-workflow-page__step-mark" aria-hidden>
-              3
-            </div>
-            <div className="hi-workflow-page__step-body">
-              <h3 className="hi-workflow-page__step-title">Hash locally: human signature and content hashes</h3>
-              <p>
-                When you <strong>generate a local signature</strong>, the app derives statistics from your timing (e.g. hold
-                times, flight times) and forms a <strong>feature vector</strong>. That vector is the basis for a{' '}
-                <strong>human signature hash</strong>, a fixed-size fingerprint, not a replay of your keystrokes. In
-                parallel, your text is hashed (e.g. with SHA-256) to a <strong>content hash</strong>. Those two hashes are
-                what the rest of the pipeline and contract commit to.
-              </p>
-            </div>
-          </li>
-          <li className="hi-workflow-page__step">
-            <div className="hi-workflow-page__step-mark" aria-hidden>
-              4
-            </div>
-            <div className="hi-workflow-page__step-body">
-              <h3 className="hi-workflow-page__step-title">Submit onchain: Human Content Ledger transaction</h3>
-              <p>
-                If you connect your wallet and choose to <strong>submit to the blockchain</strong>, you send a transaction to
-                the <strong>Human Content Ledger</strong> contract. Your wallet pays network fees. The transaction is designed
-                to commit references that tie together proof-of-personhood context, the content hash, the human
-                signature hash, and any contract-defined fields, not your full text.
-              </p>
-            </div>
-          </li>
-          <li className="hi-workflow-page__step">
-            <div className="hi-workflow-page__step-mark" aria-hidden>
-              5
-            </div>
-            <div className="hi-workflow-page__step-body">
-              <h3 className="hi-workflow-page__step-title">Permanence: attestation and hashes onchain, not your plaintext</h3>
-              <p>
-                Once included in a block, the attestation is <strong>immutable</strong> the way onchain data usually is: the
-                entry commits to hashes, not a replacement for your long-form work. The contract and any linked systems
-                are the source of what is in the ledger; richer handling of the work itself, including for IP, is in the
-                product direction described under <em>Privacy and security</em>.
-              </p>
-            </div>
+          <li>
+            <h3 className="hi-workflow-page__roadmap-title">Native Social Integration</h3>
+            <p>
+              The future of HumanInk is a Live Social Feed within the World Mini App. We are building one-click post
+              integrations so audiences and professionals can verify a &ldquo;Human-Generated&rdquo; link instantly, cutting
+              through the AI slop of the open web.
+            </p>
           </li>
         </ol>
       </section>
@@ -125,20 +130,11 @@ const WorkflowPage: React.FC = () => {
           Privacy and security
         </h2>
         <p className="hi-workflow-page__lede">
-          <strong>Intellectual property, security, and a credible onchain record</strong> of human-generated work. We
-          are implementing IPFS as part of how we treat and route content, with IP kept protected and secure as the stack
-          matures.
+          <strong>Intellectual property, security, and a credible onchain record</strong> of human-generated work.
+          IPFS, Attestation NFTs, and the contract surface evolve with the stack; see the roadmap for direction.
         </p>
 
         <ul className="hi-workflow-page__privacy">
-          <li className="hi-workflow-page__privacy-item">
-            <h3 className="hi-workflow-page__privacy-title">IPFS, IP, and the ledger</h3>
-            <p>
-              We are in the process of implementing <strong>IPFS</strong> and tightening how commitments to your work sit
-              alongside the Human Content Ledger. The aim is to keep <strong>intellectual property</strong> handled in a
-              way that fits decentralized storage and onchain attestation, with security in mind as we ship.
-            </p>
-          </li>
           <li className="hi-workflow-page__privacy-item">
             <h3 className="hi-workflow-page__privacy-title">World ID and human verification</h3>
             <p>
@@ -160,16 +156,6 @@ const WorkflowPage: React.FC = () => {
               The Human Content Ledger records what the <strong>contract</strong> defines, including content and human
               signature hashes in the current shape of the app. The explorer and ABI are the ground truth for the exact
               fields.
-            </p>
-          </li>
-          <li className="hi-workflow-page__privacy-item">
-            <h3 className="hi-workflow-page__privacy-title">Roadmap</h3>
-            <p>
-              Alongside <strong>IPFS</strong>, we are adding more features, improving smart contract infrastructure,
-              building out the <strong>social feed</strong> and <strong>one-click post</strong> integrations, including
-              onchain verification of a <strong>human-generated content</strong> link, so <strong>audiences</strong>,{' '}
-              <strong>academics</strong>, and <strong>professionals</strong> can see that a piece was associated with a{' '}
-              <strong>verified human</strong>, not just anonymous text.
             </p>
           </li>
           <li className="hi-workflow-page__privacy-item">

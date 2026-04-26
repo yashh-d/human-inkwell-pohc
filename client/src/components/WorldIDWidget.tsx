@@ -150,7 +150,7 @@ const WorldIDWidget: React.FC<WorldIDWidgetProps> = ({
 
       {!isVerified && !isOnboarding && (
         <p className="world-id-why">
-          World ID ties proof of personhood to the writing in this page, not anonymous or automated output.
+          Verify with World ID to prove this writing came from a real person.
         </p>
       )}
 

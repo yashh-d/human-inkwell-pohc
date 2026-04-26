@@ -11,8 +11,7 @@ const MyContentPage: React.FC = () => {
         <p className="hi-my-content__lede">
           A single place to see writing you’ve attested onchain, whether it started as an <strong>X</strong> post, a{' '}
           <strong>LinkedIn</strong> update, a <strong>blog</strong> or <strong>Substack</strong> draft, a long{' '}
-          <strong>article</strong>, or <strong>notes</strong> and <strong>newsletter</strong> copy. The chain stores
-          hashes and attestation, not your full text; this UI is a demo of how a clean index could look.
+          <strong>article</strong>, or <strong>notes</strong> and <strong>newsletter</strong> copy.
         </p>
       </header>
 
@@ -25,6 +24,9 @@ const MyContentPage: React.FC = () => {
                   Format
                 </th>
                 <th scope="col">Preview</th>
+                <th scope="col" className="hi-table__col-ks">
+                  Keystrokes
+                </th>
                 <th scope="col">Content hash</th>
                 <th scope="col">Signature hash</th>
                 <th scope="col">Onchain</th>
@@ -42,6 +44,12 @@ const MyContentPage: React.FC = () => {
                     </span>
                   </td>
                   <td className="hi-table__preview hi-table__preview--long">{r.contentPreview}</td>
+                  <td
+                    className="hi-table__ks"
+                    title="Keys recorded in the attested typing session (device-local signal summarized as a hash onchain)"
+                  >
+                    {r.keystrokeCount.toLocaleString()}
+                  </td>
                   <td>
                     <code className="hi-table__mono">{truncateHex(r.contentHash)}</code>
                   </td>
@@ -69,6 +77,9 @@ const MyContentPage: React.FC = () => {
               <time className="hi-my-content__time">{r.indexedAtLabel}</time>
             </div>
             <p className="hi-my-content__preview-text">{r.contentPreview}</p>
+            <p className="hi-my-content__keystroke-line" aria-label="Session keystroke count">
+              {r.keystrokeCount.toLocaleString()} keystrokes
+            </p>
             <div className="hi-my-content__hashes" aria-label="Hash fingerprints">
               <div>
                 <span className="hi-my-content__k">Content</span>

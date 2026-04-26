@@ -45,7 +45,7 @@ const PoweredByWorld: React.FC<PoweredByWorldProps> = ({
         target="_blank"
         rel="noopener noreferrer"
         className="hi-brand__world-link"
-        aria-label="World — visit world.org"
+        aria-label="World. Visit world.org"
       >
         <img src={LOGO_WORLD_ICON} alt="" className="hi-brand__world-icon" width={32} height={32} />
         <span className="hi-brand__world-word">world</span>

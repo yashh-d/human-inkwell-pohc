@@ -1,6 +1,7 @@
 {
-  "short_name": "React App",
-  "name": "Create React App Sample",
+  "short_name": "Humanink",
+  "name": "Humanink",
+  "description": "Claim your digital authorship. HumanInk uses your typing signature and World ID to put permanent proof of human writing onchain.",
   "icons": [
     {
       "src": "favicon.ico",
