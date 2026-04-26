@@ -257,6 +257,10 @@ class BlockchainService {
         ? (contractWithSigner as any).getFunction('storeContent')
         : null;
 
+      // Estimate gas conservatively. Successful storeContent txs on World Chain Sepolia
+      // use ~270k–340k gas. We keep gasLimit small so MetaMask's pre-flight
+      // (balance >= gasLimit * maxFeePerGas) does not falsely reject when fee data
+      // is volatile. If estimateGas fails, use a tight 500k fallback.
       let gasLimit: bigint;
       try {
         if (store) {
@@ -266,52 +270,26 @@ class BlockchainService {
             data.keystrokeCount,
             typingScaled
           );
-          // 1.2x execution; cap at ~2.5x estimate so MetaMask’s “max cost” (gas*fee) is not over-reserved
-          // vs a 1.2M default that can spuriously exceed balance on small L2 balances.
-          const boosted = (est * BigInt(12)) / BigInt(10);
-          const withFloor = est + BigInt(200_000);
-          let g = boosted > withFloor ? boosted : withFloor;
-          const cap = (est * BigInt(25)) / BigInt(10);
-          if (g > cap) g = cap;
-          if (g > BigInt(2_000_000)) g = BigInt(2_000_000);
-          gasLimit = g;
+          // 1.25x estimate, capped at 600k to keep max-fee math reasonable.
+          const boosted = (est * BigInt(125)) / BigInt(100);
+          gasLimit = boosted > BigInt(600_000) ? BigInt(600_000) : boosted;
+          if (gasLimit < est) gasLimit = est;
         } else {
-          gasLimit = BigInt(800_000);
+          gasLimit = BigInt(500_000);
         }
       } catch {
-        gasLimit = BigInt(900_000);
+        gasLimit = BigInt(500_000);
       }
-
-      const feeData = await signer.provider!.getFeeData();
-      // Note: deliberately *no* aggressive pre-flight "max fee" check here.
-      // OP-Stack L2s like World Chain Sepolia charge an L1 data fee that can't be
-      // accurately predicted client-side; a coarse slack (e.g. 5x) over-reserves and
-      // produces false "0 available for max fee" errors even when balance is fine
-      // (real fees on Worldscan are ~0.0003 ETH per call). MetaMask itself does the
-      // accurate balance check at signing time and will reject if truly underfunded.
 
       await this.assertMetaMaskOnExpectedChain();
-      const bal2Inj = await this.getWalletNativeBalanceFromInjected(address);
-      const bal2Rpc = await signer.provider!.getBalance(address);
-      const bal2 = bal2Inj > bal2Rpc ? bal2Inj : bal2Rpc;
-      if (bal2 < bal) {
-        console.warn('blockchain: balance dropped before send', { bal, bal2 });
-      }
-      if (bal2 === BigInt(0)) {
-        throw new Error(
-          `This wallet now reports 0 balance on ${NETWORK_NAME} — confirm the correct network in MetaMask (chain ${EXPECTED_CHAIN_ID}) and the same address ${address}.`
-        );
-      }
 
+      // IMPORTANT: do NOT override maxFeePerGas / maxPriorityFeePerGas / gasPrice.
+      // The wallet (MetaMask) computes accurate fee suggestions from its own RPC,
+      // including OP-Stack L1 data fees. Forcing values from a public RPC's
+      // getFeeData() can inflate max cost so much that MetaMask's pre-flight
+      // (balance >= gasLimit * maxFeePerGas) reports "have 0 want X" before showing
+      // the confirmation modal — even when the wallet is well funded.
       const gasOverrides: Record<string, string | bigint> = { gasLimit };
-      if (feeData.maxFeePerGas) {
-        gasOverrides.maxFeePerGas = feeData.maxFeePerGas;
-        if (feeData.maxPriorityFeePerGas) {
-          gasOverrides.maxPriorityFeePerGas = feeData.maxPriorityFeePerGas;
-        }
-      } else if (feeData.gasPrice) {
-        gasOverrides.gasPrice = feeData.gasPrice;
-      }
 
       const tx = await (contractWithSigner as any).storeContent(
         data.contentHash,
