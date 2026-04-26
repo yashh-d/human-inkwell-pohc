@@ -8,7 +8,7 @@ import WorldIDWidget from './components/WorldIDWidget';
 import { blockchainService } from './blockchain';
 import {
   getInjectedSigner,
-  syncLedgerToSupabase,
+  pushLedgerIndexAfterOnChainSuccess,
   fetchMyLedgerRows,
   explorerTxUrl,
   type LedgerSubmissionRow,
@@ -384,23 +384,29 @@ function App() {
         setProcessingStatus('✅ Submitted to Human Content Ledger.');
         setLedgerSyncNote(null);
         try {
-          if (result.entryId != null) {
-            setProcessingStatus('✅ Submitted to Human Content Ledger. Saving to your private ledger (server verified)…');
-            await syncLedgerToSupabase(result, {
+          if (result.entryId != null && result.walletAddress) {
+            setProcessingStatus('⏳ Saving a copy to your private ledger (no second wallet prompt)…');
+            await pushLedgerIndexAfterOnChainSuccess(result, {
               contentHash,
               humanSignatureHash,
               keystrokeCount: biometricData.totalKeystrokes,
               typingSpeed: biometricData.rawFeatures.typingSpeed,
               isVerified: isVerified,
               worldIdNullifier: worldIdProof?.nullifier_hash,
+              authorAddress: result.walletAddress,
             });
             setProcessingStatus('✅ Submitted to Human Content Ledger.');
             setLedgerSyncNote('Saved to your private ledger (database).');
+          } else if (result.entryId != null && !result.walletAddress) {
+            setLedgerSyncNote(
+              'On-chain success; could not sync the database row (missing wallet address in result).'
+            );
           }
         } catch (e) {
           console.warn('Ledger API sync failed', e);
           setLedgerSyncNote(
-            'On-chain success; database log failed. On Vercel, set SUPABASE_URL + SUPABASE_SERVICE_ROLE_KEY. ' +
+            'On-chain success; database log failed. On Vercel, set SUPABASE_URL + SUPABASE_SERVICE_ROLE_KEY, ' +
+              'and ensure REACT_APP_RPC_URL + REACT_APP_CONTRACT_ADDRESS are set for on-chain verify. ' +
               'For local dev use `vercel dev` in `client/` (plain `npm start` has no /api routes).'
           );
         }
