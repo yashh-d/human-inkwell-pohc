@@ -498,7 +498,7 @@ function HomePage({
                 <span className="hi-page-tldr__head">Generate Your Signature</span>
                 <p className="hi-page-tldr__text">
                   As you type, we analyze keystroke dynamics and session activity to create a unique biometric hash.
-                  This establishes your intellectual property without storing your raw data.
+                  This also establishes your intellectual property.
                 </p>
               </div>
             </li>
@@ -507,7 +507,7 @@ function HomePage({
                 <span className="hi-page-tldr__head">Certify on World Chain</span>
                 <p className="hi-page-tldr__text">
                   Claim your proof. This links your biometric signature to your World ID, giving you a verifiable, onchain
-                  record of your unique writing style.
+                  record of your unique piece of writing.
                 </p>
               </div>
             </li>
