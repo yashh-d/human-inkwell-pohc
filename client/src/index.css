@@ -1,13 +1,197 @@
+/* World hero–inspired light theme (white, cyan wash, black type) */
+:root {
+  --hi-bg: #ffffff;
+  --hi-bg-elevated: #fafafa;
+  --hi-surface: #ffffff;
+  --hi-surface-muted: #f4f4f5;
+  --hi-text: #0a0a0a;
+  --hi-text-muted: #52525b;
+  --hi-border: #e4e4e7;
+  --hi-border-bright: #d4d4d8;
+  /* Brand cyan (World-style electric blue) */
+  --hi-cyan: #00b4d8;
+  --hi-cyan-soft: rgba(0, 180, 216, 0.12);
+  --hi-cyan-mid: rgba(0, 200, 230, 0.2);
+  --hi-accent: #00b4d8;
+  --hi-accent-hover: #0096b4;
+  --hi-ink: #0a0a0a;
+  --hi-ink-dim: rgba(10, 10, 10, 0.08);
+  --hi-success: #15803d;
+  --hi-success-surface: #ecfdf5;
+  --hi-warning: #b45309;
+  --hi-warning-surface: #fffbeb;
+  --hi-danger: #b91c1c;
+  --hi-danger-surface: #fef2f2;
+  --hi-radius: 10px;
+  --hi-radius-sm: 6px;
+  --hi-shadow: 0 1px 3px rgba(0, 0, 0, 0.06), 0 8px 24px rgba(0, 0, 0, 0.04);
+  --hi-font-display: 'DM Sans', 'Segoe UI', system-ui, sans-serif;
+  --hi-font-ui: 'DM Sans', 'Segoe UI', system-ui, sans-serif;
+  --hi-font-mono: ui-monospace, 'Cascadia Code', 'Source Code Pro', Menlo, monospace;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html {
+  scroll-behavior: smooth;
+}
+
+#root {
+  position: relative;
+  z-index: 1;
+}
+
+/* Hero: white base + top-right cyan wash + light grain (stippled feel) */
 body {
   margin: 0;
-  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen',
-    'Ubuntu', 'Cantarell', 'Fira Sans', 'Droid Sans', 'Helvetica Neue',
-    sans-serif;
+  min-height: 100vh;
+  font-family: var(--hi-font-ui);
+  font-size: 16px;
+  line-height: 1.55;
+  color: var(--hi-text);
+  background-color: var(--hi-bg);
+  background-image:
+    radial-gradient(ellipse 75% 60% at 100% 0%, var(--hi-cyan-mid) 0%, rgba(0, 200, 230, 0) 55%),
+    repeating-linear-gradient(
+        0deg,
+        rgba(0, 0, 0, 0) 0px,
+        rgba(0, 0, 0, 0) 1px,
+        rgba(0, 180, 200, 0.025) 1px,
+        rgba(0, 180, 200, 0.025) 2px
+      ),
+    repeating-linear-gradient(
+        90deg,
+        rgba(0, 0, 0, 0) 0px,
+        rgba(0, 0, 0, 0) 1px,
+        rgba(0, 0, 0, 0.012) 1px,
+        rgba(0, 0, 0, 0.012) 2px
+      );
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
 }
 
 code {
-  font-family: source-code-pro, Menlo, Monaco, Consolas, 'Courier New',
-    monospace;
+  font-family: var(--hi-font-mono);
+  font-size: 0.9em;
+}
+
+a {
+  color: var(--hi-ink);
+  text-decoration: underline;
+  text-decoration-color: var(--hi-cyan);
+  text-underline-offset: 2px;
+  font-weight: 500;
+}
+
+a:hover {
+  color: var(--hi-cyan);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html {
+    scroll-behavior: auto;
+  }
+}
+
+/* ---- Brand: Humanink + World ---- */
+.hi-brand {
+  text-align: center;
+}
+
+.hi-brand__row {
+  display: flex;
+  justify-content: center;
+}
+
+.hi-brand__humanink-logo {
+  max-width: min(220px, 70vw);
+  height: auto;
+  display: block;
+  filter: drop-shadow(0 1px 2px rgba(0, 0, 0, 0.06));
+}
+
+.hi-brand--footer .hi-brand__humanink-logo {
+  max-width: 120px;
+}
+
+.hi-brand__tagline {
+  font-family: var(--hi-font-ui);
+  font-size: 0.95rem;
+  font-weight: 500;
+  color: var(--hi-text-muted);
+  margin: 0.6rem 0 0.4rem;
+  line-height: 1.35;
+}
+
+.hi-brand__powered {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: 0.4rem 0.5rem;
+  font-size: 0.8rem;
+  color: var(--hi-text-muted);
+  margin-top: 0.5rem;
+}
+
+.hi-brand__humanink-name {
+  font-weight: 600;
+  color: var(--hi-text);
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  font-size: 0.7rem;
+}
+
+.hi-brand__dot {
+  opacity: 0.45;
+  user-select: none;
+}
+
+.hi-brand__powered-text {
+  font-size: 0.8rem;
+  font-style: italic;
+  color: var(--hi-text-muted);
+}
+
+.hi-brand__world-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  line-height: 0;
+  border-radius: 6px;
+  text-decoration: none !important;
+  transition: opacity 0.2s ease, transform 0.15s ease;
+}
+
+.hi-brand__world-link:hover {
+  opacity: 0.85;
+  transform: translateY(-0.5px);
+}
+
+.hi-brand__world-icon {
+  width: 28px;
+  height: 28px;
+  object-fit: contain;
+  display: block;
+  flex-shrink: 0;
+}
+
+.hi-brand__world-word {
+  font-family: var(--hi-font-ui);
+  font-weight: 500;
+  font-size: 1.125rem;
+  letter-spacing: -0.03em;
+  color: var(--hi-ink);
+  line-height: 1;
+  text-transform: lowercase;
+  display: block;
+  padding-top: 2px;
+}
+
+@media (min-width: 480px) {
+  .hi-brand__powered {
+    flex-wrap: nowrap;
+  }
 }

@@ -1,5 +1,6 @@
 import React from 'react';
 import { IDKitWidget, ISuccessResult, IErrorState, VerificationLevel } from '@worldcoin/idkit';
+import WorldMarkIcon from './WorldMarkIcon';
 
 type WorldIDLayout = 'default' | 'onboarding';
 
@@ -10,7 +11,11 @@ interface WorldIDWidgetProps {
   isLoading: boolean;
   onVerify: (proof: ISuccessResult) => Promise<void>;
   onError: (error: IErrorState) => void;
-  /** Omit inner title blurb and "About" list on onboarding step 4 */
+  /** MiniKit native verify handler (World App path) */
+  onVerifyMiniKit?: () => Promise<void>;
+  /** Whether we're inside the World App */
+  isInWorldApp?: boolean;
+  /** Omit default title blurb on onboarding step 4 */
   layout?: WorldIDLayout;
 }
 
@@ -23,6 +28,8 @@ const WorldIDWidget: React.FC<WorldIDWidgetProps> = ({
   isLoading,
   onVerify,
   onError,
+  onVerifyMiniKit,
+  isInWorldApp = false,
   layout = 'default',
 }) => {
   const isOnboarding = layout === 'onboarding';
@@ -36,20 +43,16 @@ const WorldIDWidget: React.FC<WorldIDWidgetProps> = ({
 
   return (
     <div className={isOnboarding ? 'world-id-section world-id-section--onboarding' : 'world-id-section'}>
-      {isPlaceholderAppId && (
-        <div
-          role="alert"
-          style={{
-            marginBottom: 16,
-            padding: 12,
-            backgroundColor: '#fff3cd',
-            border: '1px solid #ffc107',
-            borderRadius: 8,
-            color: '#856404',
-            fontSize: 14,
-            lineHeight: 1.45,
-          }}
-        >
+      {/* ─── Environment indicator ─── */}
+      <div className="world-id-env-badge" role="status">
+        <span className={`env-dot ${isInWorldApp ? 'env-dot--worldapp' : 'env-dot--browser'}`} />
+        <span className="env-label">
+          {isInWorldApp ? 'World App' : 'Browser'}
+        </span>
+      </div>
+
+      {isPlaceholderAppId && !isInWorldApp && (
+        <div role="alert" className="hi-config-alert">
           <strong>World ID is not configured for this deployment.</strong> Set{' '}
           <code>REACT_APP_WORLD_APP_ID</code> in Vercel (Project → Environment Variables) to your
           app ID from the{' '}
@@ -62,17 +65,18 @@ const WorldIDWidget: React.FC<WorldIDWidgetProps> = ({
       )}
       {!isOnboarding && (
         <div className="section-header">
-          <h3>🌍 World ID Human Verification</h3>
-          <p className="description">
-            Verify your humanness with World ID for blockchain-based content authentication
-          </p>
+          <h3 className="world-id-h3">
+            <WorldMarkIcon size="md" />
+            <span>World ID Human Verification</span>
+          </h3>
         </div>
       )}
 
-      <div className="world-id-status">
-        {isVerified ? (
+      {/* ─── Verified state (same for both paths) ─── */}
+      {isVerified && (
+        <div className="world-id-status">
           <div className="status-verified">
-            <div className="status-badge success">✅ Verified Human</div>
+            <div className="status-badge success">Verified ✓</div>
             <div className="world-id-details">
               <div className="detail-item">
                 <span className="label">Verification Level:</span>
@@ -86,18 +90,18 @@ const WorldIDWidget: React.FC<WorldIDWidgetProps> = ({
                 <span className="label">Merkle Root:</span>
                 <span className="value hash">{worldIdProof?.merkle_root}</span>
               </div>
+              {isInWorldApp && (
+                <div className="detail-item">
+                  <span className="label">Verified via:</span>
+                  <span className="value">World App (native)</span>
+                </div>
+              )}
             </div>
           </div>
-        ) : (
-          <div className="status-unverified">
-            <div className="status-badge pending">⏳ Unverified</div>
-            <p className="verification-prompt">
-              Please verify your humanness with World ID to proceed with content authentication
-            </p>
-          </div>
-        )}
-      </div>
+        </div>
+      )}
 
+      {/* ─── Error state ─── */}
       {error && (
         <div className="error-message">
           <span className="error-icon">❌</span>
@@ -105,48 +109,68 @@ const WorldIDWidget: React.FC<WorldIDWidgetProps> = ({
         </div>
       )}
 
-      {!isVerified && (
-        <div className="world-id-widget">
-          <IDKitWidget
-            app_id={appId}
-            action={action}
-            verification_level={verificationLevel}
-            onSuccess={onVerify}
-            onError={onError}
-          >
-            {({ open }) => (
-              <button
-                onClick={open}
-                disabled={isLoading || isPlaceholderAppId}
-                className="world-id-button"
-                title={isPlaceholderAppId ? 'Configure REACT_APP_WORLD_APP_ID and Developer Portal URL first' : undefined}
-              >
-                {isLoading ? (
-                  <span className="loading-text">
-                    <span className="spinner">⏳</span>
-                    Verifying...
-                  </span>
-                ) : (
-                  <span className="button-text">
-                    <span className="world-icon">🌍</span>
-                    Verify with World ID
-                  </span>
-                )}
-              </button>
-            )}
-          </IDKitWidget>
-        </div>
+      {!isVerified && !isOnboarding && (
+        <p className="world-id-why">
+          World ID links proof of personhood to this session, so your attestations and onchain records are tied to one
+          unique human, not a bot or an AI.
+        </p>
       )}
 
-      {!isOnboarding && (
-        <div className="world-id-info">
-          <h4>About World ID Verification</h4>
-          <ul>
-            <li>🔐 <strong>Privacy-First:</strong> Your biometric data stays on your device</li>
-            <li>🌐 <strong>Proof of Personhood:</strong> Cryptographic proof you&apos;re a unique human</li>
-            <li>🔒 <strong>Zero-Knowledge:</strong> No personal information is shared</li>
-            <li>⚡ <strong>Instant:</strong> Verification happens in seconds</li>
-          </ul>
+      {/* ─── BRANCHED VERIFY FLOW ─── */}
+      {!isVerified && (
+        <div className="world-id-widget">
+          {isInWorldApp ? (
+            /* === World App path: native MiniKit verify === */
+            <button
+              onClick={onVerifyMiniKit}
+              disabled={isLoading}
+              className="world-id-button world-id-button--minikit"
+              id="minikit-verify-btn"
+            >
+              {isLoading ? (
+                <span className="loading-text">
+                  <span className="spinner">⏳</span>
+                  Verifying via World App…
+                </span>
+              ) : (
+                <span className="button-text">
+                  <WorldMarkIcon size="sm" className="world-id-btn__mark" />
+                  Verify with World App
+                </span>
+              )}
+            </button>
+          ) : (
+            /* === Browser path: IDKit widget === */
+            <IDKitWidget
+              app_id={appId}
+              action={action}
+              verification_level={verificationLevel}
+              onSuccess={onVerify}
+              onError={onError}
+            >
+              {({ open }) => (
+                <button
+                  onClick={open}
+                  disabled={isLoading || isPlaceholderAppId}
+                  className="world-id-button"
+                  id="idkit-verify-btn"
+                  title={isPlaceholderAppId ? 'Configure REACT_APP_WORLD_APP_ID and Developer Portal URL first' : undefined}
+                >
+                  {isLoading ? (
+                    <span className="loading-text">
+                      <span className="spinner">⏳</span>
+                      Verifying…
+                    </span>
+                  ) : (
+                    <span className="button-text">
+                      <WorldMarkIcon size="sm" className="world-id-btn__mark" />
+                      Verify with World ID
+                    </span>
+                  )}
+                </button>
+              )}
+            </IDKitWidget>
+          )}
         </div>
       )}
     </div>

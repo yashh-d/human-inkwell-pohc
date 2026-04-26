@@ -10,15 +10,23 @@ interface UseKeystrokeCaptureReturn {
   startCapture: (target: HTMLElement) => void;
   stopCapture: () => void;
   getRawKeystrokeData: () => KeystrokeEvent[];
+  /** Times the page became hidden (tab/window switch, minimize, etc.) during the last capture session. */
+  getTabAwayCount: () => number;
   resetCapture: () => void;
   isCapturing: boolean;
 }
 
 export const useKeystrokeCapture = (): UseKeystrokeCaptureReturn => {
   const keystrokeDataRef = useRef<KeystrokeEvent[]>([]);
+  const tabAwayCountRef = useRef(0);
   const [isCapturing, setIsCapturing] = useState(false);
   const targetElementRef = useRef<HTMLElement | null>(null);
   const isCapturingRef = useRef(false);
+
+  const handleVisibilityChange = useCallback(() => {
+    if (!isCapturingRef.current || !document.hidden) return;
+    tabAwayCountRef.current += 1;
+  }, []);
 
   const handleKeyDown = useCallback((event: KeyboardEvent) => {
     if (!isCapturingRef.current) return;
@@ -54,6 +62,8 @@ export const useKeystrokeCapture = (): UseKeystrokeCaptureReturn => {
     
     isCapturingRef.current = false;
     setIsCapturing(false);
+
+    document.removeEventListener('visibilitychange', handleVisibilityChange);
     
     // Remove event listeners
     targetElementRef.current.removeEventListener('keydown', handleKeyDown);
@@ -62,7 +72,7 @@ export const useKeystrokeCapture = (): UseKeystrokeCaptureReturn => {
     console.log('Capture stopped, listeners removed. Total events captured:', keystrokeDataRef.current.length);
     
     targetElementRef.current = null;
-  }, [handleKeyDown, handleKeyUp]);
+  }, [handleKeyDown, handleKeyUp, handleVisibilityChange]);
 
   const startCapture = useCallback((target: HTMLElement) => {
     console.log('Starting capture...');
@@ -70,6 +80,7 @@ export const useKeystrokeCapture = (): UseKeystrokeCaptureReturn => {
     // Stop current capture if already capturing
     if (isCapturingRef.current && targetElementRef.current) {
       console.log('Already capturing, stopping first...');
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
       targetElementRef.current.removeEventListener('keydown', handleKeyDown);
       targetElementRef.current.removeEventListener('keyup', handleKeyUp);
     }
@@ -80,28 +91,34 @@ export const useKeystrokeCapture = (): UseKeystrokeCaptureReturn => {
     
     // Clear previous data
     keystrokeDataRef.current = [];
+    tabAwayCountRef.current = 0;
     
     // Add event listeners
     target.addEventListener('keydown', handleKeyDown);
     target.addEventListener('keyup', handleKeyUp);
+    document.addEventListener('visibilitychange', handleVisibilityChange);
     
     console.log('Capture started, listeners attached');
-  }, [handleKeyDown, handleKeyUp]);
+  }, [handleKeyDown, handleKeyUp, handleVisibilityChange]);
 
   const getRawKeystrokeData = useCallback(() => {
     console.log('Getting raw keystroke data, length:', keystrokeDataRef.current.length);
     return [...keystrokeDataRef.current];
   }, []);
 
+  const getTabAwayCount = useCallback(() => tabAwayCountRef.current, []);
+
   const resetCapture = useCallback(() => {
     console.log('Resetting capture data');
     keystrokeDataRef.current = [];
+    tabAwayCountRef.current = 0;
   }, []);
 
   return {
     startCapture,
     stopCapture,
     getRawKeystrokeData,
+    getTabAwayCount,
     resetCapture,
     isCapturing
   };

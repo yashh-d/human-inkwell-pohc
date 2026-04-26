@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useRef } from 'react';
 import { ISuccessResult, IErrorState } from '@worldcoin/idkit';
 import WorldIDWidget from './WorldIDWidget';
+import PoweredByWorld from './PoweredByWorld';
 import './OnboardingFlow.css';
 
 export const HUMAN_INKWELL_ONBOARDING_STORAGE_KEY = 'humanInkwell_onboarding_v1';
@@ -57,6 +58,10 @@ type WorldIDWidgetBridgeProps = {
   isLoading: boolean;
   onVerify: (proof: ISuccessResult) => Promise<void>;
   onError: (error: IErrorState) => void;
+  /** MiniKit native verify handler */
+  onVerifyMiniKit?: () => Promise<void>;
+  /** Whether running inside World App */
+  isInWorldApp?: boolean;
 };
 
 type OnboardingFlowProps = {
@@ -116,8 +121,7 @@ const OnboardingFlow: React.FC<OnboardingFlowProps> = ({ worldIdProps, onComplet
     <div className="onboarding-root" role="dialog" aria-modal="true" aria-labelledby="onboarding-title">
       <div className="onboarding-card">
         <div className="onboarding-brand">
-          <h1 id="onboarding-title">Human Inkwell</h1>
-          <p>Biometric typing signatures & World ID</p>
+          <PoweredByWorld variant="header" className="onboarding-brand__powered" rootId="onboarding-title" />
         </div>
 
         <div className="onboarding-dots" role="tablist" aria-label="Onboarding steps">
@@ -146,8 +150,8 @@ const OnboardingFlow: React.FC<OnboardingFlowProps> = ({ worldIdProps, onComplet
             <div className="onboarding-slide-panel onboarding-world-wrap">
               <h2>Connect World ID</h2>
               <p>
-                Verify with World ID to link proof of personhood to your on-chain record. You can also skip and verify
-                later in the app.
+                World ID links proof of personhood to this session, so your attestations and onchain records are tied to
+                one unique human, not a bot or an AI.
               </p>
               <WorldIDWidget {...worldIdProps} layout="onboarding" />
             </div>
