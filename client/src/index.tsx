@@ -1,5 +1,6 @@
 import React from 'react';
 import ReactDOM from 'react-dom/client';
+import { PrivyProvider } from '@privy-io/react-auth';
 import './index.css';
 import App from './App';
 import reportWebVitals from './reportWebVitals';
@@ -9,7 +10,22 @@ const root = ReactDOM.createRoot(
 );
 root.render(
   <React.StrictMode>
-    <App />
+    <PrivyProvider
+      appId={process.env.REACT_APP_PRIVY_APP_ID || ''}
+      config={{
+        loginMethods: ['email', 'wallet', 'google'],
+        appearance: {
+          theme: 'light',
+          accentColor: '#121212',
+          logo: 'https://worldcoin.org/logo.png', // Temporary placeholder for logo
+        },
+        embeddedWallets: {
+          createOnLogin: 'users-without-wallets',
+        },
+      }}
+    >
+      <App />
+    </PrivyProvider>
   </React.StrictMode>
 );
 

@@ -59,18 +59,28 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     );
 
     console.log(`Relay Tx Hash: ${tx.hash}`);
-    
-    // We return the transaction hash immediately. The frontend can waitForTransaction on exactly this hash.
-    return res.status(200).json({ 
-      success: true, 
-      transactionHash: tx.hash 
-    });
+    return res.status(200).json({ success: true, transactionHash: tx.hash });
     
   } catch (error: any) {
-    console.error('Relayer error:', error);
+    console.error('🔥 Relayer Critical Failure!');
+    console.error('Error Name:', error.name);
+    console.error('Error Code:', error.code);
+    console.error('Error Message:', error.message);
+    if (error.info) console.error('RPC Info:', JSON.stringify(error.info, null, 2));
+    if (error.transaction) console.error('Failed Tx:', error.transaction);
+
+    let specificFix = 'Unknown Error';
+    if (error.message?.includes('insufficient funds') || error.code === 'INSUFFICIENT_FUNDS') {
+      specificFix = 'CRITICAL: The Vercel RELAYER_PRIVATE_KEY wallet has ZERO ETH on World Chain Sepolia. Please fund the relayer.';
+    } else if (error.message?.includes('Invalid EIP-712 signature')) {
+      specificFix = 'The EIP-712 signature verification failed. Did the smart contract get redeployed without updating REACT_APP_CONTRACT_ADDRESS?';
+    }
+
     return res.status(500).json({ 
       error: 'Relay failed', 
-      details: error.message 
+      details: error.message,
+      troubleshooting: specificFix,
+      code: error.code
     });
   }
 }

@@ -14,6 +14,8 @@ import {
 import WorldIDWidget from '../components/WorldIDWidget';
 import { blockchainService } from '../blockchain';
 import { pushLedgerIndexAfterOnChainSuccess } from '../ledgerSupabase';
+import { useWallets } from '@privy-io/react-auth';
+import { ethers } from 'ethers';
 
 // Define interfaces for detailed biometric data
 interface BiometricFeatures {
@@ -137,6 +139,7 @@ function HomePage({
   const { startCapture, stopCapture, getRawKeystrokeData, getTabAwayCount, resetCapture, isCapturing } = useKeystrokeCapture();
   const { generateHumanSignatureHash } = useBiometricProcessor();
   const humanFocusScore = humanFocusScoreFromTabAwayCount(sessionTabAwayCount);
+  const { wallets } = useWallets();
   // Function to calculate statistics
   const calculateStatistics = (values: number[]): FeatureStatistics => {
     if (values.length === 0) {
@@ -403,11 +406,24 @@ function HomePage({
 
       setProcessingStatus('⛓️ Publishing to World Chain (Human Content Ledger)…');
       
+      let privySigner: ethers.Signer | undefined;
+      let privyAddress: string | undefined;
+
+      if (wallets && wallets.length > 0) {
+        const wallet = wallets[0];
+        privyAddress = wallet.address;
+        const ethereumProvider = await wallet.getEthereumProvider();
+        const provider = new ethers.BrowserProvider(ethereumProvider as any);
+        privySigner = await provider.getSigner();
+      }
+
       // Submit to blockchain (progress + long onchain wait happen inside; avoids false "0 gas" errors on first try)
       const result = await blockchainService.submitContent(submissionData, {
         onProgress: (msg) => {
           setProcessingStatus(msg);
         },
+        privySigner,
+        privyAddress,
       });
       
       if (result.success && result.transactionHash) {

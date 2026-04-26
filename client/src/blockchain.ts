@@ -49,6 +49,8 @@ export interface BlockchainResponse {
 
 export type SubmitContentOptions = {
   onProgress?: (message: string) => void;
+  privySigner?: ethers.Signer;
+  privyAddress?: string;
 };
 
 class BlockchainService {
@@ -219,17 +221,23 @@ class BlockchainService {
     return BigInt(hex);
   }
 
-  private async assertMetaMaskOnExpectedChain(): Promise<void> {
-    if (!window.ethereum) return;
-    const hex = (await window.ethereum.request({ method: 'eth_chainId' })) as string;
-    const asNum = parseInt(hex, 16);
-    if (asNum !== EXPECTED_CHAIN_ID) {
-      throw new Error(
-        `Your wallet is on the wrong network (chainId ${asNum} / ${hex}). ` +
+  private  async assertMetaMaskOnExpectedChain(signer?: ethers.Signer): Promise<boolean> {
+    if (!window.ethereum && !signer) return true;
+
+    try {
+      const provider = signer ? signer.provider as any : window.ethereum;
+      const chainIdHex = await provider.request({ method: 'eth_chainId' });
+      if (parseInt(chainIdHex, 16) === EXPECTED_CHAIN_ID) {
+        return true;
+      }
+    } catch {
+      // Ignored for environments without standard eth_chainId
+    }
+    throw new Error(
+        `Your wallet is on the wrong network (chainId ${EXPECTED_CHAIN_ID} / ${NETWORK_NAME}). ` +
           `Select ${NETWORK_NAME} (${EXPECTED_CHAIN_ID}) in MetaMask, then try again. ` +
           `A wrong network often shows 0 balance for gas even if your funded address is correct.`
       );
-    }
   }
 
   /**
@@ -457,24 +465,22 @@ class BlockchainService {
     let walletAtSubmit: string | undefined;
     let submittedTxHash: string | null = null;
     try {
-      let walletAtSubmit: string | undefined;
       let signer: ethers.Signer | undefined;
-
-      // When inside the World App, we bypass standard window.ethereum injection
       const useMiniKit = MiniKit.isInstalled();
 
-      if (useMiniKit) {
+      if (!useMiniKit) {
+        if (options?.privySigner && options?.privyAddress) {
+          signer = options.privySigner;
+          walletAtSubmit = options.privyAddress;
+        } else {
+          // Fallback legacy behavior
+          const connected = await this.connectWallet();
+          signer = connected.signer;
+          walletAtSubmit = connected.address;
+        }
+      } else {
         console.log('📱 Using MiniKit native transaction bridge...');
         walletAtSubmit = MiniKit.user?.walletAddress || undefined;
-      } else {
-        console.log('🔗 Connecting to browser wallet...');
-        const connected = await this.connectWallet();
-        signer = connected.signer;
-        walletAtSubmit = connected.address;
-        
-        // First onchain action of the session often fails in MetaMask / in-app
-        // webviews with a stale "have 0" fee pre-check; warming fee data fixes most cases.
-        await this.warmupInjectedProvider();
       }
 
       console.log('📝 Preparing contract interaction...');
@@ -503,8 +509,8 @@ class BlockchainService {
       if (!useMiniKit && signer) {
         contractWithSigner = this.contract.connect(signer) as ethers.Contract;
         
-        // Assert network is correct
-        await this.assertMetaMaskOnExpectedChain();
+        // Assert network is correct (may no longer be strictly needed with Privy but good to try)
+        await this.assertMetaMaskOnExpectedChain(signer);
       }
 
       let tx: any;
