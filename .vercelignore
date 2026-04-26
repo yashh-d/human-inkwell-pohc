@@ -1,0 +1,11 @@
+# Excluded from Vercel uploads (huge; not needed for the React app build)
+contract-deployer
+client/node_modules
+blockchain/node_modules
+**/node_modules
+client/build
+blockchain/cache
+blockchain/artifacts
+blockchain/coverage
+.git
+*.log

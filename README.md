@@ -6,25 +6,31 @@ Keystroke biometrics, optional [World ID](https://world.org/world-id), and on-ch
 - **Frontend:** `client/` (Create React App)
 - **Contracts:** `blockchain/` (Hardhat)
 
-## GitHub
+**GitHub (live):** [github.com/yashh-d/human-inkwell-pohc](https://github.com/yashh-d/human-inkwell-pohc)
+
+## GitHub (clone or contribute)
 
 ```bash
+git clone https://github.com/yashh-d/human-inkwell-pohc.git
 cd human-inkwell-pohc
-git init
-git add -A
-git commit -m "Initial commit: Human Inkwell"
-gh repo create human-inkwell-pohc --private --source=. --push
-# or: create an empty repo on GitHub, then:
-# git remote add origin https://github.com/<you>/<repo>.git
-# git push -u origin main
 ```
 
 ## Vercel
 
-1. [Import the GitHub repo](https://vercel.com/new) in Vercel.
-2. **Root Directory:** leave as repo root (this `vercel.json` builds `client/`).
-3. **Environment variables:** add every key from `client/.env.local.example` (use your real `REACT_APP_WORLD_APP_ID` and `REACT_APP_CONTRACT_ADDRESS`).
-4. Deploy. The build runs `cd client && CI= npm run build` so ESLint warnings do not fail the production build.
+1. [Import the GitHub repo](https://vercel.com/new) in Vercel and pick **this** repository.
+2. **Root Directory:** set to **`client`** (important — the Create React App lives there; the repo also contains `blockchain/` and a large optional `contract-deployer/` folder you must not deploy as the app).
+3. **Framework preset:** “Create React App” (Vercel should auto-detect from `client/package.json`). If the build fails on warnings, the included `client/vercel.json` sets `CI= npm run build` so production builds do not treat ESLint warnings as errors.
+4. **Environment variables:** in Vercel → Project → Settings → Environment Variables, add every `REACT_APP_*` from [`client/.env.local.example`](./client/.env.local.example) (your real `REACT_APP_WORLD_APP_ID`, `REACT_APP_CONTRACT_ADDRESS`, etc.).
+5. **Deploy.** Re-deploy when you change env or merge to `main`.
+
+**CLI (optional, from `client` only so uploads stay small):**
+
+```bash
+cd client
+npx vercel --prod
+```
+
+A repo-root deploy without setting Root Directory to `client` is **not** recommended here (Vercel would need to pack the full tree; keep `client` as the app root).
 
 ## Local
 
