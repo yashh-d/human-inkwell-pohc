@@ -389,7 +389,7 @@ class BlockchainService {
       walletAddress: walletAtSubmit,
       statusNote: txHash
         ? undefined
-        : 'Confirmed on-chain; transaction hash is still being indexed. Open the explorer in an external browser if the link is blank.',
+        : 'Confirmed onchain; transaction hash is still being indexed. Open the explorer in an external browser if the link is blank.',
     };
   }
 
@@ -471,7 +471,7 @@ class BlockchainService {
         signer = connected.signer;
         walletAtSubmit = connected.address;
         
-        // First on-chain action of the session often fails in MetaMask / in-app
+        // First onchain action of the session often fails in MetaMask / in-app
         // webviews with a stale "have 0" fee pre-check; warming fee data fixes most cases.
         await this.warmupInjectedProvider();
       }
@@ -554,35 +554,38 @@ class BlockchainService {
       if (useMiniKit) {
         // --- 📱 MINIKIT PATH ---
         onProgress?.('⏳ Please confirm the transaction in World App...');
-        const { finalPayload } = await MiniKit.commandsAsync.sendTransaction({
-          transaction: [{
-            address: CONTRACT_ADDRESS,
-            abi: CONTRACT_ABI as any,
-            functionName: 'storeContent',
-            args: [
-              data.contentHash,
-              data.humanSignatureHash,
-              data.keystrokeCount,
-              typingScaled
-            ]
-          }]
-        });
+        
+        try {
+          const { finalPayload } = await MiniKit.commandsAsync.sendTransaction({
+            transaction: [{
+              address: CONTRACT_ADDRESS,
+              abi: CONTRACT_ABI as any,
+              functionName: 'storeContent',
+              args: [
+                data.contentHash,
+                data.humanSignatureHash,
+                String(data.keystrokeCount),
+                String(typingScaled)
+              ]
+            }]
+          });
 
-        if (finalPayload.status === 'error') {
-          // Pass the error out so our recovery mechanism or catch block handles it
-          const errPayload = finalPayload as any;
-          throw new Error(`MiniKit transaction failed: ${errPayload.error_code || 'Unknown error'}`);
+          if (finalPayload.status === 'error') {
+            const errPayload = finalPayload as any;
+            throw new Error(`MiniKit transaction failed: ${errPayload.error_code || 'Unknown error'} — Details: ${JSON.stringify(errPayload)}`);
+          }
+
+          const successPayload = finalPayload as MiniAppSendTransactionSuccessPayload;
+          submittedTxHash = successPayload.transaction_id;
+          console.log('📋 MiniKit Transaction submitted:', submittedTxHash);
+          
+          onProgress?.('⏳ Transaction sent via World App — waiting for block confirmation…');
+          
+          throw new Error('MINIKIT_AWAIT_RECEIPT');
+        } catch (mkErr: any) {
+          if (mkErr.message === 'MINIKIT_AWAIT_RECEIPT') throw mkErr;
+          throw new Error(`MiniKit Error: ${mkErr.message || mkErr}`);
         }
-
-        const successPayload = finalPayload as MiniAppSendTransactionSuccessPayload;
-        submittedTxHash = successPayload.transaction_id;
-        console.log('📋 MiniKit Transaction submitted:', submittedTxHash);
-        
-        onProgress?.('⏳ Transaction sent via World App — waiting for block confirmation…');
-        
-        // We don't have an ethers tx object to wait() on, so we artificially delay
-        // and let the catch-block recovery logic resolve the receipt via public RPC polling.
-        throw new Error('MINIKIT_AWAIT_RECEIPT');
         
       } else {
         // --- 💻 BROWSER WALLET PATH ---
@@ -622,7 +625,7 @@ class BlockchainService {
       try {
         const onChain = await this.findStoredContent(data.contentHash, walletAtSubmit);
         if (onChain) {
-          console.log('✅ Recovered: content is on-chain despite wallet error', onChain);
+          console.log('✅ Recovered: content is onchain despite wallet error', onChain);
           return this.successFromIndexedFind(onChain, walletAtSubmit, submittedTxHash);
         }
       } catch (recoverErr) {
@@ -641,7 +644,7 @@ class BlockchainService {
             if (fallbackReceipt.status === 0) {
               return {
                 success: false,
-                error: `Transaction ${submittedTxHash} was mined but reverted on-chain.`,
+                error: `Transaction ${submittedTxHash} was mined but reverted onchain.`,
                 walletAddress: walletAtSubmit,
                 explorerAddressUrl: walletAtSubmit
                   ? `${BLOCK_EXPLORER.replace(/\/$/, '')}/address/${walletAtSubmit}`
@@ -735,7 +738,7 @@ class BlockchainService {
             `You have about ${ethers.formatEther(hw.have)} ETH; try funding this address, then submit again. ` +
             (url ? ` ${url}` : '');
         } else {
-          // Likely a stale wallet / UI error after we already waited on-chain; public balance still > 0
+          // Likely a stale wallet / UI error after we already waited onchain; public balance still > 0
           message =
             "We could not show a final confirmation, but the chain still shows a balance. If you don't see a completed transaction, tap Submit to Blockchain again after a few seconds, or check My content to see if the entry is already there.";
           showExplorer = false;
@@ -748,7 +751,7 @@ class BlockchainService {
       if (!isInsufficient) {
         console.error('❌ Blockchain submission failed:', error);
       } else {
-        console.warn('blockchain: submission not confirmed after extended on-chain check', { raw, trustedBal: trustedBal.toString() });
+        console.warn('blockchain: submission not confirmed after extended onchain check', { raw, trustedBal: trustedBal.toString() });
       }
 
       const explorerAddressUrl =
