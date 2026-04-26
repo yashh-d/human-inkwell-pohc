@@ -26,6 +26,8 @@ export interface BlockchainResponse {
   entryId?: number;
   error?: string;
   gasUsed?: string;
+  /** Direct link to this transaction on the configured block explorer. */
+  explorerTransactionUrl?: string;
   /** If set, open this in a real browser (mini in-app browsers may block the explorer). */
   explorerAddressUrl?: string;
   walletAddress?: string;
@@ -34,6 +36,10 @@ export interface BlockchainResponse {
 class BlockchainService {
   private provider: ethers.JsonRpcProvider;
   private contract: ethers.Contract;
+
+  private explorerTransactionUrl(txHash: string): string {
+    return `${BLOCK_EXPLORER.replace(/\/$/, '')}/tx/${txHash}`;
+  }
 
   constructor() {
     this.provider = new ethers.JsonRpcProvider(RPC_URL);
@@ -350,7 +356,8 @@ class BlockchainService {
         success: true,
         transactionHash: tx.hash,
         entryId: entryId_result,
-        gasUsed: receipt.gasUsed.toString()
+        gasUsed: receipt.gasUsed.toString(),
+        explorerTransactionUrl: this.explorerTransactionUrl(tx.hash),
       };
       
     } catch (error: any) {

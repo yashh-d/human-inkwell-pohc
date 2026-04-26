@@ -54,6 +54,13 @@ function App() {
     explorerAddressUrl?: string;
     walletAddress?: string;
   } | null>(null);
+  const [blockchainSuccess, setBlockchainSuccess] = useState<{
+    transactionHash: string;
+    entryId?: number;
+    gasUsed?: string;
+    explorerTransactionUrl: string;
+  } | null>(null);
+  const [copyHint, setCopyHint] = useState<string | null>(null);
 
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   
@@ -326,6 +333,8 @@ function App() {
 
     setIsSubmittingToBlockchain(true);
     setBlockchainErrorHelp(null);
+    setBlockchainSuccess(null);
+    setCopyHint(null);
     setProcessingStatus('🔗 Connecting to wallet...');
 
     try {
@@ -345,29 +354,46 @@ function App() {
       // Submit to blockchain
       const result = await blockchainService.submitContent(submissionData);
       
-      if (result.success) {
+      if (result.success && result.transactionHash && result.explorerTransactionUrl) {
         setBlockchainErrorHelp(null);
-        setProcessingStatus(`✅ Successfully submitted to blockchain! 
-          Transaction Hash: ${result.transactionHash}
-          Entry ID: ${result.entryId}
-          Gas Used: ${result.gasUsed}
-          Your human-verified content is now permanently recorded.`);
-        
+        setBlockchainSuccess({
+          transactionHash: result.transactionHash,
+          entryId: result.entryId,
+          gasUsed: result.gasUsed,
+          explorerTransactionUrl: result.explorerTransactionUrl,
+        });
+        setProcessingStatus(
+          '✅ Your submission is confirmed on-chain. Transaction hash and explorer link are below.'
+        );
+        console.log('🎉 Blockchain submission successful!', result);
+      } else if (result.success) {
+        setBlockchainErrorHelp(null);
+        setProcessingStatus(
+          '✅ Submitted, but the explorer link was not returned. Check the console for the transaction hash.'
+        );
         console.log('🎉 Blockchain submission successful!', result);
       } else {
         setProcessingStatus(`❌ Blockchain submission failed: ${result.error || 'Unknown blockchain error'}`);
+        setBlockchainSuccess(null);
         setBlockchainErrorHelp({
           explorerAddressUrl: result.explorerAddressUrl,
           walletAddress: result.walletAddress,
         });
       }
-      
     } catch (error) {
       console.error('Blockchain submission failed:', error);
+      setBlockchainSuccess(null);
       setProcessingStatus(`❌ Blockchain submission failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
     } finally {
       setIsSubmittingToBlockchain(false);
     }
+  };
+
+  const copyToClipboard = (kind: 'hash' | 'link', text: string) => {
+    void navigator.clipboard.writeText(text).then(() => {
+      setCopyHint(kind === 'hash' ? 'Transaction hash' : 'Explorer link');
+      window.setTimeout(() => setCopyHint(null), 2000);
+    });
   };
 
   const handleResetAll = () => {
@@ -377,6 +403,8 @@ function App() {
     setBiometricData(null);
     setProcessingStatus('');
     setBlockchainErrorHelp(null);
+    setBlockchainSuccess(null);
+    setCopyHint(null);
     resetCapture();
     resetVerification();
   };
@@ -575,7 +603,7 @@ function App() {
                     rel="noopener noreferrer"
                     style={{ color: '#0d6efd' }}
                   >
-                    Open your address on Worldscan
+                    Open your address on the block explorer
                   </a>
                 </p>
                 <p style={{ margin: '0 0 4px', color: '#495057' }}>
@@ -597,6 +625,121 @@ function App() {
                 </code>
               </div>
             )}
+          </div>
+        )}
+
+        {blockchainSuccess && (
+          <div
+            style={{
+              padding: '16px',
+              backgroundColor: '#d1e7dd',
+              border: '1px solid #a3cfbb',
+              borderRadius: '8px',
+              marginBottom: '20px',
+            }}
+            role="status"
+          >
+            <h3 style={{ margin: '0 0 10px', fontSize: '18px', color: '#0a3622' }}>
+              On-chain confirmation
+            </h3>
+            <p style={{ margin: '0 0 10px', color: '#0f5132', fontSize: '14px' }}>
+              Your content hashes were written to the Human Content Ledger. Open the transaction in a full browser
+              (Safari/Chrome) if the in-app browser blocks links.
+            </p>
+            {blockchainSuccess.entryId != null && (
+              <p style={{ margin: '0 0 8px', fontSize: '14px' }}>
+                <strong>Ledger entry ID:</strong> {blockchainSuccess.entryId}
+              </p>
+            )}
+            {blockchainSuccess.gasUsed && (
+              <p style={{ margin: '0 0 8px', fontSize: '14px', color: '#495057' }}>
+                <strong>Gas used:</strong> {blockchainSuccess.gasUsed}
+              </p>
+            )}
+            <p style={{ margin: '0 0 4px', fontSize: '14px' }}>
+              <strong>Transaction hash</strong>
+            </p>
+            <code
+              style={{
+                display: 'block',
+                wordBreak: 'break-all',
+                padding: '8px 10px',
+                background: '#fff',
+                border: '1px solid #a3cfbb',
+                borderRadius: 4,
+                fontSize: '13px',
+                marginBottom: '8px',
+              }}
+            >
+              {blockchainSuccess.transactionHash}
+            </code>
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px', marginBottom: '12px' }}>
+              <button
+                type="button"
+                onClick={() => copyToClipboard('hash', blockchainSuccess.transactionHash)}
+                style={{
+                  padding: '6px 12px',
+                  fontSize: '13px',
+                  cursor: 'pointer',
+                  backgroundColor: '#0d6efd',
+                  color: '#fff',
+                  border: 'none',
+                  borderRadius: '4px',
+                }}
+              >
+                Copy hash
+              </button>
+              <a
+                href={blockchainSuccess.explorerTransactionUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                style={{
+                  display: 'inline-block',
+                  padding: '6px 12px',
+                  fontSize: '13px',
+                  backgroundColor: '#0f5132',
+                  color: '#fff',
+                  textDecoration: 'none',
+                  borderRadius: '4px',
+                }}
+              >
+                View transaction on explorer
+              </a>
+              <button
+                type="button"
+                onClick={() => copyToClipboard('link', blockchainSuccess.explorerTransactionUrl)}
+                style={{
+                  padding: '6px 12px',
+                  fontSize: '13px',
+                  cursor: 'pointer',
+                  backgroundColor: '#6c757d',
+                  color: '#fff',
+                  border: 'none',
+                  borderRadius: '4px',
+                }}
+              >
+                Copy explorer link
+              </button>
+            </div>
+            {copyHint && (
+              <p style={{ margin: 0, fontSize: '13px', color: '#0f5132' }}>Copied: {copyHint}.</p>
+            )}
+            <p style={{ margin: '8px 0 4px', color: '#495057', fontSize: '13px' }}>
+              Copy this URL if the link does not open:
+            </p>
+            <code
+              style={{
+                display: 'block',
+                wordBreak: 'break-all',
+                padding: '6px 8px',
+                background: '#fff',
+                border: '1px solid #ced4da',
+                borderRadius: 4,
+                fontSize: '12px',
+              }}
+            >
+              {blockchainSuccess.explorerTransactionUrl}
+            </code>
           </div>
         )}
         
