@@ -6,7 +6,8 @@ const CONTRACT_ADDRESS = process.env.REACT_APP_CONTRACT_ADDRESS || '0x5FbDB23156
 const RPC_URL = process.env.REACT_APP_RPC_URL || 'http://127.0.0.1:8545';
 const EXPECTED_CHAIN_ID = Number(process.env.REACT_APP_CHAIN_ID || 31337);
 const NETWORK_NAME = process.env.REACT_APP_NETWORK_NAME || 'Localhost 8545';
-const BLOCK_EXPLORER = process.env.REACT_APP_BLOCKCHAIN_EXPLORER_URL || 'https://sepolia.worldscan.org';
+const BLOCK_EXPLORER =
+  process.env.REACT_APP_BLOCKCHAIN_EXPLORER_URL || 'https://worldchain-sepolia.explorer.alchemy.com';
 
 // Contract ABI
 const CONTRACT_ABI = contractABI.abi;
@@ -136,7 +137,9 @@ class BlockchainService {
                 chainName: NETWORK_NAME,
                 rpcUrls: [RPC_URL],
                 nativeCurrency: { name: 'Ether', symbol: 'ETH', decimals: 18 },
-                blockExplorerUrls: blockExplorer ? [blockExplorer] : ['https://sepolia.worldscan.org'],
+                blockExplorerUrls: blockExplorer
+                  ? [blockExplorer]
+                  : ['https://worldchain-sepolia.explorer.alchemy.com'],
               },
             ],
           });

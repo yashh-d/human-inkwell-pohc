@@ -104,20 +104,14 @@ Duplicate **content** or **signature** strings are rejected by the contract (see
 
 ## World ID
 
-This app uses **World ID 4.0** with **@worldcoin/idkit** v4. Proof requests are **signed on the server** (RP key); the browser must not hold `RP_SIGNING_KEY`. Serverless routes live in `client/api/`.
+Configured via environment variables in `client/.env.local`:
 
-| Variable | Where | Purpose |
-|----------|--------|--------|
-| `REACT_APP_WORLD_APP_ID` | Client (Vercel) | `app_…` from the portal |
-| `REACT_APP_WORLD_RP_ID` | Client (Vercel) | `rp_…` from RP registration (4.0) |
-| `REACT_APP_WORLD_ACTION` | Client | Must match the action in the portal |
-| `REACT_APP_WORLD_SIGNAL` | Client (optional) | String bound into the MNC (device) proof |
-| `REACT_APP_WORLD_ENABLE_STAGING` | Client | `true` to use the simulator / staging |
-| `RP_SIGNING_KEY` | **Vercel only, server** | Hex signing key from the portal (never `REACT_APP_`) |
+- `REACT_APP_WORLD_APP_ID` — App ID from the [World Developer Portal](https://developer.worldcoin.org).
+- `REACT_APP_WORLD_ACTION` — Action / signal id for the proof.
+- `REACT_APP_WORLD_VERIFICATION_LEVEL` — e.g. `device` (no Orb) or `orb`.
+- `REACT_APP_WORLD_ENABLE_STAGING` — staging flag for IdKit.
 
-The UI uses the **MNC (device) credential** via `CredentialRequest('mnc', …)` — not the Orb path.
-
-**Submitting to the blockchain** does *not* require World ID for `storeContent` (on-chain), but the product can still use World ID for off-chain or future verified flows.
+**Submitting to the blockchain** in this app does *not* require World ID to succeed for `storeContent` (on-chain), but the product can still encourage verification in the UI.
 
 ### Vercel, World App, and IDKit (production)
 
@@ -143,15 +137,15 @@ Running on **Vercel** (or any non-localhost host) is not automatic for World ID:
 4. **Stable URL**  
    The World App / bridge often ties a session to the page origin. Test World ID on your **primary** Vercel production URL, not a one-off preview hash URL, unless that preview URL is also in the portal.
 
-5. **World ID 4.0 in this repo**  
-   The client uses **IDKit 4** (`IDKitRequestWidget` + MNC constraint) and **Vercel** routes under `client/api/` for `signRequest` and verify forwarding. If the World App still errors, re-check `RP_SIGNING_KEY`, `REACT_APP_WORLD_RP_ID`, and allowlisted origins. Use `npm run dev:vercel` in `client` to test **with** API routes.
+5. **Future: World ID 4.0**  
+   World’s current docs may describe **IDKit 4.x** with **RP signatures** and a small **backend** step. This repo still uses **@worldcoin/idkit** ~2.3 (`IDKitWidget`) for the in-browser path. If you upgrade to 4.x, you will add server endpoints to sign requests and may switch widgets—see [docs.world.org](https://docs.world.org/world-id/reference/idkit).
 
 ---
 
 ## Blockchain: contract & network
 
 - **Network (current setup):** **World Chain Sepolia**, **chain ID `4801`**, hex `0x12C1` (or `0x12c1`).
-- **Block explorer (testnet):** e.g. `https://sepolia.worldscan.org` (set `REACT_APP_BLOCKCHAIN_EXPLORER_URL`).
+- **Block explorer (testnet):** default in code is **Alchemy Blockscout** `https://worldchain-sepolia.explorer.alchemy.com` (set `REACT_APP_BLOCKCHAIN_EXPLORER_URL` to override). **Worldscan** is also available: `https://sepolia.worldscan.org`.
 
 ### `HumanContentLedger` (high level)
 
@@ -182,7 +176,7 @@ REACT_APP_CONTRACT_ADDRESS=0x...        # your HumanContentLedger
 REACT_APP_CHAIN_ID=4801
 REACT_APP_NETWORK_NAME=World Chain Sepolia
 REACT_APP_RPC_URL=https://worldchain-sepolia.g.alchemy.com/public
-REACT_APP_BLOCKCHAIN_EXPLORER_URL=https://sepolia.worldscan.org
+REACT_APP_BLOCKCHAIN_EXPLORER_URL=https://worldchain-sepolia.explorer.alchemy.com
 ```
 
 After any change, **restart** `npm start` and do a **hard refresh** in the browser so `REACT_APP_*` is picked up (Create React App bakes them at build time).
@@ -259,7 +253,8 @@ OP Stack **deploys** can be gas-heavy; the repo may use a **>1×** gas limit buf
 ## References
 
 - [World Chain / World ID docs](https://docs.world.org) — app IDs, network details, and best practices.
-- [Worldscan (Sepolia)](https://sepolia.worldscan.org) — testnet blocks and transactions.
+- [Alchemy Blockscout (World Chain Sepolia)](https://worldchain-sepolia.explorer.alchemy.com) — default app links; Blockscout UI.
+- [Worldscan (Sepolia)](https://sepolia.worldscan.org) — alternative explorer.
 - OP Stack: **L1 data fee** + L2 execution in transaction cost (see Optimism/OP docs for the mental model).
 
 ---
