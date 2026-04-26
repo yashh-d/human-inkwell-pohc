@@ -12,14 +12,15 @@ This document describes the **Human Inkwell** mini-app: keystroke-capture, optio
 4. [Privacy: what is and is not on-chain](#privacy-what-is-and-is-not-on-chain)
 5. [Biometric pipeline](#biometric-pipeline)
 6. [World ID](#world-id)
-7. [Blockchain: contract & network](#blockchain--contract--network)
-8. [Client configuration (`.env.local`)](#client-configuration-envlocal)
-9. [Run locally](#run-locally)
-10. [Deploying the contract (Hardhat)](#deploying-the-contract-hardhat)
-11. [Submit to blockchain: flow & requirements](#submit-to-blockchain--flow--requirements)
-12. [Gas on World Chain (OP Stack)](#gas-on-world-chain-op-stack)
-13. [Troubleshooting](#troubleshooting)
-14. [References](#references)
+7. [Vercel, World App, and IDKit (production)](#vercel-world-app-and-idkit-production)
+8. [Blockchain: contract & network](#blockchain--contract--network)
+9. [Client configuration (`.env.local`)](#client-configuration-envlocal)
+10. [Run locally](#run-locally)
+11. [Deploying the contract (Hardhat)](#deploying-the-contract-hardhat)
+12. [Submit to blockchain: flow & requirements](#submit-to-blockchain--flow--requirements)
+13. [Gas on World Chain (OP Stack)](#gas-on-world-chain-op-stack)
+14. [Troubleshooting](#troubleshooting)
+15. [References](#references)
 
 ---
 
@@ -111,6 +112,33 @@ Configured via environment variables in `client/.env.local`:
 - `REACT_APP_WORLD_ENABLE_STAGING` — staging flag for IdKit.
 
 **Submitting to the blockchain** in this app does *not* require World ID to succeed for `storeContent` (on-chain), but the product can still encourage verification in the UI.
+
+### Vercel, World App, and IDKit (production)
+
+Running on **Vercel** (or any non-localhost host) is not automatic for World ID: the **web origin** that starts the request must be registered with your app, and the **build** must see the same env vars you use in development.
+
+**Symptom in World App:** *“We couldn’t find the request.”* This usually means the handoff between your site and World App failed—often the **app ID** is wrong, the **action** does not match what the portal knows, or this **exact URL** is not allowed for that app.
+
+**Do this checklist:**
+
+1. **Vercel → Project → Environment variables**  
+   For **Production** (and Preview if you test there), set every `REACT_APP_*` the client needs, especially:
+   - `REACT_APP_WORLD_APP_ID` = your `app_…` from the [Developer Portal](https://developer.worldcoin.org) (not empty, not a placeholder).  
+   - `REACT_APP_WORLD_ACTION` = the **same** action name you created for this app in the portal (e.g. `verify_human_content`). Mismatches break the flow.  
+   - Same for chain / contract [variables](#client-configuration-envlocal) as in `.env.local`.
+
+2. **Redeploy** after any env change (Create React App bakes `REACT_APP_*` at **build** time).
+
+3. **World Developer Portal → your app**  
+   Register the URL users actually open, for example:
+   - Production: `https://your-name.vercel.app` or your custom domain (exact scheme + host, no trailing slash issues).  
+   - If the portal has **Allowed domains**, **App URL**, **Return URLs**, or **Redirect** settings, add the same production origin. Preview deployments (`*.vercel.app` random subdomains) may each need to be allowlisted, or use a **stable** production domain for World ID tests.
+
+4. **Stable URL**  
+   The World App / bridge often ties a session to the page origin. Test World ID on your **primary** Vercel production URL, not a one-off preview hash URL, unless that preview URL is also in the portal.
+
+5. **Future: World ID 4.0**  
+   World’s current docs may describe **IDKit 4.x** with **RP signatures** and a small **backend** step. This repo still uses **@worldcoin/idkit** ~2.3 (`IDKitWidget`) for the in-browser path. If you upgrade to 4.x, you will add server endpoints to sign requests and may switch widgets—see [docs.world.org](https://docs.world.org/world-id/reference/idkit).
 
 ---
 

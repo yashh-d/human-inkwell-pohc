@@ -10,6 +10,8 @@ interface WorldIDWidgetProps {
   onError: (error: IErrorState) => void;
 }
 
+const STAGING_PLACEHOLDER = 'app_staging_12345';
+
 const WorldIDWidget: React.FC<WorldIDWidgetProps> = ({
   isVerified,
   worldIdProof,
@@ -18,12 +20,40 @@ const WorldIDWidget: React.FC<WorldIDWidgetProps> = ({
   onVerify,
   onError,
 }) => {
-  const appId = process.env.REACT_APP_WORLD_APP_ID as `app_${string}` || 'app_staging_12345' as `app_${string}`;
+  const rawId = process.env.REACT_APP_WORLD_APP_ID;
+  const appId = (rawId as `app_${string}`) || (STAGING_PLACEHOLDER as `app_${string}`);
   const action = process.env.REACT_APP_WORLD_ACTION || 'human-content-verification';
   const verificationLevel = (process.env.REACT_APP_WORLD_VERIFICATION_LEVEL as VerificationLevel) || VerificationLevel.Device;
 
+  const isPlaceholderAppId = !rawId || rawId === STAGING_PLACEHOLDER;
+  const origin = typeof window !== 'undefined' ? window.location.origin : '(server)';
+
   return (
     <div className="world-id-section">
+      {isPlaceholderAppId && (
+        <div
+          role="alert"
+          style={{
+            marginBottom: 16,
+            padding: 12,
+            backgroundColor: '#fff3cd',
+            border: '1px solid #ffc107',
+            borderRadius: 8,
+            color: '#856404',
+            fontSize: 14,
+            lineHeight: 1.45,
+          }}
+        >
+          <strong>World ID is not configured for this deployment.</strong> Set{' '}
+          <code>REACT_APP_WORLD_APP_ID</code> in Vercel (Project → Environment Variables) to your
+          app ID from the{' '}
+          <a href="https://developer.worldcoin.org" target="_blank" rel="noopener noreferrer">
+            World Developer Portal
+          </a>
+          , redeploy, and add this exact site URL under your app&rsquo;s <strong>allowed / application URL</strong> (
+          {origin}).
+        </div>
+      )}
       <div className="section-header">
         <h3>🌍 World ID Human Verification</h3>
         <p className="description">
@@ -79,8 +109,9 @@ const WorldIDWidget: React.FC<WorldIDWidgetProps> = ({
             {({ open }) => (
               <button
                 onClick={open}
-                disabled={isLoading}
+                disabled={isLoading || isPlaceholderAppId}
                 className="world-id-button"
+                title={isPlaceholderAppId ? 'Configure REACT_APP_WORLD_APP_ID and Developer Portal URL first' : undefined}
               >
                 {isLoading ? (
                   <span className="loading-text">
