@@ -58,9 +58,10 @@ function App() {
     transactionHash: string;
     entryId?: number;
     gasUsed?: string;
-    explorerTransactionUrl: string;
+    explorerTxUrl?: string;
+    explorerContractUrl?: string;
+    explorerAddressUrl?: string;
   } | null>(null);
-  const [copyHint, setCopyHint] = useState<string | null>(null);
 
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   
@@ -334,7 +335,6 @@ function App() {
     setIsSubmittingToBlockchain(true);
     setBlockchainErrorHelp(null);
     setBlockchainSuccess(null);
-    setCopyHint(null);
     setProcessingStatus('🔗 Connecting to wallet...');
 
     try {
@@ -354,46 +354,32 @@ function App() {
       // Submit to blockchain
       const result = await blockchainService.submitContent(submissionData);
       
-      if (result.success && result.transactionHash && result.explorerTransactionUrl) {
+      if (result.success && result.transactionHash) {
         setBlockchainErrorHelp(null);
         setBlockchainSuccess({
           transactionHash: result.transactionHash,
           entryId: result.entryId,
           gasUsed: result.gasUsed,
-          explorerTransactionUrl: result.explorerTransactionUrl,
+          explorerTxUrl: result.explorerTxUrl,
+          explorerContractUrl: result.explorerContractUrl,
+          explorerAddressUrl: result.explorerAddressUrl,
         });
-        setProcessingStatus(
-          '✅ Your submission is confirmed on-chain. Transaction hash and explorer link are below.'
-        );
-        console.log('🎉 Blockchain submission successful!', result);
-      } else if (result.success) {
-        setBlockchainErrorHelp(null);
-        setProcessingStatus(
-          '✅ Submitted, but the explorer link was not returned. Check the console for the transaction hash.'
-        );
+        setProcessingStatus('✅ Submitted to Human Content Ledger.');
         console.log('🎉 Blockchain submission successful!', result);
       } else {
         setProcessingStatus(`❌ Blockchain submission failed: ${result.error || 'Unknown blockchain error'}`);
-        setBlockchainSuccess(null);
         setBlockchainErrorHelp({
           explorerAddressUrl: result.explorerAddressUrl,
           walletAddress: result.walletAddress,
         });
       }
+      
     } catch (error) {
       console.error('Blockchain submission failed:', error);
-      setBlockchainSuccess(null);
       setProcessingStatus(`❌ Blockchain submission failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
     } finally {
       setIsSubmittingToBlockchain(false);
     }
-  };
-
-  const copyToClipboard = (kind: 'hash' | 'link', text: string) => {
-    void navigator.clipboard.writeText(text).then(() => {
-      setCopyHint(kind === 'hash' ? 'Transaction hash' : 'Explorer link');
-      window.setTimeout(() => setCopyHint(null), 2000);
-    });
   };
 
   const handleResetAll = () => {
@@ -404,7 +390,6 @@ function App() {
     setProcessingStatus('');
     setBlockchainErrorHelp(null);
     setBlockchainSuccess(null);
-    setCopyHint(null);
     resetCapture();
     resetVerification();
   };
@@ -631,115 +616,87 @@ function App() {
         {blockchainSuccess && (
           <div
             style={{
-              padding: '16px',
+              padding: '14px 16px',
               backgroundColor: '#d1e7dd',
-              border: '1px solid #a3cfbb',
-              borderRadius: '8px',
-              marginBottom: '20px',
+              border: '1px solid #badbcc',
+              borderRadius: 6,
+              marginBottom: 20,
+              fontSize: 14,
+              lineHeight: 1.5,
+              color: '#0f5132',
             }}
-            role="status"
           >
-            <h3 style={{ margin: '0 0 10px', fontSize: '18px', color: '#0a3622' }}>
-              On-chain confirmation
-            </h3>
-            <p style={{ margin: '0 0 10px', color: '#0f5132', fontSize: '14px' }}>
-              Your content hashes were written to the Human Content Ledger. Open the transaction in a full browser
-              (Safari/Chrome) if the in-app browser blocks links.
-            </p>
-            {blockchainSuccess.entryId != null && (
-              <p style={{ margin: '0 0 8px', fontSize: '14px' }}>
-                <strong>Ledger entry ID:</strong> {blockchainSuccess.entryId}
-              </p>
-            )}
-            {blockchainSuccess.gasUsed && (
-              <p style={{ margin: '0 0 8px', fontSize: '14px', color: '#495057' }}>
-                <strong>Gas used:</strong> {blockchainSuccess.gasUsed}
-              </p>
-            )}
-            <p style={{ margin: '0 0 4px', fontSize: '14px' }}>
-              <strong>Transaction hash</strong>
-            </p>
-            <code
-              style={{
-                display: 'block',
-                wordBreak: 'break-all',
-                padding: '8px 10px',
-                background: '#fff',
-                border: '1px solid #a3cfbb',
-                borderRadius: 4,
-                fontSize: '13px',
-                marginBottom: '8px',
-              }}
-            >
-              {blockchainSuccess.transactionHash}
-            </code>
-            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px', marginBottom: '12px' }}>
+            <div style={{ fontWeight: 700, marginBottom: 6 }}>
+              ✅ Submitted on-chain
+              {typeof blockchainSuccess.entryId === 'number' && (
+                <> · Entry #{blockchainSuccess.entryId}</>
+              )}
+            </div>
+            <div style={{ marginBottom: 6 }}>
+              <strong>Tx hash:</strong>{' '}
+              <code style={{ wordBreak: 'break-all' }}>{blockchainSuccess.transactionHash}</code>{' '}
               <button
                 type="button"
-                onClick={() => copyToClipboard('hash', blockchainSuccess.transactionHash)}
+                onClick={() => navigator.clipboard?.writeText(blockchainSuccess.transactionHash)}
                 style={{
-                  padding: '6px 12px',
-                  fontSize: '13px',
+                  marginLeft: 6,
+                  padding: '2px 8px',
+                  fontSize: 12,
+                  border: '1px solid #0f5132',
+                  background: '#fff',
+                  borderRadius: 4,
                   cursor: 'pointer',
-                  backgroundColor: '#0d6efd',
-                  color: '#fff',
-                  border: 'none',
-                  borderRadius: '4px',
                 }}
               >
-                Copy hash
-              </button>
-              <a
-                href={blockchainSuccess.explorerTransactionUrl}
-                target="_blank"
-                rel="noopener noreferrer"
-                style={{
-                  display: 'inline-block',
-                  padding: '6px 12px',
-                  fontSize: '13px',
-                  backgroundColor: '#0f5132',
-                  color: '#fff',
-                  textDecoration: 'none',
-                  borderRadius: '4px',
-                }}
-              >
-                View transaction on explorer
-              </a>
-              <button
-                type="button"
-                onClick={() => copyToClipboard('link', blockchainSuccess.explorerTransactionUrl)}
-                style={{
-                  padding: '6px 12px',
-                  fontSize: '13px',
-                  cursor: 'pointer',
-                  backgroundColor: '#6c757d',
-                  color: '#fff',
-                  border: 'none',
-                  borderRadius: '4px',
-                }}
-              >
-                Copy explorer link
+                Copy
               </button>
             </div>
-            {copyHint && (
-              <p style={{ margin: 0, fontSize: '13px', color: '#0f5132' }}>Copied: {copyHint}.</p>
+            {blockchainSuccess.gasUsed && (
+              <div style={{ marginBottom: 6 }}>
+                <strong>Gas used:</strong> {blockchainSuccess.gasUsed}
+              </div>
             )}
-            <p style={{ margin: '8px 0 4px', color: '#495057', fontSize: '13px' }}>
-              Copy this URL if the link does not open:
-            </p>
-            <code
-              style={{
-                display: 'block',
-                wordBreak: 'break-all',
-                padding: '6px 8px',
-                background: '#fff',
-                border: '1px solid #ced4da',
-                borderRadius: 4,
-                fontSize: '12px',
-              }}
-            >
-              {blockchainSuccess.explorerTransactionUrl}
-            </code>
+            {blockchainSuccess.explorerTxUrl && (
+              <div style={{ marginBottom: 6 }}>
+                <a
+                  href={blockchainSuccess.explorerTxUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  style={{ color: '#0d6efd', fontWeight: 600 }}
+                >
+                  View transaction on block explorer →
+                </a>
+                <div style={{ fontSize: 12, color: '#495057', marginTop: 2 }}>
+                  If that link doesn’t open in an in-app browser, copy this URL into Safari/Chrome:
+                </div>
+                <code
+                  style={{
+                    display: 'block',
+                    wordBreak: 'break-all',
+                    padding: '6px 8px',
+                    background: '#fff',
+                    border: '1px solid #ced4da',
+                    borderRadius: 4,
+                    fontSize: 12,
+                    marginTop: 4,
+                  }}
+                >
+                  {blockchainSuccess.explorerTxUrl}
+                </code>
+              </div>
+            )}
+            {blockchainSuccess.explorerContractUrl && (
+              <div style={{ fontSize: 12 }}>
+                <a
+                  href={blockchainSuccess.explorerContractUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  style={{ color: '#0d6efd' }}
+                >
+                  Open contract on explorer
+                </a>
+              </div>
+            )}
           </div>
         )}
         

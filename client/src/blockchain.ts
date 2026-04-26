@@ -26,8 +26,10 @@ export interface BlockchainResponse {
   entryId?: number;
   error?: string;
   gasUsed?: string;
-  /** Direct link to this transaction on the configured block explorer. */
-  explorerTransactionUrl?: string;
+  /** Block explorer URL for the *transaction* (set on success). */
+  explorerTxUrl?: string;
+  /** Block explorer URL for the *contract* (set on success). */
+  explorerContractUrl?: string;
   /** If set, open this in a real browser (mini in-app browsers may block the explorer). */
   explorerAddressUrl?: string;
   walletAddress?: string;
@@ -36,10 +38,6 @@ export interface BlockchainResponse {
 class BlockchainService {
   private provider: ethers.JsonRpcProvider;
   private contract: ethers.Contract;
-
-  private explorerTransactionUrl(txHash: string): string {
-    return `${BLOCK_EXPLORER.replace(/\/$/, '')}/tx/${txHash}`;
-  }
 
   constructor() {
     this.provider = new ethers.JsonRpcProvider(RPC_URL);
@@ -285,19 +283,12 @@ class BlockchainService {
       }
 
       const feeData = await signer.provider!.getFeeData();
-      const unitPrice =
-        feeData.maxFeePerGas ?? feeData.gasPrice ?? BigInt(0);
-      if (unitPrice > BigInt(0) && gasLimit) {
-        // L2-only upper bound, then large slack: OP-Stack (World Chain) also charges an L1 data fee.
-        const l2 = (gasLimit * unitPrice * BigInt(15)) / BigInt(10);
-        const opL1DataSlack = EXPECTED_CHAIN_ID === 4801 ? BigInt(5) : BigInt(1);
-        const roughMaxWei = l2 * opL1DataSlack;
-        if (bal < roughMaxWei) {
-          throw new Error(
-            `Balance too low for the max possible fee (including World Chain L1 data cost) — need at least ~${ethers.formatEther(roughMaxWei)} ETH, have ${ethers.formatEther(bal)} on ${NETWORK_NAME}. Add more gas ETH on chain ${EXPECTED_CHAIN_ID}, or wait and retry when fees drop.`
-          );
-        }
-      }
+      // Note: deliberately *no* aggressive pre-flight "max fee" check here.
+      // OP-Stack L2s like World Chain Sepolia charge an L1 data fee that can't be
+      // accurately predicted client-side; a coarse slack (e.g. 5x) over-reserves and
+      // produces false "0 available for max fee" errors even when balance is fine
+      // (real fees on Worldscan are ~0.0003 ETH per call). MetaMask itself does the
+      // accurate balance check at signing time and will reject if truly underfunded.
 
       await this.assertMetaMaskOnExpectedChain();
       const bal2Inj = await this.getWalletNativeBalanceFromInjected(address);
@@ -352,12 +343,16 @@ class BlockchainService {
         }
       }
 
+      const baseExplorer = BLOCK_EXPLORER.replace(/\/$/, '');
       return {
         success: true,
         transactionHash: tx.hash,
         entryId: entryId_result,
         gasUsed: receipt.gasUsed.toString(),
-        explorerTransactionUrl: this.explorerTransactionUrl(tx.hash),
+        explorerTxUrl: `${baseExplorer}/tx/${tx.hash}`,
+        explorerContractUrl: `${baseExplorer}/address/${CONTRACT_ADDRESS}`,
+        explorerAddressUrl: walletAtSubmit ? `${baseExplorer}/address/${walletAtSubmit}` : undefined,
+        walletAddress: walletAtSubmit,
       };
       
     } catch (error: any) {
