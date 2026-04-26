@@ -385,13 +385,8 @@ function App() {
         setLedgerSyncNote(null);
         try {
           if (result.entryId != null) {
-            // Supabase /api/ledger must prove you own the address: personal_sign, not a chain tx.
-            // This is a second wallet popup by design; it is not a duplicate of the on-chain store.
-            setProcessingStatus(
-              '✅ On-chain done. Next: sign in your wallet to save to your private ledger (a message signature, not another transaction).'
-            );
-            const signer = await getInjectedSigner();
-            await syncLedgerToSupabase(signer, result, {
+            setProcessingStatus('✅ Submitted to Human Content Ledger. Saving to your private ledger (server verified)…');
+            await syncLedgerToSupabase(result, {
               contentHash,
               humanSignatureHash,
               keystrokeCount: biometricData.totalKeystrokes,
@@ -399,6 +394,7 @@ function App() {
               isVerified: isVerified,
               worldIdNullifier: worldIdProof?.nullifier_hash,
             });
+            setProcessingStatus('✅ Submitted to Human Content Ledger.');
             setLedgerSyncNote('Saved to your private ledger (database).');
           }
         } catch (e) {

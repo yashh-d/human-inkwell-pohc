@@ -47,36 +47,10 @@ function apiPath(path: string): string {
 }
 
 /**
- * Build exactly the same string as `api/ledger.js` (buildExpectedMessage).
+ * After an on-chain success, the server verifies the transaction + `getContentEntry` via RPC
+ * and inserts into Supabase — no second MetaMask `signMessage` (see `api/ledger.js` `verify_on_chain`).
  */
-function buildLedgerIndexMessage(p: {
-  chain_id: number;
-  contract_address: string;
-  entry_id: number;
-  author_address: string;
-  transaction_hash: string;
-  content_hash: string;
-  human_signature_hash: string;
-  is_verified: boolean;
-  world_id_nullifier?: string | null;
-}): string {
-  const nullifier = p.world_id_nullifier ?? '';
-  return [
-    'Human Inkwell ledger index',
-    `chain:${p.chain_id}`,
-    `entry:${p.entry_id}`,
-    `contract:${p.contract_address.toLowerCase()}`,
-    `author:${p.author_address.toLowerCase()}`,
-    `contentHash:${p.content_hash}`,
-    `humanSigHash:${p.human_signature_hash}`,
-    `tx:${p.transaction_hash.toLowerCase()}`,
-    `isVerified:${p.is_verified ? '1' : '0'}`,
-    `nullifier:${nullifier}`,
-  ].join('\n');
-}
-
 export async function syncLedgerToSupabase(
-  signer: Signer,
   result: BlockchainResponse,
   data: {
     contentHash: string;
@@ -92,28 +66,18 @@ export async function syncLedgerToSupabase(
     console.warn('ledgerSupabase: no entryId, cannot index row');
     return;
   }
-
-  const author_address = (await signer.getAddress()).toLowerCase();
+  const author = (result.walletAddress || '').trim();
+  if (!author) {
+    console.warn('ledgerSupabase: no walletAddress on chain result, cannot index row');
+    return;
+  }
+  const author_address = author.toLowerCase();
   const is_verified = data.isVerified;
   const world_id_nullifier = data.worldIdNullifier || null;
   const typing_speed_scaled = Math.floor(data.typingSpeed * 1000);
 
-  const message = buildLedgerIndexMessage({
-    chain_id: CHAIN_ID,
-    contract_address: ethers.getAddress(CONTRACT_ADDRESS).toLowerCase(),
-    entry_id: result.entryId,
-    author_address,
-    transaction_hash: result.transactionHash.toLowerCase(),
-    content_hash: data.contentHash,
-    human_signature_hash: data.humanSignatureHash,
-    is_verified,
-    world_id_nullifier,
-  });
-  const signature = await signer.signMessage(message);
-
   const payload = {
-    message,
-    signature,
+    verify_on_chain: true,
     chain_id: CHAIN_ID,
     contract_address: ethers.getAddress(CONTRACT_ADDRESS).toLowerCase(),
     entry_id: result.entryId,
