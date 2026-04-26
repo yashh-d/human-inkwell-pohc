@@ -619,21 +619,6 @@ class BlockchainService {
       }
       
     } catch (error: any) {
-      const msg = error?.message?.toLowerCase() || String(error).toLowerCase();
-      const isPreflight = 
-        msg.includes('please install') || 
-        msg.includes('multiple wallets') ||
-        msg.includes('network request failed') ||
-        msg.includes('please configure world chain') ||
-        msg.includes('make sure metamask is on') ||
-        msg.includes('this wallet has 0 eth') ||
-        msg.includes('already exists') ||
-        msg.includes('rejected in metamask'); // connecting / network switch rejected
-
-      if (isPreflight) {
-        throw error;
-      }
-      
       await new Promise((r) => setTimeout(r, 400));
       onProgress?.('⏳ Confirming on World Chain (checking the ledger)…');
       // STEP 1 — Contract may already show the new row even if the wallet errored.
