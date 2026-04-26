@@ -1,297 +1,146 @@
-import React, { useState, useCallback, useMemo } from 'react';
-import {
-  IDKitRequestWidget,
-  CredentialRequest,
-  any as anyCredential,
-  type RpContext,
-  type IDKitResult,
-  type IDKitErrorCodes,
-} from '@worldcoin/idkit';
-import { idKitResultToAppProof } from '../worldid/idKitAdapter';
-import type { AppWorldProof, WorldIdUiError } from '../worldid/types';
-
-const STAGING_PLACEHOLDER = 'app_staging_12345';
+import React from 'react';
+import { IDKitWidget, ISuccessResult, IErrorState, VerificationLevel } from '@worldcoin/idkit';
 
 interface WorldIDWidgetProps {
   isVerified: boolean;
-  worldIdProof: AppWorldProof | null;
-  error: WorldIdUiError | null;
+  worldIdProof: ISuccessResult | null;
+  error: IErrorState | null;
   isLoading: boolean;
-  onVerify: (proof: AppWorldProof) => Promise<void>;
-  onError: (error: WorldIdUiError) => void;
+  onVerify: (proof: ISuccessResult) => Promise<void>;
+  onError: (error: IErrorState) => void;
 }
 
-function apiUrl(path: string): string {
-  const base = (process.env.REACT_APP_PUBLIC_BASE_URL || '').replace(/\/$/, '');
-  return base ? `${base}${path}` : path;
-}
+const STAGING_PLACEHOLDER = 'app_staging_12345';
 
 const WorldIDWidget: React.FC<WorldIDWidgetProps> = ({
   isVerified,
   worldIdProof,
   error,
-  isLoading: parentLoading,
+  isLoading,
   onVerify,
   onError,
 }) => {
   const rawId = process.env.REACT_APP_WORLD_APP_ID;
-  const rawRp = process.env.REACT_APP_WORLD_RP_ID;
   const appId = (rawId as `app_${string}`) || (STAGING_PLACEHOLDER as `app_${string}`);
-  const action = process.env.REACT_APP_WORLD_ACTION || 'verify_human_content';
-  const worldSignal = process.env.REACT_APP_WORLD_SIGNAL || 'human-inkwell';
-  const rpId = (rawRp as `rp_${string}`) || ('' as `rp_${string}`);
+  const action = process.env.REACT_APP_WORLD_ACTION || 'human-content-verification';
+  const verificationLevel = (process.env.REACT_APP_WORLD_VERIFICATION_LEVEL as VerificationLevel) || VerificationLevel.Device;
 
-  const isPlaceholder = !rawId || rawId === STAGING_PLACEHOLDER || !rawRp || !rawRp.startsWith('rp_');
+  const isPlaceholderAppId = !rawId || rawId === STAGING_PLACEHOLDER;
   const origin = typeof window !== 'undefined' ? window.location.origin : '(server)';
-
-  const [open, setOpen] = useState(false);
-  const [rpContext, setRpContext] = useState<RpContext | null>(null);
-  const [busy, setBusy] = useState(false);
-  const [configError, setConfigError] = useState<string | null>(null);
-
-  const envTier =
-    process.env.REACT_APP_WORLD_ENABLE_STAGING === 'true' ? 'staging' : 'production';
-
-  const constraints = useMemo(
-    () => anyCredential(CredentialRequest('mnc', { signal: worldSignal })),
-    [worldSignal]
-  );
-
-  const startFlow = useCallback(async () => {
-    setConfigError(null);
-    if (isPlaceholder) {
-      return;
-    }
-    setBusy(true);
-    try {
-      const r = await fetch(apiUrl('/api/rp-signature'), {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ action }),
-      });
-      const body = await r.json().catch(() => ({}));
-      if (!r.ok) {
-        throw new Error(body.error || r.statusText || 'Could not get RP signature. Is RP_SIGNING_KEY set on the server?');
-      }
-      const { sig, nonce, created_at, expires_at: expiresAt } = body;
-      setRpContext({
-        rp_id: rpId,
-        nonce,
-        created_at: created_at,
-        expires_at: expiresAt,
-        signature: sig,
-      });
-      setOpen(true);
-    } catch (e) {
-      const message = e instanceof Error ? e.message : String(e);
-      setConfigError(message);
-      onError({ code: 'rp_sig', message });
-    } finally {
-      setBusy(false);
-    }
-  }, [action, isPlaceholder, onError, rpId]);
-
-  const handleWidgetError = useCallback(
-    (code: IDKitErrorCodes) => {
-      onError({ code: String(code), message: String(code) });
-      setOpen(false);
-      setRpContext(null);
-    },
-    [onError]
-  );
-
-  const handleVerify = useCallback(
-    async (result: IDKitResult) => {
-      if (!rawRp) throw new Error('REACT_APP_WORLD_RP_ID is not set');
-      const vr = await fetch(apiUrl('/api/verify-worldid'), {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ rp_id: rawRp, idkitResponse: result }),
-      });
-      if (!vr.ok) {
-        const t = await vr.text();
-        let msg = t;
-        try {
-          const j = JSON.parse(t) as { error?: string };
-          if (j.error) msg = j.error;
-        } catch {
-          /* use raw */
-        }
-        throw new Error(msg || 'World ID server verification failed');
-      }
-    },
-    [rawRp]
-  );
-
-  const handleSuccess = useCallback(
-    async (result: IDKitResult) => {
-      const shaped = idKitResultToAppProof(result);
-      await onVerify(shaped);
-      setOpen(false);
-      setRpContext(null);
-    },
-    [onVerify]
-  );
-
-  const loading = parentLoading || busy;
-  const showV4Help =
-    isPlaceholder && (
-      <div
-        role="alert"
-        style={{
-          marginBottom: 16,
-          padding: 12,
-          backgroundColor: '#fff3cd',
-          border: '1px solid #ffc107',
-          borderRadius: 8,
-          color: '#856404',
-          fontSize: 14,
-          lineHeight: 1.45,
-        }}
-      >
-        <strong>World ID 4.0 is not fully configured for this host.</strong> In{' '}
-        <a href="https://developer.world.org" target="_blank" rel="noopener noreferrer">
-          World Developer Portal
-        </a>
-        , complete <strong>World ID 4.0 / RP</strong> setup, then in Vercel set:
-        <ul style={{ margin: '8px 0 0 18px' }}>
-          <li>
-            <code>REACT_APP_WORLD_APP_ID</code> (e.g. <code>app_…</code>)
-          </li>
-          <li>
-            <code>REACT_APP_WORLD_RP_ID</code> (e.g. <code>rp_…</code>)
-          </li>
-          <li>
-            <code>RP_SIGNING_KEY</code> (server-only, from the portal &mdash; not a{' '}
-            <code>REACT_APP_</code> var)
-          </li>
-        </ul>
-        Add <strong>this origin</strong> to the app&rsquo;s allowed URLs: <code>{origin}</code>. For local
-        dev, run <code>vercel dev</code> in <code>client</code> so <code>/api</code> routes work. Redeploy
-        after changing env.
-      </div>
-    );
 
   return (
     <div className="world-id-section">
-      {showV4Help}
-
-      {configError && !isPlaceholder && (
+      {isPlaceholderAppId && (
         <div
-          role="status"
+          role="alert"
           style={{
-            marginBottom: 12,
-            padding: 10,
-            background: '#f8d7da',
-            border: '1px solid #f5c6cb',
+            marginBottom: 16,
+            padding: 12,
+            backgroundColor: '#fff3cd',
+            border: '1px solid #ffc107',
             borderRadius: 8,
-            color: '#721c24',
+            color: '#856404',
             fontSize: 14,
+            lineHeight: 1.45,
           }}
         >
-          {configError}
+          <strong>World ID is not configured for this deployment.</strong> Set{' '}
+          <code>REACT_APP_WORLD_APP_ID</code> in Vercel (Project → Environment Variables) to your
+          app ID from the{' '}
+          <a href="https://developer.worldcoin.org" target="_blank" rel="noopener noreferrer">
+            World Developer Portal
+          </a>
+          , redeploy, and add this exact site URL under your app&rsquo;s <strong>allowed / application URL</strong> (
+          {origin}).
         </div>
       )}
-
       <div className="section-header">
         <h3>🌍 World ID Human Verification</h3>
         <p className="description">
-          Verify with World ID (4.0). Uses device (MNC) proof — no Orb on this path.
+          Verify your humanness with World ID for blockchain-based content authentication
         </p>
       </div>
 
       <div className="world-id-status">
-        {isVerified && worldIdProof ? (
+        {isVerified ? (
           <div className="status-verified">
             <div className="status-badge success">✅ Verified Human</div>
             <div className="world-id-details">
               <div className="detail-item">
-                <span className="label">Credential:</span>
-                <span className="value">{worldIdProof.verification_level}</span>
+                <span className="label">Verification Level:</span>
+                <span className="value">{worldIdProof?.verification_level}</span>
               </div>
               <div className="detail-item">
                 <span className="label">Nullifier Hash:</span>
-                <span className="value hash">{worldIdProof.nullifier_hash}</span>
+                <span className="value hash">{worldIdProof?.nullifier_hash}</span>
               </div>
               <div className="detail-item">
-                <span className="label">Merkle / root:</span>
-                <span className="value hash">{worldIdProof.merkle_root}</span>
+                <span className="label">Merkle Root:</span>
+                <span className="value hash">{worldIdProof?.merkle_root}</span>
               </div>
             </div>
           </div>
         ) : (
           <div className="status-unverified">
             <div className="status-badge pending">⏳ Unverified</div>
-            <p className="verification-prompt">Verify with World ID to bind proof-of-personhood to this session.</p>
+            <p className="verification-prompt">
+              Please verify your humanness with World ID to proceed with content authentication
+            </p>
           </div>
         )}
       </div>
 
-      {error?.message && (
+      {error && (
         <div className="error-message">
           <span className="error-icon">❌</span>
-          <span>World ID: {error.message}</span>
+          <span>World ID Error: {error.message || error.code}</span>
         </div>
       )}
 
       {!isVerified && (
         <div className="world-id-widget">
-          <button
-            type="button"
-            onClick={startFlow}
-            disabled={loading || isPlaceholder}
-            className="world-id-button"
-            title={isPlaceholder ? 'Configure app id, rp id, and RP signing key' : 'Start World ID 4.0 flow'}
+          <IDKitWidget
+            app_id={appId}
+            action={action}
+            verification_level={verificationLevel}
+            onSuccess={onVerify}
+            onError={onError}
           >
-            {loading ? (
-              <span className="loading-text">
-                <span className="spinner">⏳</span>
-                {busy ? 'Preparing…' : 'Verifying...'}
-              </span>
-            ) : (
-              <span className="button-text">
-                <span className="world-icon">🌍</span>
-                Verify with World ID
-              </span>
+            {({ open }) => (
+              <button
+                onClick={open}
+                disabled={isLoading || isPlaceholderAppId}
+                className="world-id-button"
+                title={isPlaceholderAppId ? 'Configure REACT_APP_WORLD_APP_ID and Developer Portal URL first' : undefined}
+              >
+                {isLoading ? (
+                  <span className="loading-text">
+                    <span className="spinner">⏳</span>
+                    Verifying...
+                  </span>
+                ) : (
+                  <span className="button-text">
+                    <span className="world-icon">🌍</span>
+                    Verify with World ID
+                  </span>
+                )}
+              </button>
             )}
-          </button>
+          </IDKitWidget>
         </div>
       )}
 
-      {rpContext && (
-        <IDKitRequestWidget
-          open={open}
-          onOpenChange={(v) => {
-            setOpen(v);
-            if (!v) setRpContext(null);
-          }}
-          app_id={appId}
-          action={action}
-          rp_context={rpContext}
-          allow_legacy_proofs={true}
-          environment={envTier}
-          constraints={constraints}
-          handleVerify={handleVerify}
-          onSuccess={handleSuccess}
-          onError={handleWidgetError}
-        />
-      )}
-
       <div className="world-id-info">
-        <h4>World ID 4.0 on Vercel</h4>
+        <h4>About World ID Verification</h4>
         <ul>
-          <li>
-            This flow needs <strong>serverless</strong> <code>/api</code> routes; use the deployed Vercel URL
-            or <code>vercel dev</code> locally (plain <code>npm start</code> has no RP signer).
-          </li>
-          <li>
-            <strong>Device</strong> path uses the <code>mnc</code> (phone) credential per IDKit 4.0, not the Orb
-            path.
-          </li>
+          <li>🔐 <strong>Privacy-First:</strong> Your biometric data stays on your device</li>
+          <li>🌐 <strong>Proof of Personhood:</strong> Cryptographic proof you're a unique human</li>
+          <li>🔒 <strong>Zero-Knowledge:</strong> No personal information is shared</li>
+          <li>⚡ <strong>Instant:</strong> Verification happens in seconds</li>
         </ul>
       </div>
     </div>
   );
 };
 
-export default WorldIDWidget;
+export default WorldIDWidget; 
