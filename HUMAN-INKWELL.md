@@ -219,21 +219,24 @@ OP Stack **deploys** can be gas-heavy; the repo may use a **>1×** gas limit buf
 
 ---
 
-## Submit to blockchain: flow & requirements
+## Gasless Meta-Transactions: Flow & Requirements
+
+The project uses a purely **gasless** architecture via EIP-712 Meta-Transactions or native MiniKit. The user **never pays gas**.
 
 1. **Generate Local Signature** — build hashes; ensure **new** text so hashes are not already used on that contract.
-2. **Connect wallet** on **World Chain Sepolia (4801)** in MetaMask (or the injected wallet).
-3. **Fund** the **same** account with **native test ETH on 4801** (not only L1 Sepolia; bridge or faucet that credits **chain 4801**).
-4. **Submit to Blockchain** — the app will call `storeContent` and wait for a receipt, then read `ContentStored` for the entry id.
+2. **Submit to Blockchain (Two Paths)**:
+   - **World App (MiniKit)**: If testing inside the World App, we trigger `MiniKit.commandsAsync.sendTransaction`. The World App sponsor paymaster automatically pays the gas seamlessly.
+   - **Desktop (MetaMask/Browser Wallets)**: If testing on a desktop, the application prompts the user to sign a **free EIP-712 Typed Data Message** (`signTypedData`). This costs 0 native ETH.
+3. **The Backend Relayer**: Once signed, the browser POSTs the signature to the Vercel `/api/relay` serverless function. Your backend server, funded by the `RELAYER_PRIVATE_KEY`, constructs the blockchain transaction and pays the OP Stack gas out-of-pocket to effectively "mine" the user's intent to the ledger.
 
-**Explorers in embedded browsers** (e.g. some in-app webviews) may not open; copy the **Worldscan** URL from the status area into Safari/Chrome if needed.
+**Explorers in embedded browsers** (e.g. some in-app webviews) may not open automatically; copy the **Worldscan** URL from the status area into Safari/Chrome if needed.
 
 ---
 
 ## Gas on World Chain (OP Stack)
 
-- Fees include **L2 execution** and an **L1 data fee** (calldata to Ethereum). That is why “simple” L2 `gas × price` math in your head can look smaller than what MetaMask reserves as **max**.
-- The client uses **estimates**, **EIP-1559 fee fields** when available, and conservative checks so failed preflights and misleading “always zero balance” copy are reduced—**always trust your wallet** on the final **have / want** numbers.
+- While OP Stack utilizes L2 execution and an L1 data fee, **this burden is entirely shifted to the Developer Backend Relayer**.
+- To ensure transactions don't fail, make sure your Vercel `RELAYER_PRIVATE_KEY` wallet holds enough native test ETH on chain 4801. The front-end users do not need to bridge ETH to use the application.
 
 ---
 
@@ -241,8 +244,7 @@ OP Stack **deploys** can be gas-heavy; the repo may use a **>1×** gas limit buf
 
 | Symptom | What to check |
 |--------|----------------|
-| `REACT_APP_*` not applied | Restart dev server, hard-refresh. CRA reads env at compile time. |
-| `INSUFFICIENT_FUNDS` / no MetaMask popup | Same **chain** in MetaMask (**4801**), enough **ETH on 4801**, and not a duplicate `contentHash` / `humanSignatureHash`. |
+| `INSUFFICIENT_FUNDS` | Usually means the Vercel **Relayer Backend Wallet** ran out of gas. Ensure `RELAYER_PRIVATE_KEY` is funded on chain 4801. |
 | `Content already exists` / signature reuse | You must **change the text** (new content) and run **Generate Local Signature** again. |
 | Explorer / link doesn’t open in-app | Open the copied URL in a normal **desktop/mobile browser** outside the in-app view. |
 | `Bad data` / no bytecode at address | Wrong network or **wrong** `REACT_APP_CONTRACT_ADDRESS` for that network. |
