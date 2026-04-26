@@ -10,6 +10,7 @@ import {
   getInjectedSigner,
   pushLedgerIndexAfterOnChainSuccess,
   fetchMyLedgerRows,
+  fetchSupabaseServerDebug,
   explorerTxUrl,
   type LedgerSubmissionRow,
 } from './ledgerSupabase';
@@ -74,6 +75,8 @@ function App() {
   const [myLedgerError, setMyLedgerError] = useState<string | null>(null);
   const [isLoadingMyLedger, setIsLoadingMyLedger] = useState(false);
   const [ledgerSyncNote, setLedgerSyncNote] = useState<string | null>(null);
+  const [supabaseDebugJson, setSupabaseDebugJson] = useState<string | null>(null);
+  const [supabaseDebugLoading, setSupabaseDebugLoading] = useState(false);
 
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   
@@ -452,6 +455,21 @@ function App() {
     }
   };
 
+  const handleDebugSupabase = async () => {
+    setSupabaseDebugJson(null);
+    setSupabaseDebugLoading(true);
+    try {
+      const data = await fetchSupabaseServerDebug();
+      setSupabaseDebugJson(JSON.stringify(data, null, 2));
+    } catch (e) {
+      setSupabaseDebugJson(
+        e instanceof Error ? e.message : 'Failed to fetch /api/debug-supabase (is `vercel dev` running?)'
+      );
+    } finally {
+      setSupabaseDebugLoading(false);
+    }
+  };
+
   const handleResetAll = () => {
     setContent('');
     setHumanSignatureHash('');
@@ -463,6 +481,7 @@ function App() {
     setMyLedgerRows(null);
     setMyLedgerError(null);
     setLedgerSyncNote(null);
+    setSupabaseDebugJson(null);
     resetCapture();
     resetVerification();
   };
@@ -792,11 +811,58 @@ function App() {
           <p style={{ fontSize: 14, color: '#333', lineHeight: 1.4 }}>
             Only you can load this: your wallet signs a short “list my submissions” message. Each row is content and
             signature <strong>hashes</strong> plus the explorer link (same as on-chain, no raw text). The app calls{' '}
-            <code>POST /api/ledger</code> and <code>POST /api/my-ledger</code> in this repo (Vercel serverless). Set
-            project env <code>REACT_APP_SUPABASE_URL</code> and <code>REACT_APP_SUPABASE_ANON_KEY</code> (same names in
-            Vercel for the serverless routes) and run the SQL migrations. Use <code>vercel dev</code> in <code>client/</code> so{' '}
-            <code>/api/*</code> exists locally; plain <code>npm start</code> does not serve the API.
+            <code>POST /api/ledger-onchain</code>, <code>POST /api/ledger</code>, and <code>POST /api/my-ledger</code>{' '}
+            (Vercel serverless). Set project env <code>REACT_APP_SUPABASE_URL</code> and <code>REACT_APP_SUPABASE_ANON_KEY</code>{' '}
+            and run the SQL migrations. Use <code>vercel dev</code> in <code>client/</code> for <code>/api/*</code> locally; plain{' '}
+            <code>npm start</code> does not serve the API.
           </p>
+          <div
+            style={{
+              marginBottom: 14,
+              padding: 12,
+              backgroundColor: '#fff',
+              borderRadius: 4,
+              border: '1px dashed #8ab4ff',
+            }}
+          >
+            <strong style={{ fontSize: 14 }}>Server → Supabase connection test</strong>
+            <p style={{ fontSize: 13, color: '#333', margin: '8px 0' }}>
+              Use this if ledger save fails. It calls <code>GET /api/debug-supabase</code> and shows which env names the
+              server resolved (not secrets) plus a real <code>ledger_submissions</code> count query.
+            </p>
+            <button
+              type="button"
+              onClick={handleDebugSupabase}
+              disabled={supabaseDebugLoading}
+              style={{
+                padding: '8px 14px',
+                backgroundColor: supabaseDebugLoading ? '#6c757d' : '#6f42c1',
+                color: '#fff',
+                border: 'none',
+                borderRadius: 4,
+                cursor: supabaseDebugLoading ? 'not-allowed' : 'pointer',
+                fontSize: 14,
+              }}
+            >
+              {supabaseDebugLoading ? 'Running test…' : 'Run Supabase connection test'}
+            </button>
+            {supabaseDebugJson && (
+              <pre
+                style={{
+                  fontSize: 11,
+                  marginTop: 10,
+                  overflow: 'auto',
+                  maxHeight: 360,
+                  background: '#1a1a2e',
+                  color: '#eaeaea',
+                  padding: 12,
+                  borderRadius: 4,
+                }}
+              >
+                {supabaseDebugJson}
+              </pre>
+            )}
+          </div>
           <button
             type="button"
             onClick={handleLoadMyLedger}

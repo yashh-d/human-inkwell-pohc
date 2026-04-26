@@ -5,6 +5,7 @@ Human Inkwell — database (Supabase Postgres only)
    - supabase/migrations/20260427120000_ledger_rls_for_anon_key.sql  (RLS policies for anon key)
 
 2) The app does NOT use Supabase Edge Functions. In-repo Vercel API routes in client/api/:
+   - GET  /api/debug-supabase  — which env names resolve + test query to ledger_submissions (no secrets)
    - POST /api/ledger-onchain  — insert after on-chain verify (preferred)
    - POST /api/ledger          — insert (wallet-signed, legacy)
    - POST /api/my-ledger       — list for one wallet (wallet-signed)

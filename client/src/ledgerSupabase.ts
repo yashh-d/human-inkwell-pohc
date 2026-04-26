@@ -241,3 +241,14 @@ export async function fetchMyLedgerRows(signer: Signer): Promise<LedgerSubmissio
   if (!data?.ok || !data.rows) return [];
   return data.rows;
 }
+
+/** Calls GET /api/debug-supabase (env resolution + test query; no wallet). */
+export async function fetchSupabaseServerDebug(): Promise<unknown> {
+  const res = await fetch(apiPath('/api/debug-supabase'), { method: 'GET' });
+  const text = await res.text();
+  try {
+    return JSON.parse(text) as unknown;
+  } catch {
+    return { ok: false, httpStatus: res.status, parseError: true, raw: text };
+  }
+}

@@ -31,4 +31,32 @@ function getSupabaseCreds() {
   return { url, key, error };
 }
 
-module.exports = { getSupabaseCreds };
+/** For /api/debug-supabase — which env names are set, never secret values. */
+function getSupabaseDebugMeta() {
+  const urlKey = ['REACT_APP_SUPABASE_URL', 'SUPABASE_URL', 'NEXT_PUBLIC_SUPABASE_URL'].find(
+    (k) => (process.env[k] || '').trim()
+  );
+  const keyKey = [
+    'REACT_APP_SUPABASE_ANON_KEY',
+    'SUPABASE_ANON_KEY',
+    'SUPABASE_SERVICE_ROLE_KEY',
+  ].find((k) => (process.env[k] || '').trim());
+  const url = getSupabaseUrl();
+  let host = null;
+  if (url) {
+    try {
+      host = new URL(url).host;
+    } catch {
+      host = 'invalid_url';
+    }
+  }
+  return {
+    hasUrl: !!url,
+    hasKey: !!getSupabaseKey(),
+    urlEnvSet: urlKey || null,
+    keyEnvSet: keyKey || null,
+    supabaseHost: host,
+  };
+}
+
+module.exports = { getSupabaseCreds, getSupabaseDebugMeta };
