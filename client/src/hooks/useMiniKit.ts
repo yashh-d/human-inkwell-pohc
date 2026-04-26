@@ -34,7 +34,7 @@ export function useMiniKit(): UseMiniKitReturn {
   useEffect(() => {
     try {
       // MiniKit.install() initialises the SDK and reads window.WorldApp
-      MiniKit.install();
+      MiniKit.install(process.env.REACT_APP_WORLD_APP_ID);
 
       const installed = MiniKit.isInstalled();
       setIsInWorldApp(installed);
