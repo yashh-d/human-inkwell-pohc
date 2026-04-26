@@ -11,7 +11,7 @@ const root = ReactDOM.createRoot(
 root.render(
   <React.StrictMode>
     <PrivyProvider
-      appId={process.env.REACT_APP_PRIVY_APP_ID || ''}
+      appId={process.env.REACT_APP_PRIVY_APP_ID || process.env.REACT_APP_PRIVY_ID || ''}
       config={{
         loginMethods: ['email', 'wallet', 'google'],
         appearance: {
