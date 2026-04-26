@@ -560,8 +560,8 @@ class BlockchainService {
         
         try {
           console.log('[Blockchain] Fetching on-chain nonce for author:', walletAtSubmit);
-          // Get the user's nonce from the contract
-          const nonce = await (this.contract as any).nonces(walletAtSubmit);
+          // Get the user's nonce using the Privy-authenticated RPC connection instead of the public node to bypass aggressive CORS/rate-limiting deadlocks
+          const nonce = await (contractWithSigner as any).nonces(walletAtSubmit);
           console.log('[Blockchain] Nonce fetched successfully:', nonce);
 
           const domain = {
