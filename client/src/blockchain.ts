@@ -363,8 +363,7 @@ class BlockchainService {
       if (elapsed - lastUi > 10_000) {
         lastUi = elapsed;
         onProgress?.(
-          `⏳ Still waiting for the ledger… (~${Math.round(elapsed / 1000)}s). ` +
-            `If your wallet is open, check for a pending request.`
+          `⏳ Still polling the public RPC for your content… (~${Math.round(elapsed / 1000)}s)`
         );
       }
       await new Promise((r) => setTimeout(r, 1500));
@@ -448,29 +447,6 @@ class BlockchainService {
     const m = s.match(/have\s+(\d+)\s+want\s+(\d+)/i);
     if (!m) return null;
     return { have: BigInt(m[1]), want: BigInt(m[2]) };
-  }
-
-  /** True when the wallet’s “insufficient” error is likely fee-state lag, not a dry wallet. */
-  private isSpuriousFirstSendInsufficient(
-    err: any,
-    balancePositive: boolean
-  ): boolean {
-    if (!balancePositive) return false;
-    const hw = this.parseHaveWantFromMetamaskError(err);
-    if (hw && hw.have === BigInt(0)) return true;
-    const s = String(
-      (err && typeof err === 'object' && (err as Error).message) ||
-        err?.shortMessage ||
-        err?.info?.error?.message ||
-        ''
-    ).toLowerCase();
-    if (err?.code === 'INSUFFICIENT_FUNDS' && s.includes('have 0 ')) {
-      return true;
-    }
-    if (s.includes('insufficient funds') && s.includes('have 0 ')) {
-      return true;
-    }
-    return false;
   }
 
   async submitContent(
@@ -572,44 +548,27 @@ class BlockchainService {
       // the confirmation modal — even when the wallet is well funded.
       const gasOverrides: Record<string, string | bigint> = { gasLimit };
 
+      // One wallet prompt only. Never re-call storeContent: that re-opens MetaMask
+      // in a loop. If the user approved but the client errored, we recover in catch
+      // by polling the public RPC for this contentHash (and tx hash if present).
       let tx: any;
-      const havePositiveBalance = bal > BigInt(0);
-      const maxSends = 4;
-      for (let sendAttempt = 0; sendAttempt < maxSends; sendAttempt++) {
-        try {
-          if (sendAttempt > 0) {
-            await this.warmupInjectedProvider();
-            await new Promise((r) => setTimeout(r, 200 + 250 * sendAttempt * sendAttempt));
-            await this.assertMetaMaskOnExpectedChain();
-            onProgress?.("⏳ Reaching your wallet (retrying)…");
-          }
-          tx = await (contractWithSigner as any).storeContent(
-            data.contentHash,
-            data.humanSignatureHash,
-            data.keystrokeCount,
-            typingScaled,
-            gasOverrides
-          );
-          break;
-        } catch (sendErr: any) {
-          const possibleHash =
-            sendErr?.transactionHash ||
-            sendErr?.receipt?.hash ||
-            sendErr?.info?.transactionHash ||
-            sendErr?.info?.error?.data?.txHash ||
-            null;
-          if (possibleHash) submittedTxHash = String(possibleHash);
-          const isSpurious =
-            this.isSpuriousFirstSendInsufficient(sendErr, havePositiveBalance) && !possibleHash;
-          if (isSpurious && sendAttempt < maxSends - 1) {
-            console.warn('blockchain: storeContent spurious have=0; silent retry', sendAttempt + 1);
-            continue;
-          }
-          throw sendErr;
-        }
-      }
-      if (!tx) {
-        throw new Error('storeContent did not return a transaction');
+      try {
+        tx = await (contractWithSigner as any).storeContent(
+          data.contentHash,
+          data.humanSignatureHash,
+          data.keystrokeCount,
+          typingScaled,
+          gasOverrides
+        );
+      } catch (sendErr: any) {
+        const possibleHash =
+          sendErr?.transactionHash ||
+          sendErr?.receipt?.hash ||
+          sendErr?.info?.transactionHash ||
+          sendErr?.info?.error?.data?.txHash ||
+          null;
+        if (possibleHash) submittedTxHash = String(possibleHash);
+        throw sendErr;
       }
       submittedTxHash = tx.hash;
       console.log('📋 Transaction submitted:', tx.hash);
@@ -676,7 +635,9 @@ class BlockchainService {
 
       // STEP 3 — Entry often appears a few seconds after a misleading wallet error; wait before any UI error.
       try {
-        onProgress?.('⏳ Still confirming — this can take up to 90s. Check your wallet if a request is open.');
+        onProgress?.(
+          '⏳ Polling the chain in the background (no new MetaMask request) — up to ~90s for your entry…'
+        );
         const longPolled = await this.waitForContentIndexed(data, walletAtSubmit, 90_000, onProgress);
         if (longPolled) {
           console.log('✅ Recovered: entry appeared after extended wait', longPolled);
