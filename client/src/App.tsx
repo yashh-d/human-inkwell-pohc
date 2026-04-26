@@ -363,8 +363,12 @@ function App() {
 
       setProcessingStatus('⛓️ Submitting to Human Content Ledger...');
       
-      // Submit to blockchain
-      const result = await blockchainService.submitContent(submissionData);
+      // Submit to blockchain (progress + long on-chain wait happen inside; avoids false "0 gas" errors on first try)
+      const result = await blockchainService.submitContent(submissionData, {
+        onProgress: (msg) => {
+          setProcessingStatus(msg);
+        },
+      });
       
       if (result.success && result.transactionHash) {
         setBlockchainErrorHelp(null);
@@ -401,11 +405,19 @@ function App() {
         }
         console.log('🎉 Blockchain submission successful!', result);
       } else {
-        setProcessingStatus(`❌ Blockchain submission failed: ${result.error || 'Unknown blockchain error'}`);
-        setBlockchainErrorHelp({
-          explorerAddressUrl: result.explorerAddressUrl,
-          walletAddress: result.walletAddress,
-        });
+        setProcessingStatus(
+          result.quietUi
+            ? result.error || 'Could not confirm. You can try again in a few seconds.'
+            : `❌ ${result.error || 'Unknown blockchain error'}`
+        );
+        if (result.quietUi) {
+          setBlockchainErrorHelp(null);
+        } else {
+          setBlockchainErrorHelp({
+            explorerAddressUrl: result.explorerAddressUrl,
+            walletAddress: result.walletAddress,
+          });
+        }
       }
       
     } catch (error) {

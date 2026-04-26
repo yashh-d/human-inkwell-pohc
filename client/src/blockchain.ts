@@ -38,7 +38,16 @@ export interface BlockchainResponse {
   walletAddress?: string;
   /** Non-fatal: e.g. we have a tx hash but could not read receipt in time. */
   statusNote?: string;
+  /**
+   * When set, the UI should show a short `error` only and skip the large explorer /
+   * gas help block (funds were likely fine; the chain or wallet was just slow).
+   */
+  quietUi?: boolean;
 }
+
+export type SubmitContentOptions = {
+  onProgress?: (message: string) => void;
+};
 
 class BlockchainService {
   private provider: ethers.JsonRpcProvider;
@@ -331,6 +340,61 @@ class BlockchainService {
    * actually stored. Wallet RPCs (and ethers) sometimes throw spuriously *after*
    * a successful broadcast — but the chain has the truth.
    */
+  /**
+   * After a wallet error, poll the public RPC until the new entry is indexed
+   * (or timeout). This catches “user saw an error but the tx actually landed”.
+   */
+  private async waitForContentIndexed(
+    data: BlockchainSubmissionData,
+    fromAddress: string | undefined,
+    maxMs: number,
+    onProgress?: (message: string) => void
+  ): Promise<{ entryId: number; txHash?: string } | null> {
+    const t0 = Date.now();
+    let lastUi = 0;
+    while (Date.now() - t0 < maxMs) {
+      try {
+        const found = await this.findStoredContent(data.contentHash, fromAddress);
+        if (found) return found;
+      } catch {
+        /* one poll failed, keep trying */
+      }
+      const elapsed = Date.now() - t0;
+      if (elapsed - lastUi > 10_000) {
+        lastUi = elapsed;
+        onProgress?.(
+          `⏳ Still waiting for the ledger… (~${Math.round(elapsed / 1000)}s). ` +
+            `If your wallet is open, check for a pending request.`
+        );
+      }
+      await new Promise((r) => setTimeout(r, 1500));
+    }
+    return null;
+  }
+
+  private successFromIndexedFind(
+    onChain: { entryId: number; txHash?: string },
+    walletAtSubmit: string | undefined,
+    submittedTxHash: string | null
+  ): BlockchainResponse {
+    const baseExplorer = BLOCK_EXPLORER.replace(/\/$/, '');
+    const txHash = onChain.txHash || submittedTxHash || '';
+    return {
+      success: true,
+      transactionHash: txHash || undefined,
+      entryId: onChain.entryId,
+      explorerTxUrl: txHash ? `${baseExplorer}/tx/${txHash}` : undefined,
+      explorerContractUrl: `${baseExplorer}/address/${CONTRACT_ADDRESS}`,
+      explorerAddressUrl: walletAtSubmit
+        ? `${baseExplorer}/address/${walletAtSubmit}`
+        : undefined,
+      walletAddress: walletAtSubmit,
+      statusNote: txHash
+        ? undefined
+        : 'Confirmed on-chain; transaction hash is still being indexed. Open the explorer in an external browser if the link is blank.',
+    };
+  }
+
   private async findStoredContent(
     contentHash: string,
     fromAddress: string | undefined
@@ -409,7 +473,11 @@ class BlockchainService {
     return false;
   }
 
-  async submitContent(data: BlockchainSubmissionData): Promise<BlockchainResponse> {
+  async submitContent(
+    data: BlockchainSubmissionData,
+    options?: SubmitContentOptions
+  ): Promise<BlockchainResponse> {
+    const onProgress = options?.onProgress;
     let walletAtSubmit: string | undefined;
     let submittedTxHash: string | null = null;
     try {
@@ -465,6 +533,7 @@ class BlockchainService {
       }
 
       console.log('⛓️ Submitting to blockchain...');
+      onProgress?.('⏳ When your wallet opens, approve the World Chain transaction…');
 
       const typingScaled = Math.floor(data.typingSpeed * 1000);
       const store = (contractWithSigner as any).getFunction
@@ -505,12 +574,14 @@ class BlockchainService {
 
       let tx: any;
       const havePositiveBalance = bal > BigInt(0);
-      for (let sendAttempt = 0; sendAttempt < 2; sendAttempt++) {
+      const maxSends = 4;
+      for (let sendAttempt = 0; sendAttempt < maxSends; sendAttempt++) {
         try {
           if (sendAttempt > 0) {
             await this.warmupInjectedProvider();
-            await new Promise((r) => setTimeout(r, 500));
+            await new Promise((r) => setTimeout(r, 200 + 250 * sendAttempt * sendAttempt));
             await this.assertMetaMaskOnExpectedChain();
+            onProgress?.("⏳ Reaching your wallet (retrying)…");
           }
           tx = await (contractWithSigner as any).storeContent(
             data.contentHash,
@@ -528,14 +599,10 @@ class BlockchainService {
             sendErr?.info?.error?.data?.txHash ||
             null;
           if (possibleHash) submittedTxHash = String(possibleHash);
-          if (
-            sendAttempt === 0 &&
-            this.isSpuriousFirstSendInsufficient(sendErr, havePositiveBalance) &&
-            !submittedTxHash
-          ) {
-            console.warn(
-              'blockchain: retrying storeContent after spurious insufficient-funds / have=0 (wallet fee state was stale)'
-            );
+          const isSpurious =
+            this.isSpuriousFirstSendInsufficient(sendErr, havePositiveBalance) && !possibleHash;
+          if (isSpurious && sendAttempt < maxSends - 1) {
+            console.warn('blockchain: storeContent spurious have=0; silent retry', sendAttempt + 1);
             continue;
           }
           throw sendErr;
@@ -547,6 +614,7 @@ class BlockchainService {
       submittedTxHash = tx.hash;
       console.log('📋 Transaction submitted:', tx.hash);
       console.log('⏳ Waiting for confirmation...');
+      onProgress?.('⏳ Transaction sent — waiting for block confirmation…');
 
       const receipt = await tx.wait();
       console.log('✅ Transaction confirmed:', receipt);
@@ -554,36 +622,20 @@ class BlockchainService {
       return await this.buildSuccessFromReceipt(tx.hash, receipt, walletAtSubmit);
       
     } catch (error: any) {
-      // STEP 1 — Ask the contract directly. The wallet/ethers error may be
-      // misleading (broadcast actually succeeded). If our content hash is now
-      // present on-chain, this submission DID work and we report success.
+      await new Promise((r) => setTimeout(r, 400));
+      onProgress?.('⏳ Confirming on World Chain (checking the ledger)…');
+      // STEP 1 — Contract may already show the new row even if the wallet errored.
       try {
         const onChain = await this.findStoredContent(data.contentHash, walletAtSubmit);
         if (onChain) {
-          const baseExplorer = BLOCK_EXPLORER.replace(/\/$/, '');
-          const txHash = onChain.txHash || submittedTxHash || '';
           console.log('✅ Recovered: content is on-chain despite wallet error', onChain);
-          return {
-            success: true,
-            transactionHash: txHash,
-            entryId: onChain.entryId,
-            explorerTxUrl: txHash ? `${baseExplorer}/tx/${txHash}` : undefined,
-            explorerContractUrl: `${baseExplorer}/address/${CONTRACT_ADDRESS}`,
-            explorerAddressUrl: walletAtSubmit
-              ? `${baseExplorer}/address/${walletAtSubmit}`
-              : undefined,
-            walletAddress: walletAtSubmit,
-            statusNote: txHash
-              ? undefined
-              : 'Confirmation came from the public RPC (your wallet errored after broadcast). Open the explorer to view the tx.',
-          };
+          return this.successFromIndexedFind(onChain, walletAtSubmit, submittedTxHash);
         }
       } catch (recoverErr) {
         console.warn('blockchain: post-error contentExists check failed', recoverErr);
       }
 
-      // STEP 2 — If we got a tx hash but receipt didn't come back yet, poll the
-      // public Alchemy RPC for the receipt directly.
+      // STEP 2 — We have a hash but receipt / wait() failed: resolve via public RPC.
       if (submittedTxHash) {
         try {
           const fallbackReceipt = await this.provider.waitForTransaction(
@@ -609,7 +661,6 @@ class BlockchainService {
         } catch (recoverErr) {
           console.warn('blockchain: public-RPC receipt recovery failed', recoverErr);
         }
-        // We have a hash but could not get a receipt in time: still return link
         return {
           success: true,
           transactionHash: submittedTxHash,
@@ -622,7 +673,19 @@ class BlockchainService {
             : undefined,
         };
       }
-      console.error('❌ Blockchain submission failed:', error);
+
+      // STEP 3 — Entry often appears a few seconds after a misleading wallet error; wait before any UI error.
+      try {
+        onProgress?.('⏳ Still confirming — this can take up to 90s. Check your wallet if a request is open.');
+        const longPolled = await this.waitForContentIndexed(data, walletAtSubmit, 90_000, onProgress);
+        if (longPolled) {
+          console.log('✅ Recovered: entry appeared after extended wait', longPolled);
+          return this.successFromIndexedFind(longPolled, walletAtSubmit, submittedTxHash);
+        }
+      } catch (pollErr) {
+        console.warn('blockchain: extended chain poll failed', pollErr);
+      }
+
       const raw =
         (error instanceof Error && error.message) ||
         error?.shortMessage ||
@@ -636,70 +699,72 @@ class BlockchainService {
       let message = raw;
       const haveWant = this.parseHaveWantFromMetamaskError(error);
       const isInsufficient =
-        error?.code === 'INSUFFICIENT_FUNDS' || (lower.includes('insufficient funds') && haveWant !== null);
+        error?.code === 'INSUFFICIENT_FUNDS' ||
+        (lower.includes('insufficient funds') && (haveWant !== null || lower.includes('have 0')));
 
+      let trustedBal: bigint = BigInt(0);
+      if (walletAtSubmit) {
+        try {
+          trustedBal = await this.provider.getBalance(walletAtSubmit);
+        } catch {
+          trustedBal = BigInt(0);
+        }
+      }
+      let showExplorer = true;
       if (isInsufficient) {
-        const who = walletAtSubmit ? ` Wallet: ${walletAtSubmit}.` : '';
         const url = walletAtSubmit
           ? `${BLOCK_EXPLORER.replace(/\/$/, '')}/address/${walletAtSubmit}`
           : '';
-        const hw = this.parseHaveWantFromMetamaskError(error);
+        const hw = haveWant ?? this.parseHaveWantFromMetamaskError(error);
+        const cmp = walletAtSubmit
+          ? await this.detectWalletRpcMismatch(walletAtSubmit)
+          : { walletBal: BigInt(0), trustedBal, mismatch: false };
+        const isWalletRpcMismatch = cmp.mismatch && (!hw || hw.have === BigInt(0));
 
-        // Cross-check against a trusted public RPC. If the trusted RPC shows real
-        // balance but MetaMask says have=0, the wallet's RPC URL for chain 4801
-        // is broken/stale — that is the actual root cause.
-        let trustedEth = '';
-        let isWalletRpcMismatch = false;
-        if (walletAtSubmit) {
-          const cmp = await this.detectWalletRpcMismatch(walletAtSubmit);
-          trustedEth = ethers.formatEther(cmp.trustedBal);
-          isWalletRpcMismatch =
-            cmp.mismatch && (!hw || hw.have === BigInt(0));
-        }
-
-        // Try to nudge the wallet toward a healthy RPC for next time.
         if (isWalletRpcMismatch) {
           await this.tryRefreshWalletRpc();
-        }
-
-        if (isWalletRpcMismatch) {
           message =
-            `Your MetaMask RPC for ${NETWORK_NAME} (chain ${EXPECTED_CHAIN_ID}) is reporting 0 balance, ` +
-            `but the public RPC shows ${trustedEth} ETH at ${walletAtSubmit}. ` +
-            `Fix it in MetaMask: Settings → Networks → ${NETWORK_NAME} → set the RPC URL to ` +
-            `https://worldchain-sepolia.g.alchemy.com/public, save, and try again. ` +
-            `(I just sent MetaMask a request to add this RPC — if a popup appeared, accept it.) ` +
-            (url ? `Address on explorer: ${url}.` : '');
-        } else if (hw) {
-          const hEth = ethers.formatEther(hw.have);
-          const wEth = ethers.formatEther(hw.want);
-          const sameHaveZero = hw.have === BigInt(0);
-          const detail = sameHaveZero
-            ? 'Your wallet is reporting 0 available for this chain’s max fee. '
-            : `Your wallet is reporting ${hEth} ETH on this chain but the transaction needs at least ${wEth} ETH reserved for the max possible fee. `;
-          const opNote =
-            EXPECTED_CHAIN_ID === 4801
-              ? 'World Chain is an OP-Stack L2: calldata is charged to L1, so the max fee is higher than on normal L1-only gas math. '
-              : '';
+            `The wallet and the public network disagree on your ${NETWORK_NAME} balance. ` +
+            `In MetaMask, set the RPC to https://worldchain-sepolia.g.alchemy.com/public, save, then try Submit again. ` +
+            (url ? `Explorer: ${url}` : '');
+        } else if (trustedBal === BigInt(0)) {
           message =
-            `${detail}${opNote}Confirm MetaMask is on ${NETWORK_NAME} (chain ${EXPECTED_CHAIN_ID}) and the same account ${walletAtSubmit ?? ''}. ${who}` +
-            (url ? ` Address on explorer: ${url}.` : '');
+            `This wallet has 0 ETH for gas on ${NETWORK_NAME} (chain ${EXPECTED_CHAIN_ID}). ` +
+            `Fund the address, then try again. ` +
+            (url ? `Address: ${url}.` : '');
+        } else if (hw && hw.have > BigInt(0) && hw.want > hw.have) {
+          // Real shortfall: wallet and chain agree the account cannot cover the max fee
+          message =
+            `This transaction needs a bit more ETH for gas (World Chain L2 includes L1 data). ` +
+            `You have about ${ethers.formatEther(hw.have)} ETH; try funding this address, then submit again. ` +
+            (url ? ` ${url}` : '');
         } else {
+          // Likely a stale wallet / UI error after we already waited on-chain; public balance still > 0
           message =
-            `${raw}.${who}` +
-            (url ? ` Explorer: ${url}.` : '') +
-            ` On World Chain, gas includes an L1 data component — ensure enough ETH for gas on ${NETWORK_NAME} (4801) and the correct network in MetaMask.`;
+            "We could not show a final confirmation, but the chain still shows a balance. If you don't see a completed transaction, tap Submit to Blockchain again after a few seconds, or use “Load my ledger” to see if the entry is already there.";
+          showExplorer = false;
         }
+      } else if (String(raw).toLowerCase().includes('rejected') || String(raw).toLowerCase().includes('denied') || String(raw).toLowerCase().includes('user rejected')) {
+        message = 'Transaction was not signed in the wallet. Tap Submit to Blockchain when you are ready to approve it.';
+        showExplorer = false;
       }
 
-      const explorerAddressUrl = walletAtSubmit
-        ? `${BLOCK_EXPLORER.replace(/\/$/, '')}/address/${walletAtSubmit}`
-        : undefined;
+      if (!isInsufficient) {
+        console.error('❌ Blockchain submission failed:', error);
+      } else {
+        console.warn('blockchain: submission not confirmed after extended on-chain check', { raw, trustedBal: trustedBal.toString() });
+      }
+
+      const explorerAddressUrl =
+        showExplorer && walletAtSubmit
+          ? `${BLOCK_EXPLORER.replace(/\/$/, '')}/address/${walletAtSubmit}`
+          : undefined;
       return {
         success: false,
         error: message,
-        walletAddress: walletAtSubmit,
+        walletAddress: showExplorer ? walletAtSubmit : undefined,
         explorerAddressUrl,
+        quietUi: !showExplorer,
       };
     }
   }
