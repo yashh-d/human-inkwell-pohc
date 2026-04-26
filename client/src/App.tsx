@@ -61,6 +61,7 @@ function App() {
     explorerTxUrl?: string;
     explorerContractUrl?: string;
     explorerAddressUrl?: string;
+    statusNote?: string;
   } | null>(null);
 
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -363,6 +364,7 @@ function App() {
           explorerTxUrl: result.explorerTxUrl,
           explorerContractUrl: result.explorerContractUrl,
           explorerAddressUrl: result.explorerAddressUrl,
+          statusNote: result.statusNote,
         });
         setProcessingStatus('✅ Submitted to Human Content Ledger.');
         console.log('🎉 Blockchain submission successful!', result);
@@ -632,6 +634,9 @@ function App() {
                 <> · Entry #{blockchainSuccess.entryId}</>
               )}
             </div>
+            {blockchainSuccess.statusNote && (
+              <div style={{ marginBottom: 8, fontSize: 13, color: '#0a4d2e' }}>{blockchainSuccess.statusNote}</div>
+            )}
             <div style={{ marginBottom: 6 }}>
               <strong>Tx hash:</strong>{' '}
               <code style={{ wordBreak: 'break-all' }}>{blockchainSuccess.transactionHash}</code>{' '}

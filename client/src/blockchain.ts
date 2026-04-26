@@ -1,4 +1,4 @@
-import { ethers } from 'ethers';
+import { ethers, type TransactionReceipt } from 'ethers';
 import contractABI from './HumanContentLedger.json';
 
 // Contract configuration
@@ -33,6 +33,8 @@ export interface BlockchainResponse {
   /** If set, open this in a real browser (mini in-app browsers may block the explorer). */
   explorerAddressUrl?: string;
   walletAddress?: string;
+  /** Non-fatal: e.g. we have a tx hash but could not read receipt in time. */
+  statusNote?: string;
 }
 
 class BlockchainService {
@@ -240,6 +242,41 @@ class BlockchainService {
   }
 
   /** e.g. "insufficient funds for gas * price + value: have 0 want 1203000000000" */
+  private entryIdFromContentStoredLogs(receipt: TransactionReceipt): number | undefined {
+    for (const log of receipt.logs) {
+      try {
+        const parsed = this.contract.interface.parseLog(log);
+        if (parsed?.name === 'ContentStored') {
+          return Number(parsed.args.entryId);
+        }
+      } catch {
+        // not our event
+      }
+    }
+    return undefined;
+  }
+
+  private buildSuccessFromReceipt(
+    txHash: string,
+    receipt: TransactionReceipt,
+    walletAtSubmit: string | undefined
+  ): BlockchainResponse {
+    const baseExplorer = BLOCK_EXPLORER.replace(/\/$/, '');
+    const entryId = this.entryIdFromContentStoredLogs(receipt);
+    return {
+      success: true,
+      transactionHash: txHash,
+      entryId,
+      gasUsed: receipt.gasUsed.toString(),
+      explorerTxUrl: `${baseExplorer}/tx/${txHash}`,
+      explorerContractUrl: `${baseExplorer}/address/${CONTRACT_ADDRESS}`,
+      explorerAddressUrl: walletAtSubmit
+        ? `${baseExplorer}/address/${walletAtSubmit}`
+        : undefined,
+      walletAddress: walletAtSubmit,
+    };
+  }
+
   private parseHaveWantFromMetamaskError(err: any): { have: bigint; want: bigint } | null {
     const s = [
       err && typeof err === 'object' && (err as Error).message,
@@ -255,6 +292,7 @@ class BlockchainService {
 
   async submitContent(data: BlockchainSubmissionData): Promise<BlockchainResponse> {
     let walletAtSubmit: string | undefined;
+    let submittedTxHash: string | null = null;
     try {
       console.log('🔗 Connecting to wallet...');
       const { signer, address } = await this.connectWallet();
@@ -351,42 +389,59 @@ class BlockchainService {
         typingScaled,
         gasOverrides
       );
-
+      submittedTxHash = tx.hash;
       console.log('📋 Transaction submitted:', tx.hash);
       console.log('⏳ Waiting for confirmation...');
 
       const receipt = await tx.wait();
       console.log('✅ Transaction confirmed:', receipt);
 
-      // Parse the ContentStored event to get the entry ID
-      const logs = receipt.logs;
-      let entryId_result: number | undefined;
-      
-      for (const log of logs) {
-        try {
-          const parsedLog = contractWithSigner.interface.parseLog(log);
-          if (parsedLog?.name === 'ContentStored') {
-            entryId_result = Number(parsedLog.args.entryId);
-            break;
-          }
-        } catch (e) {
-          // Skip logs that can't be parsed
-        }
-      }
-
-      const baseExplorer = BLOCK_EXPLORER.replace(/\/$/, '');
-      return {
-        success: true,
-        transactionHash: tx.hash,
-        entryId: entryId_result,
-        gasUsed: receipt.gasUsed.toString(),
-        explorerTxUrl: `${baseExplorer}/tx/${tx.hash}`,
-        explorerContractUrl: `${baseExplorer}/address/${CONTRACT_ADDRESS}`,
-        explorerAddressUrl: walletAtSubmit ? `${baseExplorer}/address/${walletAtSubmit}` : undefined,
-        walletAddress: walletAtSubmit,
-      };
+      return this.buildSuccessFromReceipt(tx.hash, receipt, walletAtSubmit);
       
     } catch (error: any) {
+      // The wallet's RPC is often the *same* as a good public RPC, but it can
+      // still time out or flake on receipt polling. If we already have a hash,
+      // re-fetch the receipt from the app's public JsonRpcProvider (Alchemy) —
+      // the tx may be mined even though tx.wait() threw. This matches "I see
+      // it on-chain / MetaMask shows success" while the dapp only showed an error.
+      if (submittedTxHash) {
+        try {
+          const fallbackReceipt = await this.provider.waitForTransaction(
+            submittedTxHash,
+            1,
+            180_000
+          );
+          if (fallbackReceipt) {
+            if (fallbackReceipt.status === 0) {
+              return {
+                success: false,
+                error: `Transaction ${submittedTxHash} was mined but reverted on-chain.`,
+                walletAddress: walletAtSubmit,
+                explorerAddressUrl: walletAtSubmit
+                  ? `${BLOCK_EXPLORER.replace(/\/$/, '')}/address/${walletAtSubmit}`
+                  : undefined,
+                explorerTxUrl: `${BLOCK_EXPLORER.replace(/\/$/, '')}/tx/${submittedTxHash}`,
+              };
+            }
+            console.log('✅ Recovered via public RPC after wallet wait() failed', submittedTxHash);
+            return this.buildSuccessFromReceipt(submittedTxHash, fallbackReceipt, walletAtSubmit);
+          }
+        } catch (recoverErr) {
+          console.warn('blockchain: public-RPC receipt recovery failed', recoverErr);
+        }
+        // We have a hash but could not get a receipt in time: still return link
+        return {
+          success: true,
+          transactionHash: submittedTxHash,
+          statusNote: `Transaction sent. The explorer will show it shortly if the wallet’s confirmation step was slow.`,
+          explorerTxUrl: `${BLOCK_EXPLORER.replace(/\/$/, '')}/tx/${submittedTxHash}`,
+          explorerContractUrl: `${BLOCK_EXPLORER.replace(/\/$/, '')}/address/${CONTRACT_ADDRESS}`,
+          walletAddress: walletAtSubmit,
+          explorerAddressUrl: walletAtSubmit
+            ? `${BLOCK_EXPLORER.replace(/\/$/, '')}/address/${walletAtSubmit}`
+            : undefined,
+        };
+      }
       console.error('❌ Blockchain submission failed:', error);
       const raw =
         (error instanceof Error && error.message) ||
@@ -399,9 +454,9 @@ class BlockchainService {
         'Unknown blockchain error';
       const lower = String(raw).toLowerCase();
       let message = raw;
+      const haveWant = this.parseHaveWantFromMetamaskError(error);
       const isInsufficient =
-        lower.includes('insufficient funds') &&
-        (error?.code === 'INSUFFICIENT_FUNDS' || error?.info?.error?.code === -32603);
+        error?.code === 'INSUFFICIENT_FUNDS' || (lower.includes('insufficient funds') && haveWant !== null);
 
       if (isInsufficient) {
         const who = walletAtSubmit ? ` Wallet: ${walletAtSubmit}.` : '';
