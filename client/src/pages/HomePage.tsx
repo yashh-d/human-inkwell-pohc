@@ -4,6 +4,7 @@ import { ISuccessResult, IErrorState } from '@worldcoin/idkit';
 import { useKeystrokeCapture } from '../hooks/useKeystrokeCapture';
 import { useBiometricProcessor } from '../hooks/useBiometricProcessor';
 import { hashContent } from '../utils/crypto';
+import { humanFocusScoreFromTabAwayCount, HUMAN_FOCUS_SCORE_POINTS_OFF_PER_LEAVE } from '../utils/humanFocusScore';
 import WorldIDWidget from '../components/WorldIDWidget';
 import { blockchainService } from '../blockchain';
 import { pushLedgerIndexAfterOnChainSuccess } from '../ledgerSupabase';
@@ -82,6 +83,8 @@ export interface HomePageProps {
   onWorldIdVerify: (proof: ISuccessResult) => Promise<void>;
   onWorldIdError: (error: IErrorState) => void;
   onWorldIdReset: () => void;
+  /** When true (e.g. from /write route), scroll the writing block into view after mount. */
+  focusWriting?: boolean;
 }
 
 function HomePage({
@@ -94,6 +97,7 @@ function HomePage({
   onWorldIdVerify,
   onWorldIdError,
   onWorldIdReset,
+  focusWriting = false,
 }: HomePageProps) {
   const [content, setContent] = useState<string>('');
   const [humanSignatureHash, setHumanSignatureHash] = useState<string>('');
@@ -117,12 +121,14 @@ function HomePage({
     explorerAddressUrl?: string;
     statusNote?: string;
   } | null>(null);
-  /** When true, send the typed text to the public feed API (server verifies it matches the on-chain content hash). */
+  /** When true, send the typed text to the public feed API (server verifies it matches the onchain content hash). */
   const [publishTextToFeed, setPublishTextToFeed] = useState(true);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
-  
+  const writingSectionRef = useRef<HTMLDivElement>(null);
+
   const { startCapture, stopCapture, getRawKeystrokeData, getTabAwayCount, resetCapture, isCapturing } = useKeystrokeCapture();
   const { generateHumanSignatureHash } = useBiometricProcessor();
+  const humanFocusScore = humanFocusScoreFromTabAwayCount(sessionTabAwayCount);
   // Function to calculate statistics
   const calculateStatistics = (values: number[]): FeatureStatistics => {
     if (values.length === 0) {
@@ -248,6 +254,15 @@ function HomePage({
       }
     };
   }, [isCapturing, stopCapture]);
+
+  useEffect(() => {
+    if (!focusWriting || !writingSectionRef.current) return;
+    const el = writingSectionRef.current;
+    const id = window.requestAnimationFrame(() => {
+      el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    });
+    return () => window.cancelAnimationFrame(id);
+  }, [focusWriting]);
 
   const handleStartCapture = () => {
     console.log('Manual start capture clicked');
@@ -378,7 +393,7 @@ function HomePage({
 
       setProcessingStatus('⛓️ Submitting to Human Content Ledger...');
       
-      // Submit to blockchain (progress + long on-chain wait happen inside; avoids false "0 gas" errors on first try)
+      // Submit to blockchain (progress + long onchain wait happen inside; avoids false "0 gas" errors on first try)
       const result = await blockchainService.submitContent(submissionData, {
         onProgress: (msg) => {
           setProcessingStatus(msg);
@@ -455,27 +470,38 @@ function HomePage({
   return (
     <>
         <div className="hi-page-tldr">
-          <h2 className="hi-page-tldr__title">On this page</h2>
-          <p className="hi-page-tldr__steps">
-            <span className="hi-page-tldr__step">
-              <strong>1</strong> World ID above
-            </span>
-            <span className="hi-page-tldr__sep" aria-hidden>
-              →
-            </span>
-            <span className="hi-page-tldr__step">
-              <strong>2</strong> Write, then local hashes
-            </span>
-            <span className="hi-page-tldr__sep" aria-hidden>
-              →
-            </span>
-            <span className="hi-page-tldr__step">
-              <strong>3</strong> Submit on chain
-            </span>
-          </p>
-          <p className="hi-page-tldr__privacy">
-            Plaintext and raw timing stay in your browser; only hashes and attestation hit the network.{' '}
+          <h2 className="hi-page-tldr__title">At a glance</h2>
+          <ol className="hi-page-tldr__ol" aria-label="Steps on this page">
+            <li>
+              <div className="hi-page-tldr__body">
+                <span className="hi-page-tldr__head">Verify</span>
+                <p className="hi-page-tldr__text">
+                  World ID first: one proof-of-personhood check so this session is tied to a person, not a bot.
+                </p>
+              </div>
+            </li>
+            <li>
+              <div className="hi-page-tldr__body">
+                <span className="hi-page-tldr__head">Write &amp; sign locally</span>
+                <p className="hi-page-tldr__text">
+                  You type; we turn text, key timing, and page activity into content and human-signature hashes to
+                  prove you wrote it and establish IP.
+                </p>
+              </div>
+            </li>
+            <li>
+              <div className="hi-page-tldr__body">
+                <span className="hi-page-tldr__head">Attest on chain</span>
+                <p className="hi-page-tldr__text">
+                  If you use a wallet, the transaction commits hashes and proof to the chain, not your full manuscript.
+                  You sign every send.
+                </p>
+              </div>
+            </li>
+          </ol>
+          <p className="hi-page-tldr__privacy hi-page-tldr__privacy--compact">
             <Link to="/workflow">How it works</Link>
+            <span className="hi-page-tldr__privacy-hint"> · data boundary, end-to-end flow, storage, contract</span>
           </p>
         </div>
 
@@ -492,12 +518,8 @@ function HomePage({
           />
         </div>
 
-        <div className="hi-section">
+        <div id="writing" className="hi-section hi-section--writing" ref={writingSectionRef}>
           <h2>Write your content</h2>
-          <p>
-            Type below: we use hold, flight, and digraph timing from your session to build a compact signature—processed
-            locally, not on our servers.
-          </p>
           {!isCapturing ? (
             <div className="hi-session-gate">
               <button
@@ -508,12 +530,13 @@ function HomePage({
               >
                 Start your creative session
               </button>
-              <p className="hi-session-gate__lede">
-                Nothing is recorded until you start. Your words and how you type them are captured only after you begin.
-              </p>
-              <div className="hi-cyan-glow-box" role="note">
-                <strong>What we capture:</strong> the text you write plus typing timing—hold, flight, and
-                down–down intervals. Processed in your browser; not logged to our servers.
+              <p className="hi-session-gate__lede">Capture is off until you start.</p>
+              <div className="hi-cyan-glow-box hi-cyan-glow-box--session-note" role="note">
+                <p className="hi-cyan-glow-box__p">
+                  While a session is active we use your <strong>text</strong>, <strong>per-key</strong> hold, flight, and
+                  down-down timing, and <strong>page activity</strong> (a count when this tab or window is hidden). Stays
+                  on your device until you generate signatures or submit.
+                </p>
               </div>
               <p className="hi-session-gate__foot">You can end and start a new session whenever you like.</p>
             </div>
@@ -533,7 +556,16 @@ function HomePage({
                 </button>
               </div>
               <div className="hi-cyan-glow-box hi-cyan-glow-box--tight" aria-label="What is being recorded">
-                Text + typing timing
+                <span className="hi-cyan-glow-box__inline">Text</span>
+                <span className="hi-cyan-glow-box__sep" aria-hidden>
+                  ·
+                </span>
+                <span className="hi-cyan-glow-box__inline">key timing</span>
+                <span className="hi-cyan-glow-box__sep" aria-hidden>
+                  ·
+                </span>
+                <span className="hi-cyan-glow-box__inline">page activity</span>
+                <span className="hi-cyan-glow-box__kicker">· local</span>
               </div>
             </div>
           )}
@@ -597,8 +629,8 @@ function HomePage({
             }}
             placeholder={
               isCapturing
-                ? 'Start typing… keystroke patterns are used for the biometric analysis (no paste)'
-                : 'Start your session above, then type here (paste is off)'
+                ? 'Start typing: keystroke patterns are used for the biometric analysis; paste is disabled'
+                : 'Start your session above, then type here. Paste is disabled.'
             }
             className={
               isCapturing ? 'hi-textarea hi-textarea--capturing' : 'hi-textarea hi-textarea--gated'
@@ -613,8 +645,7 @@ function HomePage({
             onChange={(e) => setPublishTextToFeed(e.target.checked)}
           />
           <span>
-            Post my text on the <Link to="/feed">public feed</Link> (server checks it matches your on-chain hash; max 20k
-            characters).
+            Post my text on the <Link to="/feed">public feed</Link>
           </span>
         </label>
         
@@ -732,6 +763,22 @@ function HomePage({
                     <tr className="hi-bio__row-section">
                       <td colSpan={2}>Session</td>
                     </tr>
+                    <tr className="hi-bio__row-focus-score">
+                      <td>Human focus score (0–100)</td>
+                      <td>
+                        <span className="hi-bio__focus-num">{humanFocusScore}</span>
+                        <span className="hi-bio__focus-denom"> / 100</span>
+                        <p className="hi-bio__focus-copy">
+                          Only the <strong>tab / window leave</strong> count, −{HUMAN_FOCUS_SCORE_POINTS_OFF_PER_LEAVE} points
+                          per leave. Typing in this view is the baseline. Hold, flight, and speed below are for the hash, not
+                          this score.
+                        </p>
+                      </td>
+                    </tr>
+                    <tr>
+                      <td>Tab or window leaves in session</td>
+                      <td>{sessionTabAwayCount}×</td>
+                    </tr>
                     <tr>
                       <td>Keystrokes</td>
                       <td>{biometricData.totalKeystrokes}</td>
@@ -747,10 +794,6 @@ function HomePage({
                     <tr>
                       <td>Backspace</td>
                       <td>{biometricData.rawFeatures.backspaceCount}</td>
-                    </tr>
-                    <tr>
-                      <td>Left tab / window</td>
-                      <td>{sessionTabAwayCount}×</td>
                     </tr>
                     <tr className="hi-bio__row-section">
                       <td colSpan={2}>Hold times (dwell)</td>
@@ -771,7 +814,7 @@ function HomePage({
                     </tr>
                     <BiometricTimingRows s={biometricData.statistics.flightTimes} />
                     <tr className="hi-bio__row-section">
-                      <td colSpan={2}>Down–down (digraph)</td>
+                      <td colSpan={2}>Down-down (digraph)</td>
                     </tr>
                     <tr className="hi-bio__row-hint">
                       <td colSpan={2}>

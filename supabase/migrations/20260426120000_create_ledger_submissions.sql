@@ -1,4 +1,4 @@
--- Human Inkwell: off-chain index of on-chain entries (no raw text / raw biometrics).
+-- Human Inkwell: off-chain index of onchain entries (no raw text / raw biometrics).
 -- All hex addresses and tx hashes stored lowercase in application code.
 
 create table if not exists public.ledger_submissions (

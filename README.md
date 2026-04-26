@@ -1,6 +1,6 @@
 # Human Inkwell (POHC)
 
-Keystroke biometrics, optional [World ID](https://world.org/world-id), and on-chain storage on **World Chain Sepolia** via `HumanContentLedger`.
+Keystroke biometrics, optional [World ID](https://world.org/world-id), and onchain storage on **World Chain Sepolia** via `HumanContentLedger`.
 
 - **Full docs:** [HUMAN-INKWELL.md](./HUMAN-INKWELL.md)
 - **Frontend:** `client/` (Create React App)

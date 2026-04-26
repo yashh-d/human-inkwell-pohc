@@ -163,7 +163,7 @@ async function buildRowFromChainVerification(body) {
     return { code: 400, error: `getEntryIdByContentHash failed: ${e && e.message ? e.message : 'revert'}` };
   }
   if (Number(idByHash) !== Number(entry_id)) {
-    return { code: 400, error: 'content_hash does not map to entry_id on-chain' };
+    return { code: 400, error: 'content_hash does not map to entry_id onchain' };
   }
 
   let entry;
@@ -174,13 +174,13 @@ async function buildRowFromChainVerification(body) {
   }
 
   if (entry.contentHash !== ch) {
-    return { code: 400, error: 'On-chain contentHash mismatch' };
+    return { code: 400, error: 'Onchain contentHash mismatch' };
   }
   if (entry.humanSignatureHash !== String(human_signature_hash).trim()) {
-    return { code: 400, error: 'On-chain humanSignatureHash mismatch' };
+    return { code: 400, error: 'Onchain humanSignatureHash mismatch' };
   }
   if (getAddress(entry.author) !== fromAddr) {
-    return { code: 400, error: 'On-chain author mismatch' };
+    return { code: 400, error: 'Onchain author mismatch' };
   }
   if (Boolean(entry.isVerified) !== Boolean(is_verified)) {
     return { code: 400, error: 'is_verified mismatch' };

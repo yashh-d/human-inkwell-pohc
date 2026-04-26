@@ -131,8 +131,8 @@ const FeedPage: React.FC = () => {
         </div>
 
         <p className="hi-feed__lede">
-          Simulated <strong>World ID–verified</strong> posts: professional, academic, and personal—styled like a timeline, not
-          a database table.
+          Simulated <strong>World ID verified</strong> posts: professional, academic, and personal, styled like a
+          timeline, not a database table.
         </p>
 
         <header className="hi-feed-profile" aria-label="Channel profile (demo)">
@@ -205,7 +205,7 @@ const FeedPage: React.FC = () => {
       </div>
 
       <p className="hi-feed__footer-hint">
-        For real on-chain submissions, use <Link to="/">Home</Link> — this page is a design preview only.
+        For real onchain submissions, use <Link to="/">Home</Link>. This page is a design preview only.
       </p>
     </div>
   );

@@ -9,7 +9,7 @@ const MyContentPage: React.FC = () => {
       <header className="hi-my-content__header">
         <h1 className="hi-my-content__title">My content</h1>
         <p className="hi-my-content__lede">
-          A single place to see writing you’ve attested on-chain—whether it started as an <strong>X</strong> post, a{' '}
+          A single place to see writing you’ve attested onchain, whether it started as an <strong>X</strong> post, a{' '}
           <strong>LinkedIn</strong> update, a <strong>blog</strong> or <strong>Substack</strong> draft, a long{' '}
           <strong>article</strong>, or <strong>notes</strong> and <strong>newsletter</strong> copy. The chain stores
           hashes and attestation, not your full text; this UI is a demo of how a clean index could look.
@@ -27,7 +27,7 @@ const MyContentPage: React.FC = () => {
                 <th scope="col">Preview</th>
                 <th scope="col">Content hash</th>
                 <th scope="col">Signature hash</th>
-                <th scope="col">On-chain</th>
+                <th scope="col">Onchain</th>
                 <th scope="col" className="hi-table__col-when">
                   When
                 </th>

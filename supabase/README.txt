@@ -7,7 +7,7 @@ Human Inkwell — database (Supabase Postgres only)
 
 2) The app does NOT use Supabase Edge Functions. In-repo Vercel API routes in client/api/:
    - GET  /api/debug-supabase  — which env names resolve + test query to ledger_submissions (no secrets)
-   - POST /api/ledger-onchain  — insert after on-chain verify (preferred)
+   - POST /api/ledger-onchain  — insert after onchain verify (preferred)
    - POST /api/ledger          — insert (wallet-signed, legacy)
    - POST /api/my-ledger       — list for one wallet (wallet-signed)
    - GET  /api/feed            — public list of is_verified rows (for Feed tab; includes public_text)

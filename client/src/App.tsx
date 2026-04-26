@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom';
+import { Analytics } from '@vercel/analytics/react';
 import './App.css';
 import OnboardingFlow, { isOnboardingMarkedDone } from './components/OnboardingFlow';
 import { useWorldID } from './hooks/useWorldID';
@@ -43,6 +44,7 @@ function App() {
           }}
           onComplete={() => setOnboardingOpen(false)}
         />
+        <Analytics />
       </div>
     );
   }
@@ -68,6 +70,23 @@ function App() {
                 />
               }
             />
+            <Route
+              path="/write"
+              element={
+                <HomePage
+                  isInWorldApp={isInWorldApp}
+                  onVerifyMiniKit={verifyViaMiniKit}
+                  isVerified={isVerified}
+                  worldIdProof={worldIdProof}
+                  worldIdError={worldIdError}
+                  worldIdLoading={worldIdLoading}
+                  onWorldIdVerify={handleVerify}
+                  onWorldIdError={handleError}
+                  onWorldIdReset={resetVerification}
+                  focusWriting
+                />
+              }
+            />
             <Route path="/workflow" element={<WorkflowPage />} />
             <Route path="/feed" element={<FeedPage />} />
             <Route path="/my-content" element={<MyContentPage />} />
@@ -75,6 +94,7 @@ function App() {
             <Route path="*" element={<Navigate to="/" replace />} />
           </Route>
         </Routes>
+        <Analytics />
       </div>
     </BrowserRouter>
   );

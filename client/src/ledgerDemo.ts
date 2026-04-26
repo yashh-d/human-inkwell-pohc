@@ -1,6 +1,6 @@
 import { explorerTxUrl } from './ledgerSupabase';
 
-/** One row in the “My content” view (demo): writing from any format, attested on-chain as hashes. */
+/** One row in the “My content” view (demo): writing from any format, attested onchain as hashes. */
 export type MyContentDemoRow = {
   id: string;
   /** e.g. X post, LinkedIn, Blog, Article */
@@ -32,7 +32,7 @@ export const MY_CONTENT_DEMO_ROWS: MyContentDemoRow[] = [
   {
     id: '2',
     contentFormat: 'LinkedIn',
-    contentPreview: 'Pleased to share: we are experimenting with on-chain attestations for original writing. Keystroke dynamics and World ID, without pasting your draft on-chain. #HumanInkwell #WorldChain',
+    contentPreview: 'Pleased to share: we are experimenting with onchain attestations for original writing. Keystroke dynamics and World ID, without pasting your draft onchain. #HumanInkwell #WorldChain',
     contentHash: '0x2c4d5e6f7a8b9c0d1e2f3a4b5c6d7e8f9a0b1c2d3e4f5a6b7c8d9e0f1a2b3c4',
     humanSignatureHash: '0x2c3d4e5f60718293a4b5c6d7e8f901b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6e7f8',
     transactionHash: '0x20672aa169292e2cba453540b85390be6f9cdb843acd69ca466c3399ebc59f00',
@@ -64,6 +64,26 @@ export const MY_CONTENT_DEMO_ROWS: MyContentDemoRow[] = [
     humanSignatureHash: '0x5f6a7b8c9d0e1f2a3b4c5d6e7f8091a2b3c4d5e6f7a8b9c0d1e2f3a4b5c6d7e8f90a',
     transactionHash: '0x50672aa169292e2cba453540b85390be6f9cdb843acd69ca466c3399ebc59f03',
     indexedAtLabel: 'Demo',
+  },
+  {
+    id: '6',
+    contentFormat: 'Academic report (draft)',
+    contentPreview:
+      'Section 3.2: Mixture-of-Experts vs dense Transformers. We define MoE gating, expert sparsity, and compare FLOP-active cost to full attention + FFN blocks. “Mixture of models” in deployment is ensembling; in-network MoE is routing. Appendix: rubric for when sparse routing may fail under domain shift. Not legal advice; methods section cites Switch/GLaM lineages.',
+    contentHash: '0x6a7b8c9d0e1f2a3b4c5d6e7f8a9b0c1d2e3f4a5b6c7d8e9f0a1b2c3d4e5f6a7b',
+    humanSignatureHash: '0x6a7b8c9d0e1f2a3b4c5d6e7f8091a2b3c4d5e6f7a8b9c0d1e2f3a4b5c6d7e8f9a0b1',
+    transactionHash: '0x60672aa169292e2cba453540b85390be6f9cdb843acd69ca466c3399ebc59f04',
+    indexedAtLabel: 'This week (demo)',
+  },
+  {
+    id: '7',
+    contentFormat: 'Campus & district memo',
+    contentPreview:
+      'K–12 + higher ed: Proposed one-page for boards of ed / provosts—AI use in classwork, assessment boundaries, FERPA reminders for student writing, and optional on-device “human typed this” attestation. Pedagogy and accessibility first; attestation is support, not surveillance.',
+    contentHash: '0x7b8c9d0e1f2a3b4c5d6e7f8a9b0c1d2e3f4a5b6c7d8e9f0a1b2c3d4e5f6a7b8c',
+    humanSignatureHash: '0x7b8c9d0e1f2a3b4c5d6e7f8a9b0c1d2e3f4a5b6c7d8e9f0a1b2c3c4d5e6f7a8b9c0d',
+    transactionHash: '0x70672aa169292e2cba453540b85390be6f9cdb843acd69ca466c3399ebc59f05',
+    indexedAtLabel: 'In review (demo)',
   },
 ];
 

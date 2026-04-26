@@ -27,7 +27,7 @@ const SLIDES: { id: string; title: string; body: string[] }[] = [
     id: 'what',
     title: 'What is Human Inkwell?',
     body: [
-      'It captures your keystroke timing in the browser, builds a biometric feature vector, and hashes your text.',
+      'To prove you wrote it and help establish IP, all processing is local: you type, we measure key-level timing (hold, flight, down–down) and a small amount of session context (for example, how often this tab was hidden). That becomes a compact signature and content hashes. Nothing is streamed to us as raw keylogs.',
       'You can tie a record to your wallet—and with World ID, add proof of personhood.',
     ],
   },
@@ -36,14 +36,14 @@ const SLIDES: { id: string; title: string; body: string[] }[] = [
     title: 'Why use it?',
     body: [
       'Privacy: your exact words are not put on chain—only hashes and metrics.',
-      'Trust: you bind your writing to a human signal and a verifiable on-chain attestation on the Human Content Ledger.',
+      'Trust: you bind your writing to a human signal and a verifiable onchain attestation on the Human Content Ledger.',
     ],
   },
   {
     id: 'how',
     title: 'How it works',
     body: [
-      'Type naturally (no paste for accurate biometrics). Start capture, then generate a signature from your typing.',
+      'Type naturally (paste is off so the signal is real). Start a session, write in the field, and we will include focus events—tab or window changes counted locally, not tracked as browsing history.',
       'Connect your wallet and submit to the contract when you are ready.',
     ],
   },
@@ -150,9 +150,10 @@ const OnboardingFlow: React.FC<OnboardingFlowProps> = ({ worldIdProps, onComplet
             <div className="onboarding-slide-panel onboarding-world-wrap">
               <h2>Connect World ID to your writing</h2>
               <p>
-                Human Inkwell is about <strong>content</strong> you type yourself—keystroke timing, hashes, and optional
-                on-chain attestation. World ID ties <strong>proof of personhood</strong> to that work: your writing
-                session is linked to one real human, so it isn’t interchangeable with a bot or anonymous AI output.
+                Human Inkwell is about <strong>content</strong> you type yourself: key timing, coarse session context
+                (e.g. page activity), hashes, and optional onchain attestation. World ID ties{' '}
+                <strong>proof of personhood</strong> to that work—your writing session is linked to one real human, so
+                it isn’t interchangeable with a bot or anonymous AI output.
               </p>
               <WorldIDWidget {...worldIdProps} layout="onboarding" />
             </div>

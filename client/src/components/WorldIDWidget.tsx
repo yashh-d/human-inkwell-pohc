@@ -91,7 +91,7 @@ const WorldIDWidget: React.FC<WorldIDWidgetProps> = ({
         <div className="section-header">
           <h3 className="world-id-h3">
             <WorldMarkIcon size="md" />
-            <span>World ID & your content</span>
+            <span>World ID</span>
           </h3>
         </div>
       )}
@@ -150,9 +150,7 @@ const WorldIDWidget: React.FC<WorldIDWidgetProps> = ({
 
       {!isVerified && !isOnboarding && (
         <p className="world-id-why">
-          <strong>Writing + proof of personhood:</strong> World ID connects a verified human to the <em>content</em> you
-          compose here. The text is hashed; your on-chain attestation and records can show this work came from a real
-          person, not a bot or faceless LLM—so your session’s writing and your identity line up.
+          World ID ties proof of personhood to the writing in this page, not anonymous or automated output.
         </p>
       )}
 

@@ -1,6 +1,6 @@
 # Human Inkwell (POHC) — Full Documentation
 
-This document describes the **Human Inkwell** mini-app: keystroke-capture, optional **World ID** verification, and on-chain storage via the **HumanContentLedger** contract on **World Chain Sepolia** (or local Hardhat).
+This document describes the **Human Inkwell** mini-app: keystroke-capture, optional **World ID** verification, and onchain storage via the **HumanContentLedger** contract on **World Chain Sepolia** (or local Hardhat).
 
 ---
 
@@ -9,7 +9,7 @@ This document describes the **Human Inkwell** mini-app: keystroke-capture, optio
 1. [What this app does](#what-this-app-does)
 2. [Architecture](#architecture)
 3. [Repository layout](#repository-layout)
-4. [Privacy: what is and is not on-chain](#privacy-what-is-and-is-not-on-chain)
+4. [Privacy: what is and is not onchain](#privacy-what-is-and-is-not-onchain)
 5. [Biometric pipeline](#biometric-pipeline)
 6. [World ID](#world-id)
 7. [Vercel, World App, and IDKit (production)](#vercel-world-app-and-idkit-production)
@@ -69,13 +69,13 @@ This document describes the **Human Inkwell** mini-app: keystroke-capture, optio
 | `client/src/utils/crypto.ts` | `hashContent` (SHA-256 of text). |
 | `client/src/hooks/useBiometricProcessor.ts` | Feature vector + `generateHumanSignatureHash` (SHA-256 of `Float64Array` bytes). |
 | `blockchain/` | Hardhat, `HumanContentLedger.sol`, tests, deploy scripts. |
-| `blockchain/contracts/HumanContentLedger.sol` | On-chain storage contract. |
+| `blockchain/contracts/HumanContentLedger.sol` | Onchain storage contract. |
 
 ---
 
-## Privacy: what is and is not on-chain
+## Privacy: what is and is not onchain
 
-| Data | On-chain? |
+| Data | Onchain? |
 |------|------------|
 | The exact string you typed | **No** — only `contentHash` (hex string). |
 | Raw keystroke timing arrays in full | **No** — only a hash of a **fixed 17-number** feature vector. |
@@ -111,7 +111,7 @@ Configured via environment variables in `client/.env.local`:
 - `REACT_APP_WORLD_VERIFICATION_LEVEL` — e.g. `device` (no Orb) or `orb`.
 - `REACT_APP_WORLD_ENABLE_STAGING` — staging flag for IdKit.
 
-**Submitting to the blockchain** in this app does *not* require World ID to succeed for `storeContent` (on-chain), but the product can still encourage verification in the UI.
+**Submitting to the blockchain** in this app does *not* require World ID to succeed for `storeContent` (onchain), but the product can still encourage verification in the UI.
 
 ### Vercel, World App, and IDKit (production)
 
@@ -150,7 +150,7 @@ Running on **Vercel** (or any non-localhost host) is not automatic for World ID:
 ### `HumanContentLedger` (high level)
 
 - **`storeContent(contentHash, humanSignatureHash, keystrokeCount, typingSpeedScaled)`**  
-  - `typingSpeed` on-chain is stored as **characters per second × 1000** (integer-style scaling from the app).
+  - `typingSpeed` onchain is stored as **characters per second × 1000** (integer-style scaling from the app).
 - **`storeVerifiedContent(..., worldIdNullifier, ...)`** for optional verified flows (nullifier must be unique, etc.).
 
 - **Uniqueness:** one entry per **content hash** and one per **human signature hash**; optional uniqueness for World ID nullifier in the verified path.
@@ -259,4 +259,4 @@ OP Stack **deploys** can be gas-heavy; the repo may use a **>1×** gas limit buf
 
 ---
 
-*This file is maintained for the Human Inkwell (POHC) subproject. Contract addresses and app IDs in your deployment may differ; always use your own `.env` and on-chain verification of deployments.*
+*This file is maintained for the Human Inkwell (POHC) subproject. Contract addresses and app IDs in your deployment may differ; always use your own `.env` and onchain verification of deployments.*

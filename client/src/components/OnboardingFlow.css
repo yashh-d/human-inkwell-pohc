@@ -32,8 +32,9 @@
 }
 
 .onboarding-brand {
-  text-align: center;
+  text-align: left;
   margin-bottom: 1.25rem;
+  width: 100%;
 }
 
 .onboarding-brand__powered .hi-brand__tagline {

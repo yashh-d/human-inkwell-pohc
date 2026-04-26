@@ -33,7 +33,7 @@ export type LedgerSubmissionRow = {
   block_timestamp: string | null;
   gas_used: string | null;
   created_at: string;
-  /** Optional; must match on-chain content hash. Shown on public feed. */
+  /** Optional; must match onchain content hash. Shown on public feed. */
   public_text?: string | null;
 };
 
