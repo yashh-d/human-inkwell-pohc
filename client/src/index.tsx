@@ -13,13 +13,17 @@ root.render(
     <PrivyProvider
       appId={process.env.REACT_APP_PRIVY_APP_ID || process.env.REACT_APP_PRIVY_ID || ''}
       config={{
-        loginMethods: ['email', 'wallet', 'google'],
+        loginMethods: ['email', 'google'],
+        embeddedWallets: {
+          ethereum: {
+            createOnLogin: 'users-without-wallets',
+          },
+        },
         appearance: {
           theme: 'light',
           accentColor: '#121212',
           logo: 'https://worldcoin.org/logo.png', // Temporary placeholder for logo
         },
-        // We will natively use default Privy wallet rules to let it infer creation based on email/social login
       }}
     >
       <App />
