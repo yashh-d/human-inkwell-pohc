@@ -221,7 +221,9 @@ class BlockchainService {
 
       const balInjected = await this.getWalletNativeBalanceFromInjected(address);
       const balEthers = await signer.provider!.getBalance(address);
-      const bal = balInjected < balEthers ? balInjected : balEthers;
+      // Use the *larger* read: MetaMask and the read RPC can disagree; taking the
+      // minimum falsely showed 0 in some World App / in-app browser cases.
+      const bal = balInjected > balEthers ? balInjected : balEthers;
       if (bal === BigInt(0)) {
         throw new Error(
           `This wallet has 0 ETH for gas on ${NETWORK_NAME} (chain ${EXPECTED_CHAIN_ID}). ` +
@@ -289,7 +291,9 @@ class BlockchainService {
       }
 
       await this.assertMetaMaskOnExpectedChain();
-      const bal2 = await this.getWalletNativeBalanceFromInjected(address);
+      const bal2Inj = await this.getWalletNativeBalanceFromInjected(address);
+      const bal2Rpc = await signer.provider!.getBalance(address);
+      const bal2 = bal2Inj > bal2Rpc ? bal2Inj : bal2Rpc;
       if (bal2 < bal) {
         console.warn('blockchain: balance dropped before send', { bal, bal2 });
       }
