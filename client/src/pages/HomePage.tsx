@@ -410,7 +410,8 @@ function HomePage({
       let privyAddress: string | undefined;
 
       if (wallets && wallets.length > 0) {
-        const wallet = wallets[0];
+        // Explicitly search for the Embedded Privy Wallet to prevent MetaMask from hijacking the transaction
+        const wallet = wallets.find((w) => w.walletClientType === 'privy') || wallets[0];
         privyAddress = wallet.address;
         const ethereumProvider = await wallet.getEthereumProvider();
         const provider = new ethers.BrowserProvider(ethereumProvider as any);
