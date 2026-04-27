@@ -18,8 +18,8 @@ const customWorldChainSepolia = {
     symbol: 'ETH',
   },
   rpcUrls: {
-    default: { http: ['https://worldchain-sepolia.g.alchemy.com/public'] },
-    public: { http: ['https://worldchain-sepolia.g.alchemy.com/public'] },
+    default: { http: ['https://worldchain-sepolia.g.alchemy.com/v2/aNN20MJY-ezG6QnhrHDZW'] },
+    public: { http: ['https://worldchain-sepolia.g.alchemy.com/v2/aNN20MJY-ezG6QnhrHDZW'] },
   },
   blockExplorers: {
     default: { name: 'Worldscan', url: 'https://sepolia.worldscan.org' },
@@ -37,6 +37,12 @@ root.render(
         embeddedWallets: {
           ethereum: {
             createOnLogin: 'users-without-wallets',
+          },
+        },
+        externalWallets: {
+          coinbaseWallet: {
+            // @ts-ignore - privy types mismatch
+            options: 'eoaOnly', // 4801 (World Chain Sepolia) is not supported by Smart Wallet yet
           },
         },
         appearance: {

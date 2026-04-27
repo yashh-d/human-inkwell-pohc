@@ -5,10 +5,12 @@ import { getBlockExplorerBaseUrl } from './explorerConfig';
 import { isMiniKitBridgeAvailable } from './utils/miniKitRuntime';
 
 // Contract configuration
-const CONTRACT_ADDRESS = process.env.REACT_APP_CONTRACT_ADDRESS || '0x5FbDB2315678afecb367f032d93F642f64180aa3';
-const RPC_URL = process.env.REACT_APP_RPC_URL || 'http://127.0.0.1:8545';
-const EXPECTED_CHAIN_ID = Number(process.env.REACT_APP_CHAIN_ID || 31337);
-const NETWORK_NAME = process.env.REACT_APP_NETWORK_NAME || 'Localhost 8545';
+const CONTRACT_ADDRESS = process.env.REACT_APP_CONTRACT_ADDRESS || '0xad9F699Acf9cce2034d67D5E2682bbD9632F3110';
+const RPC_URL = process.env.REACT_APP_RPC_URL && !process.env.REACT_APP_RPC_URL.includes('/public') 
+  ? process.env.REACT_APP_RPC_URL 
+  : 'https://worldchain-sepolia.g.alchemy.com/v2/aNN20MJY-ezG6QnhrHDZW';
+const EXPECTED_CHAIN_ID = Number(process.env.REACT_APP_CHAIN_ID || 4801);
+const NETWORK_NAME = process.env.REACT_APP_NETWORK_NAME || 'World Chain Sepolia';
 /** Alchemy Blockscout (World Chain Sepolia); worldscan.org in env is normalized away. */
 const BLOCK_EXPLORER = getBlockExplorerBaseUrl();
 
@@ -650,75 +652,85 @@ class BlockchainService {
       }
 
       await new Promise((r) => setTimeout(r, 400));
-      onProgress?.('⏳ Confirming on World Chain (checking the ledger)…');
-      // STEP 1 — Contract may already show the new row even if the wallet errored.
-      try {
-        const onChain = await this.findStoredContent(data.contentHash, walletAtSubmit);
-        if (onChain) {
-          console.log('✅ Recovered: content is onchain despite wallet error', onChain);
-          return this.successFromIndexedFind(onChain, walletAtSubmit, submittedTxHash);
-        }
-      } catch (recoverErr) {
-        console.warn('blockchain: post-error contentExists check failed', recoverErr);
-      }
+      
+      const isPreflightError = 
+        error?.message?.includes('Could not read EIP-712 nonce') ||
+        error?.message?.includes('Failed to relay transaction') ||
+        error?.message?.includes('User denied message signature') ||
+        error?.message?.includes('user rejected') ||
+        error?.message?.includes('Wallet connection was rejected');
 
-      // STEP 2 — We have a hash but receipt / wait() failed: resolve via public RPC.
-      // NOTE: For MiniKit, submittedTxHash is actually an ERC-4337 UserOpHash, not a standard tx hash!
-      // This will cause provider.waitForTransaction to hang for 3 minutes.
-      // Skip this for MiniKit and fall right into the smart contract background polling (STEP 3).
-      const isMiniKitFallback = isMiniKitBridgeAvailable();
-      if (submittedTxHash && !isMiniKitFallback) {
+      if (!isPreflightError) {
+        onProgress?.('⏳ Confirming on World Chain (checking the ledger)…');
+        // STEP 1 — Contract may already show the new row even if the wallet errored.
         try {
-          const fallbackReceipt = await this.provider.waitForTransaction(
-            submittedTxHash,
-            1,
-            180_000
-          );
-          if (fallbackReceipt) {
-            if (fallbackReceipt.status === 0) {
-              return {
-                success: false,
-                error: `Transaction ${submittedTxHash} was mined but reverted onchain.`,
-                walletAddress: walletAtSubmit,
-                explorerAddressUrl: walletAtSubmit
-                  ? `${BLOCK_EXPLORER.replace(/\/$/, '')}/address/${walletAtSubmit}`
-                  : undefined,
-                explorerTxUrl: `${BLOCK_EXPLORER.replace(/\/$/, '')}/tx/${submittedTxHash}`,
-              };
-            }
-            console.log('✅ Recovered via public RPC after wallet wait() failed', submittedTxHash);
-            return await this.buildSuccessFromReceipt(submittedTxHash, fallbackReceipt, walletAtSubmit);
+          const onChain = await this.findStoredContent(data.contentHash, walletAtSubmit);
+          if (onChain) {
+            console.log('✅ Recovered: content is onchain despite wallet error', onChain);
+            return this.successFromIndexedFind(onChain, walletAtSubmit, submittedTxHash);
           }
         } catch (recoverErr) {
-          console.warn('blockchain: public-RPC receipt recovery failed', recoverErr);
+          console.warn('blockchain: post-error contentExists check failed', recoverErr);
         }
-        return {
-          success: true,
-          transactionHash: submittedTxHash,
-          statusNote: `Transaction sent. The explorer will show it shortly if the wallet’s confirmation step was slow.`,
-          explorerTxUrl: `${BLOCK_EXPLORER.replace(/\/$/, '')}/tx/${submittedTxHash}`,
-          explorerContractUrl: `${BLOCK_EXPLORER.replace(/\/$/, '')}/address/${CONTRACT_ADDRESS}`,
-          walletAddress: walletAtSubmit,
-          explorerAddressUrl: walletAtSubmit
-            ? `${BLOCK_EXPLORER.replace(/\/$/, '')}/address/${walletAtSubmit}`
-            : undefined,
-        };
-      }
 
-      // STEP 3 — Entry often appears a few seconds after a misleading wallet error; wait before any UI error.
-      try {
-        onProgress?.(
-          isMiniKitFallback 
-            ? '⏳ Waiting for your transaction to be packaged and mined automatically (up to ~60s)…'
-            : '⏳ Polling the chain in the background (no new MetaMask request) — up to ~90s for your entry…'
-        );
-        const longPolled = await this.waitForContentIndexed(data, walletAtSubmit, 90_000, onProgress);
-        if (longPolled) {
-          console.log('✅ Recovered via background polling', longPolled);
-          return this.successFromIndexedFind(longPolled, walletAtSubmit, isMiniKitFallback ? null : submittedTxHash);
+        // STEP 2 — We have a hash but receipt / wait() failed: resolve via public RPC.
+        // NOTE: For MiniKit, submittedTxHash is actually an ERC-4337 UserOpHash, not a standard tx hash!
+        // This will cause provider.waitForTransaction to hang for 3 minutes.
+        // Skip this for MiniKit and fall right into the smart contract background polling (STEP 3).
+        const isMiniKitFallback = isMiniKitBridgeAvailable();
+        if (submittedTxHash && !isMiniKitFallback) {
+          try {
+            const fallbackReceipt = await this.provider.waitForTransaction(
+              submittedTxHash,
+              1,
+              180_000
+            );
+            if (fallbackReceipt) {
+              if (fallbackReceipt.status === 0) {
+                return {
+                  success: false,
+                  error: `Transaction ${submittedTxHash} was mined but reverted onchain.`,
+                  walletAddress: walletAtSubmit,
+                  explorerAddressUrl: walletAtSubmit
+                    ? `${BLOCK_EXPLORER.replace(/\/$/, '')}/address/${walletAtSubmit}`
+                    : undefined,
+                  explorerTxUrl: `${BLOCK_EXPLORER.replace(/\/$/, '')}/tx/${submittedTxHash}`,
+                };
+              }
+              console.log('✅ Recovered via public RPC after wallet wait() failed', submittedTxHash);
+              return await this.buildSuccessFromReceipt(submittedTxHash, fallbackReceipt, walletAtSubmit);
+            }
+          } catch (recoverErr) {
+            console.warn('blockchain: public-RPC receipt recovery failed', recoverErr);
+          }
+          return {
+            success: true,
+            transactionHash: submittedTxHash,
+            statusNote: `Transaction sent. The explorer will show it shortly if the wallet’s confirmation step was slow.`,
+            explorerTxUrl: `${BLOCK_EXPLORER.replace(/\/$/, '')}/tx/${submittedTxHash}`,
+            explorerContractUrl: `${BLOCK_EXPLORER.replace(/\/$/, '')}/address/${CONTRACT_ADDRESS}`,
+            walletAddress: walletAtSubmit,
+            explorerAddressUrl: walletAtSubmit
+              ? `${BLOCK_EXPLORER.replace(/\/$/, '')}/address/${walletAtSubmit}`
+              : undefined,
+          };
         }
-      } catch (pollErr) {
-        console.warn('blockchain: extended chain poll failed', pollErr);
+
+        // STEP 3 — Entry often appears a few seconds after a misleading wallet error; wait before any UI error.
+        try {
+          onProgress?.(
+            isMiniKitFallback 
+              ? '⏳ Waiting for your transaction to be packaged and mined automatically (up to ~60s)…'
+              : '⏳ Polling the chain in the background (no new MetaMask request) — up to ~90s for your entry…'
+          );
+          const longPolled = await this.waitForContentIndexed(data, walletAtSubmit, 90_000, onProgress);
+          if (longPolled) {
+            console.log('✅ Recovered via background polling', longPolled);
+            return this.successFromIndexedFind(longPolled, walletAtSubmit, isMiniKitFallback ? null : submittedTxHash);
+          }
+        } catch (pollErr) {
+          console.warn('blockchain: extended chain poll failed', pollErr);
+        }
       }
 
       const raw =
