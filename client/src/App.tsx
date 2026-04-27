@@ -11,6 +11,12 @@ import MyContentPage from './pages/MyContentPage';
 import FeedPage from './pages/FeedPage';
 import WorkflowPage from './pages/WorkflowPage';
 
+/** Only mount when enabled so `/_vercel/insights/script.js` is not requested on hosts where it 404s as HTML. */
+function VercelAnalyticsGate() {
+  if (process.env.REACT_APP_ENABLE_VERCEL_ANALYTICS !== 'true') return null;
+  return <Analytics />;
+}
+
 function App() {
   const [onboardingOpen, setOnboardingOpen] = useState(() => !isOnboardingMarkedDone());
 
@@ -44,7 +50,7 @@ function App() {
           }}
           onComplete={() => setOnboardingOpen(false)}
         />
-        <Analytics />
+        <VercelAnalyticsGate />
       </div>
     );
   }
@@ -94,7 +100,7 @@ function App() {
             <Route path="*" element={<Navigate to="/" replace />} />
           </Route>
         </Routes>
-        <Analytics />
+        <VercelAnalyticsGate />
       </div>
     </BrowserRouter>
   );

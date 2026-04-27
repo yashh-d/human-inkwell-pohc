@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { MiniKit } from '@worldcoin/minikit-js';
+import { isMiniKitBridgeAvailable } from '../utils/miniKitRuntime';
 
 interface MiniKitUser {
   walletAddress?: string;
@@ -22,9 +23,8 @@ interface UseMiniKitReturn {
 /**
  * Detects whether the app is running inside the World App.
  *
- * Uses MiniKit.install() + MiniKit.isInstalled() from @worldcoin/minikit-js v1.x.
- * MiniKit.isInstalled() only returns true when the page is loaded inside the
- * World App webview that injects `window.WorldApp`.
+ * Uses MiniKit.install() then checks for `window.MiniKit` (same as MiniKit.isInstalled()
+ * but without the SDK logging console.error on every call outside World App).
  */
 export function useMiniKit(): UseMiniKitReturn {
   const [isInWorldApp, setIsInWorldApp] = useState(false);
@@ -36,7 +36,7 @@ export function useMiniKit(): UseMiniKitReturn {
       // MiniKit.install() initialises the SDK and reads window.WorldApp
       MiniKit.install(process.env.REACT_APP_WORLD_APP_ID);
 
-      const installed = MiniKit.isInstalled();
+      const installed = isMiniKitBridgeAvailable();
       setIsInWorldApp(installed);
 
       if (installed) {
@@ -54,9 +54,11 @@ export function useMiniKit(): UseMiniKitReturn {
               : undefined,
           });
         }
-        console.log('[MiniKit] Running inside World App');
-      } else {
-        console.log('[MiniKit] Running in standard browser');
+        if (process.env.NODE_ENV === 'development') {
+          console.debug('[MiniKit] Running inside World App');
+        }
+      } else if (process.env.NODE_ENV === 'development') {
+        console.debug('[MiniKit] Running in standard browser (World App bridge not present)');
       }
     } catch (err) {
       console.warn('[MiniKit] install() failed, falling back to browser mode:', err);

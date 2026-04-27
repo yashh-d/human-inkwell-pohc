@@ -2,6 +2,7 @@ import { ethers, type TransactionReceipt } from 'ethers';
 import { MiniKit, type MiniAppSendTransactionSuccessPayload } from '@worldcoin/minikit-js';
 import contractABI from './HumanContentLedger.json';
 import { getBlockExplorerBaseUrl } from './explorerConfig';
+import { isMiniKitBridgeAvailable } from './utils/miniKitRuntime';
 
 // Contract configuration
 const CONTRACT_ADDRESS = process.env.REACT_APP_CONTRACT_ADDRESS || '0x5FbDB2315678afecb367f032d93F642f64180aa3';
@@ -466,7 +467,7 @@ class BlockchainService {
     let submittedTxHash: string | null = null;
     try {
       let signer: ethers.Signer | undefined;
-      const useMiniKit = MiniKit.isInstalled();
+      const useMiniKit = isMiniKitBridgeAvailable();
 
       if (!useMiniKit) {
         if (options?.privySigner && options?.privyAddress) {
@@ -504,11 +505,8 @@ class BlockchainService {
       onProgress?.('⏳ Generating transaction...');
 
       const typingScaled = Math.floor(data.typingSpeed * 1000);
-      let contractWithSigner: ethers.Contract | undefined;
 
       if (!useMiniKit && signer) {
-        contractWithSigner = this.contract.connect(signer) as ethers.Contract;
-        
         // Assert network is correct (skip for Privy, Privy natively manages the chain internally)
         if (!options?.privySigner) {
           console.log('[Blockchain] Running legacy MetaMask network assertion...');
@@ -516,8 +514,6 @@ class BlockchainService {
         }
       }
 
-      let tx: any;
-      
       if (useMiniKit) {
         // --- 📱 MINIKIT PATH ---
         onProgress?.('⏳ Please confirm the transaction in World App...');
@@ -670,7 +666,7 @@ class BlockchainService {
       // NOTE: For MiniKit, submittedTxHash is actually an ERC-4337 UserOpHash, not a standard tx hash!
       // This will cause provider.waitForTransaction to hang for 3 minutes.
       // Skip this for MiniKit and fall right into the smart contract background polling (STEP 3).
-      const isMiniKitFallback = MiniKit.isInstalled();
+      const isMiniKitFallback = isMiniKitBridgeAvailable();
       if (submittedTxHash && !isMiniKitFallback) {
         try {
           const fallbackReceipt = await this.provider.waitForTransaction(

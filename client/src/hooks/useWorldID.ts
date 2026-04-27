@@ -5,6 +5,7 @@ import {
   VerificationLevel as MiniKitVerificationLevel,
   type MiniAppVerifyActionSuccessPayload,
 } from '@worldcoin/minikit-js';
+import { isMiniKitBridgeAvailable } from '../utils/miniKitRuntime';
 
 interface UseWorldIDReturn {
   isVerified: boolean;
@@ -75,8 +76,10 @@ export const useWorldID = (): UseWorldIDReturn => {
   // ─── MiniKit native verify (World App path) ────────────────────────
 
   const verifyViaMiniKit = useCallback(async () => {
-    if (!MiniKit.isInstalled()) {
-      console.error('[WorldID/MiniKit] MiniKit is not installed — cannot verify');
+    if (!isMiniKitBridgeAvailable()) {
+      if (process.env.NODE_ENV === 'development') {
+        console.debug('[WorldID/MiniKit] World App bridge not present — use IDKit in the browser');
+      }
       return;
     }
 
