@@ -5,7 +5,7 @@ import { getBlockExplorerBaseUrl } from './explorerConfig';
 import { isMiniKitBridgeAvailable } from './utils/miniKitRuntime';
 
 // Contract configuration
-const CONTRACT_ADDRESS = process.env.REACT_APP_CONTRACT_ADDRESS || '0xad9F699Acf9cce2034d67D5E2682bbD9632F3110';
+const CONTRACT_ADDRESS = process.env.REACT_APP_CONTRACT_ADDRESS || '0xf7047ec2C31496280e1995C961543271dFD9DaaA';
 const RPC_URL = process.env.REACT_APP_RPC_URL && !process.env.REACT_APP_RPC_URL.includes('/public') 
   ? process.env.REACT_APP_RPC_URL 
   : 'https://worldchain-sepolia.g.alchemy.com/v2/aNN20MJY-ezG6QnhrHDZW';
