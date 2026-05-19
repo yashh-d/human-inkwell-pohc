@@ -1,10 +1,8 @@
-import React, { useState, useCallback } from 'react';
-import {
-  DUMMY_FEED_ITEMS,
-  FEED_CHANNEL_PROFILE,
-  type DummyFeedItem,
-} from '../data/dummyFeed';
+import React, { useCallback, useEffect, useState } from 'react';
+import { FEED_CHANNEL_PROFILE } from '../data/dummyFeed';
 import { formatRelativeTime } from '../utils/relativeTime';
+import { fetchPublicFeed, explorerTxUrl, type LedgerSubmissionRow } from '../ledgerSupabase';
+import { truncateHex } from '../ledgerDemo';
 
 const PREVIEW_CHARS = 300;
 
@@ -32,59 +30,80 @@ function FeedPostText({ text }: { text: string }) {
   );
 }
 
-function FeedRow({ r }: { r: DummyFeedItem }) {
+function shortHandle(addr: string): string {
+  const a = (addr || '').toLowerCase();
+  if (a.length < 10) return a || 'anon';
+  return `${a.slice(2, 6)}…${a.slice(-4)}`;
+}
+
+function FeedRow({ r }: { r: LedgerSubmissionRow }) {
+  const isLong = r.content_type === 'long';
+  const formatLabel = isLong ? 'Long-form' : 'Short post';
+  const displayBody = r.public_text || '(text not published — only hashes onchain)';
+  const txUrl = r.transaction_hash ? explorerTxUrl(r.transaction_hash) : undefined;
+  const txPreview = r.transaction_hash ? truncateHex(r.transaction_hash, 10, 6) : 'no tx';
+  const handle = shortHandle(r.author_address);
+
   return (
     <li className="hi-feed-card">
       <div
         className="hi-feed-card__avatar"
-        style={{ '--hi-feed-hue': `${addressHue(r.author)}` } as React.CSSProperties}
+        style={{ '--hi-feed-hue': `${addressHue(r.author_address)}` } as React.CSSProperties}
         aria-hidden
-        title={r.author}
+        title={r.author_address}
       />
       <div className="hi-feed-card__main">
         <div className="hi-feed-card__byline">
-          <span className="hi-feed-card__display" title={r.displayName}>
-            {r.displayName}
+          <span className="hi-feed-card__display" title={r.author_address}>
+            {handle}
           </span>
-          <span className="hi-feed-card__handle" title={r.author}>
-            @{r.handle}
+          <span className="hi-feed-card__handle" title={r.author_address}>
+            @{handle}
           </span>
           <span className="hi-feed-card__dot" aria-hidden>
             ·
           </span>
-          <time className="hi-feed-card__time" dateTime={r.timeLabel} title={new Date(r.timeLabel).toLocaleString()}>
-            {formatRelativeTime(r.timeLabel)}
+          <time
+            className="hi-feed-card__time"
+            dateTime={r.created_at}
+            title={new Date(r.created_at).toLocaleString()}
+          >
+            {formatRelativeTime(r.created_at)}
           </time>
         </div>
 
         <p className="hi-feed-card__chips" aria-label="Post category">
-          <span className="hi-feed-pill hi-feed-pill--category">{r.formatLabel}</span>
+          <span className="hi-feed-pill hi-feed-pill--category">{formatLabel}</span>
         </p>
 
-        <FeedPostText text={r.publicText} />
+        {isLong && r.title && (
+          <h3 style={{ margin: '4px 0 8px', fontSize: '1.1rem', lineHeight: 1.3 }}>{r.title}</h3>
+        )}
+
+        <FeedPostText text={displayBody} />
 
         <p className="hi-feed-card__signature-bar" aria-label="Attestation and transaction reference">
           <span className="hi-feed-card__sig-icon" aria-hidden>
             ✓
           </span>
           <span className="hi-feed-card__sig-text">
-            Verified Human: {r.keystrokeCount.toLocaleString()} Keystrokes
+            Verified Human: {r.keystroke_count.toLocaleString()} Keystrokes
           </span>
           <span className="hi-feed-card__sig-sep" aria-hidden>
             |
           </span>
-          {r.txUrl ? (
+          {txUrl ? (
             <a
-              href={r.txUrl}
+              href={txUrl}
               className="hi-feed-card__sig-tx"
               target="_blank"
               rel="noopener noreferrer"
               title="View on block explorer"
             >
-              {r.txPreview}
+              {txPreview}
             </a>
           ) : (
-            <span className="hi-feed-card__sig-tx hi-feed-card__sig-tx--static">{r.txPreview}</span>
+            <span className="hi-feed-card__sig-tx hi-feed-card__sig-tx--static">{txPreview}</span>
           )}
         </p>
       </div>
@@ -93,12 +112,36 @@ function FeedRow({ r }: { r: DummyFeedItem }) {
 }
 
 const FeedPage: React.FC = () => {
+  const [rows, setRows] = useState<LedgerSubmissionRow[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   const [listKey, setListKey] = useState(0);
   const p = FEED_CHANNEL_PROFILE;
 
+  const load = useCallback(async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      const data = await fetchPublicFeed(50);
+      setRows(data);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Failed to load feed');
+      setRows([]);
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    load();
+  }, [load]);
+
   const refresh = useCallback(() => {
     setListKey((k) => k + 1);
-  }, []);
+    load();
+  }, [load]);
+
+  const postCount = rows.length;
 
   return (
     <div className="hi-feed">
@@ -106,8 +149,13 @@ const FeedPage: React.FC = () => {
         <div className="hi-feed__toprow">
           <h1 className="hi-feed__eyebrow">Feed</h1>
           <div className="hi-feed__toprow-actions">
-            <button type="button" className="hi-btn hi-btn--ghost hi-btn--sm hi-feed__refresh-btn" onClick={refresh}>
-              Refresh
+            <button
+              type="button"
+              className="hi-btn hi-btn--ghost hi-btn--sm hi-feed__refresh-btn"
+              onClick={refresh}
+              disabled={loading}
+            >
+              {loading ? 'Refreshing…' : 'Refresh'}
             </button>
           </div>
         </div>
@@ -144,32 +192,9 @@ const FeedPage: React.FC = () => {
             <p className="hi-feed-profile__meta" aria-label="Location, site, and reach">
               <span>📍 {p.location}</span>
               <span className="hi-feed-profile__meta-pipe" aria-hidden>
-                {' '}
-                |{' '}
+                {' '}|{' '}
               </span>
               <span className="hi-feed-profile__link-fake">{p.websiteLabel}</span>
-              <span className="hi-feed-profile__meta-pipe" aria-hidden>
-                {' '}
-                |{' '}
-              </span>
-              <span>
-                <strong>{p.following.toLocaleString()}</strong> Following
-              </span>
-              <span className="hi-feed-profile__meta-pipe" aria-hidden>
-                {' '}
-                |{' '}
-              </span>
-              <span>
-                <strong
-                  title={p.followers.toLocaleString('en-US')}
-                >
-                  {p.followers.toLocaleString('en-US', {
-                    notation: 'compact',
-                    maximumFractionDigits: 1,
-                  })}
-                </strong>{' '}
-                Followers
-              </span>
             </p>
           </div>
         </header>
@@ -188,12 +213,24 @@ const FeedPage: React.FC = () => {
           </div>
         </nav>
         <p className="hi-feed__post-count" aria-live="polite">
-          {DUMMY_FEED_ITEMS.length} {DUMMY_FEED_ITEMS.length === 1 ? 'post' : 'posts'}
+          {loading ? 'Loading…' : `${postCount} ${postCount === 1 ? 'post' : 'posts'}`}
         </p>
 
+        {error && (
+          <p style={{ color: 'crimson', padding: '0 16px' }} role="alert">
+            {error}
+          </p>
+        )}
+
+        {!loading && !error && rows.length === 0 && (
+          <p style={{ padding: '24px 16px', opacity: 0.7 }}>
+            No public posts yet. When users opt in to share their attestations, they’ll appear here.
+          </p>
+        )}
+
         <ul className="hi-feed__list" key={listKey} aria-label="Public posts">
-          {DUMMY_FEED_ITEMS.map((r) => (
-            <FeedRow key={r.id} r={r} />
+          {rows.map((r) => (
+            <FeedRow key={r.id ?? `${r.chain_id}-${r.entry_id}`} r={r} />
           ))}
         </ul>
       </div>
