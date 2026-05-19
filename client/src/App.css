@@ -2967,3 +2967,200 @@
   text-align: right;
 }
 
+/* ---------------------------------------------------------------------------
+   X-style single Post button for the workspace
+   ------------------------------------------------------------------------- */
+.hi-workspace__post-bar {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 12px;
+  margin-top: 12px;
+}
+.hi-workspace--short .hi-workspace__post-bar {
+  padding-top: 8px;
+  border-top: 1px solid rgba(255, 255, 255, 0.06);
+}
+.hi-workspace--long .hi-workspace__post-bar {
+  max-width: 680px;
+  margin-left: auto;
+  margin-right: auto;
+  padding-top: 12px;
+  border-top: 1px solid #e6e1d2;
+}
+.hi-workspace__post-btn {
+  font-weight: 700;
+  font-size: 0.95rem;
+  padding: 10px 22px;
+  border-radius: 9999px;
+  background: #1d9bf0;
+  color: #fff;
+  border: none;
+  cursor: pointer;
+  letter-spacing: 0.01em;
+  min-width: 96px;
+  box-shadow: 0 1px 0 rgba(0, 0, 0, 0.04);
+}
+.hi-workspace__post-btn:hover:not(:disabled),
+.hi-workspace__post-btn:focus-visible:not(:disabled) {
+  background: #1a8cd8;
+  outline: none;
+}
+.hi-workspace__post-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+.hi-workspace--long .hi-workspace__post-btn {
+  background: #2a2722;
+  color: #fffdf7;
+}
+.hi-workspace--long .hi-workspace__post-btn:hover:not(:disabled) {
+  background: #1a1814;
+}
+
+/* ---------------------------------------------------------------------------
+   Workspace receipt view — shown inside the modal after a successful publish.
+   "Submitted onchain" big banner at top, tx/contract links, X + LinkedIn
+   share buttons, biometric stats follow below (rendered by existing block).
+   ------------------------------------------------------------------------- */
+.hi-workspace-receipt {
+  max-width: 680px;
+  margin: 0 auto 20px;
+  padding: 20px 4px 0;
+}
+.hi-workspace-receipt__header {
+  padding-bottom: 18px;
+  border-bottom: 1px solid currentColor;
+  border-bottom-color: rgba(127, 127, 127, 0.18);
+  margin-bottom: 18px;
+}
+.hi-workspace-receipt__title {
+  margin: 0 0 4px;
+  font-size: 1.6rem;
+  font-weight: 800;
+  letter-spacing: -0.01em;
+}
+.hi-workspace--short .hi-workspace-receipt__title {
+  color: #e7eef5;
+}
+.hi-workspace--long .hi-workspace-receipt__title {
+  color: #2a2722;
+}
+.hi-workspace-receipt__entry {
+  margin: 0 0 8px;
+  font-size: 0.9rem;
+  opacity: 0.7;
+}
+.hi-workspace-receipt__note {
+  margin: 4px 0 12px;
+  font-size: 0.9rem;
+  opacity: 0.8;
+}
+.hi-workspace-receipt__tx {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin: 12px 0;
+}
+.hi-workspace-receipt__tx-label {
+  font-size: 0.78rem;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  opacity: 0.55;
+}
+.hi-workspace-receipt__tx-hash {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 0.82rem;
+  word-break: break-all;
+  padding: 8px 10px;
+  border-radius: 8px;
+  background: rgba(127, 127, 127, 0.08);
+}
+.hi-workspace-receipt__links {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-top: 14px;
+}
+.hi-workspace-receipt__link {
+  flex: 1 1 auto;
+  text-align: center;
+  text-decoration: none;
+  padding: 10px 18px;
+  border-radius: 9999px;
+  font-weight: 600;
+}
+
+.hi-workspace-receipt__share {
+  margin: 8px 0 24px;
+}
+.hi-workspace-receipt__share-title {
+  margin: 0 0 12px;
+  font-size: 1rem;
+  font-weight: 700;
+  opacity: 0.85;
+}
+.hi-workspace-receipt__share-btns {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+.hi-workspace-receipt__share-x,
+.hi-workspace-receipt__share-li {
+  flex: 1 1 calc(50% - 10px);
+  min-width: 140px;
+  padding: 12px 18px;
+  border-radius: 9999px;
+  font-weight: 700;
+  font-size: 0.95rem;
+  border: none;
+  cursor: pointer;
+  text-align: center;
+}
+.hi-workspace-receipt__share-x {
+  background: #0f1419;
+  color: #fff;
+}
+.hi-workspace-receipt__share-li {
+  background: #0a66c2;
+  color: #fff;
+}
+.hi-workspace--long .hi-workspace-receipt__share-x {
+  background: #2a2722;
+}
+.hi-workspace-receipt__share-x:hover,
+.hi-workspace-receipt__share-x:focus-visible,
+.hi-workspace-receipt__share-li:hover,
+.hi-workspace-receipt__share-li:focus-visible {
+  filter: brightness(1.1);
+  outline: none;
+}
+.hi-workspace-receipt__share-copy {
+  flex-basis: 100%;
+  margin-top: 4px;
+}
+.hi-workspace-receipt__toast {
+  margin: 10px 0 0;
+  font-size: 0.85rem;
+  opacity: 0.8;
+}
+
+.hi-workspace-receipt__write-another {
+  display: block;
+  width: 100%;
+  padding: 12px 18px;
+  margin-top: 4px;
+  border-radius: 12px;
+  background: transparent;
+  border: 1px solid rgba(127, 127, 127, 0.3);
+  color: inherit;
+  font-weight: 600;
+  font-size: 0.95rem;
+  cursor: pointer;
+}
+.hi-workspace-receipt__write-another:hover,
+.hi-workspace-receipt__write-another:focus-visible {
+  background: rgba(127, 127, 127, 0.08);
+  outline: none;
+}
+
