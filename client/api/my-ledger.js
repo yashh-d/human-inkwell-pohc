@@ -4,7 +4,7 @@
  */
 const { createClient } = require('@supabase/supabase-js');
 const { verifyMessage, getAddress } = require('ethers');
-const { getSupabaseCreds } = require('./_supabaseEnv');
+const { getSupabaseAdminCreds } = require('./_supabaseEnv');
 
 const MAX_AGE_MS = 10 * 60 * 1000;
 
@@ -77,7 +77,7 @@ module.exports = async (req, res) => {
     return send(res, 401, { error: 'Message expired' });
   }
 
-  const { url: supabaseUrl, key: supabaseKey, error: supaErr } = getSupabaseCreds();
+  const { url: supabaseUrl, key: supabaseKey, error: supaErr } = getSupabaseAdminCreds();
   if (supaErr) {
     return send(res, 500, { error: supaErr });
   }

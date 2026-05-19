@@ -28,7 +28,7 @@ module.exports = async (req, res) => {
     ok: false,
     step: 'env',
     env: meta,
-    message: credsError || (meta.hasUrl && meta.hasKey ? 'url+key present' : 'incomplete creds'),
+    message: credsError || (meta.hasUrl && meta.hasAnonKey ? 'url + anon key present' : 'incomplete creds'),
   };
 
   if (credsError || !url || !key) {

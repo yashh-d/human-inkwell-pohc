@@ -5,7 +5,7 @@
  */
 const { createClient } = require('@supabase/supabase-js');
 const { verifyMessage, getAddress, JsonRpcProvider, Contract } = require('ethers');
-const { getSupabaseCreds } = require('./_supabaseEnv');
+const { getSupabaseAdminCreds } = require('./_supabaseEnv');
 const { parsePublicText } = require('./_contentHash');
 
 const LEDGER_READ_ABI = [
@@ -264,7 +264,7 @@ module.exports = async (req, res) => {
     if (v.error) {
       return send(res, v.code, { error: v.error });
     }
-    const { url: supabaseUrl, key: supabaseKey, error: supaErr } = getSupabaseCreds();
+    const { url: supabaseUrl, key: supabaseKey, error: supaErr } = getSupabaseAdminCreds();
     if (supaErr) {
       return send(res, 500, { error: supaErr });
     }
@@ -340,7 +340,7 @@ module.exports = async (req, res) => {
     return send(res, 401, { error: 'Invalid signature for author' });
   }
 
-  const { url: supabaseUrl, key: supabaseKey, error: supaErr } = getSupabaseCreds();
+  const { url: supabaseUrl, key: supabaseKey, error: supaErr } = getSupabaseAdminCreds();
   if (supaErr) {
     return send(res, 500, { error: supaErr });
   }

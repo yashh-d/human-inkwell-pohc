@@ -5,7 +5,7 @@
  */
 const { createClient } = require('@supabase/supabase-js');
 const { JsonRpcProvider, Contract, getAddress } = require('ethers');
-const { getSupabaseCreds } = require('./_supabaseEnv');
+const { getSupabaseAdminCreds } = require('./_supabaseEnv');
 const { parsePublicText } = require('./_contentHash');
 const humanContentArtifact = require('../src/HumanContentLedger.json');
 
@@ -114,7 +114,7 @@ module.exports = async (req, res) => {
     return send(res, 400, { error: 'Missing required fields' });
   }
 
-  const { url: supabaseUrl, key: supabaseKey, error: supaErr } = getSupabaseCreds();
+  const { url: supabaseUrl, key: supabaseKey, error: supaErr } = getSupabaseAdminCreds();
   if (supaErr) {
     return send(res, 500, { error: supaErr });
   }
