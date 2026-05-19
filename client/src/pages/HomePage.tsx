@@ -1009,7 +1009,6 @@ function HomePage({
               {content.length} {content.length === 1 ? 'character' : 'characters'}
             </p>
           )}
-        </div>
 
         <div
           className="hi-format-toggle"
@@ -1244,6 +1243,7 @@ function HomePage({
         )}
             </>
           )}
+        </div>
 
         {/* 🎯 DETAILED BIOMETRIC DATA DISPLAY */}
         {biometricData && (
