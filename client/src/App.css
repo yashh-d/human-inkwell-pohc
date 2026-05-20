@@ -3306,3 +3306,313 @@
   }
 }
 
+/* ─────────────────────────────────────────────────────────────
+   Vibe Hero — landing-page locked input bubble
+   Pre-verify: occupies the page on its own.
+   Post-verify: stays at the top as the primary writing surface.
+   Uses the existing white / cyan palette — no new colors.
+   ───────────────────────────────────────────────────────────── */
+
+.hi-vibe-hero {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  padding: 2.5rem 1rem 2rem;
+  min-height: min(78vh, 720px);
+  position: relative;
+}
+
+/* When the bubble is the whole page (pre-verify), pull it up toward the optical center */
+.hi-vibe-hero--solo {
+  min-height: min(82vh, 760px);
+  padding-top: 3.25rem;
+}
+
+/* Post-verify the hero is just a band at the top, not the full viewport */
+.hi-vibe-hero--with-rest {
+  min-height: 0;
+  padding-top: 1.5rem;
+  padding-bottom: 1.25rem;
+}
+
+.hi-vibe-hero__eyebrow {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-family: var(--hi-font-ui);
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--hi-cyan);
+  padding: 0.32rem 0.7rem;
+  border-radius: 999px;
+  background: var(--hi-cyan-soft);
+  border: 1px solid rgba(0, 180, 216, 0.3);
+  margin-bottom: 1rem;
+}
+
+.hi-vibe-hero__eyebrow-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--hi-cyan);
+  box-shadow: 0 0 8px rgba(0, 180, 216, 0.6);
+}
+
+.hi-vibe-hero__headline {
+  font-family: var(--hi-font-display);
+  font-size: clamp(1.7rem, 4.6vw, 2.6rem);
+  font-weight: 700;
+  line-height: 1.12;
+  letter-spacing: -0.015em;
+  margin: 0 0 0.6rem;
+  color: var(--hi-text);
+  max-width: 30rem;
+}
+
+.hi-vibe-hero__sub {
+  font-family: var(--hi-font-ui);
+  font-size: 0.95rem;
+  line-height: 1.45;
+  color: var(--hi-text-muted);
+  margin: 0 0 1.8rem;
+  max-width: 32rem;
+}
+
+/* The glowing bubble shell */
+.hi-vibe-bubble {
+  position: relative;
+  width: 100%;
+  max-width: 38rem;
+  border-radius: 22px;
+  isolation: isolate;
+}
+
+/* Animated outer glow — translated from the spec's multi-color gradient
+   into the existing cyan palette so we don't introduce new colors. */
+.hi-vibe-bubble::before {
+  content: '';
+  position: absolute;
+  inset: -4px;
+  border-radius: 26px;
+  background: linear-gradient(
+    135deg,
+    rgba(0, 180, 216, 0.55) 0%,
+    rgba(0, 200, 230, 0.35) 45%,
+    rgba(0, 163, 194, 0.55) 100%
+  );
+  filter: blur(18px);
+  opacity: 0.55;
+  z-index: -1;
+  transition: opacity 0.4s ease, filter 0.4s ease;
+}
+
+.hi-vibe-bubble:hover::before,
+.hi-vibe-bubble:focus-within::before {
+  opacity: 0.85;
+  filter: blur(22px);
+}
+
+.hi-vibe-bubble__inner {
+  background: var(--hi-surface);
+  border: 1px solid var(--hi-border);
+  border-radius: 22px;
+  padding: 1rem 1rem 0.75rem;
+  box-shadow: 0 8px 32px rgba(0, 60, 78, 0.08), 0 1px 3px rgba(0, 0, 0, 0.04);
+  position: relative;
+  overflow: hidden;
+}
+
+/* The textarea inside the bubble — looks borderless / chat-like */
+.hi-vibe-bubble__textarea {
+  width: 100%;
+  min-height: 110px;
+  max-height: 320px;
+  border: none;
+  outline: none;
+  resize: none;
+  background: transparent;
+  font-family: var(--hi-font-ui);
+  font-size: 1.05rem;
+  line-height: 1.5;
+  color: var(--hi-text);
+  padding: 0.25rem 0.25rem 0.4rem;
+  user-select: text;
+  -webkit-user-select: text;
+}
+
+.hi-vibe-bubble__textarea::placeholder {
+  color: #94a3b8;
+}
+
+.hi-vibe-bubble__textarea:disabled {
+  background: transparent;
+  color: var(--hi-text-muted);
+  cursor: default;
+}
+
+/* Bottom utility bar inside the bubble */
+.hi-vibe-bubble__bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  padding-top: 0.55rem;
+  border-top: 1px solid rgba(0, 0, 0, 0.04);
+  margin-top: 0.35rem;
+}
+
+.hi-vibe-bubble__meta {
+  font-size: 0.78rem;
+  color: var(--hi-text-muted);
+  font-family: var(--hi-font-ui);
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  min-height: 36px;
+}
+
+.hi-vibe-bubble__rec-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #ef4444;
+  box-shadow: 0 0 8px rgba(239, 68, 68, 0.55);
+  animation: hi-vibe-rec-pulse 1.6s ease-in-out infinite;
+}
+
+@keyframes hi-vibe-rec-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.45; }
+}
+
+.hi-vibe-bubble__send {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 38px;
+  height: 38px;
+  border-radius: 50%;
+  border: none;
+  cursor: pointer;
+  color: #fff;
+  background: linear-gradient(135deg, #2ec4e8, #00a3c2);
+  box-shadow: 0 2px 12px rgba(0, 180, 216, 0.32);
+  transition: transform 0.15s ease, box-shadow 0.2s ease, background 0.2s ease;
+}
+
+.hi-vibe-bubble__send:hover:not(:disabled) {
+  background: linear-gradient(135deg, #4dcee8, #00b4d8);
+  box-shadow: 0 4px 18px rgba(0, 180, 216, 0.4);
+  transform: translateY(-1px);
+}
+
+.hi-vibe-bubble__send:disabled {
+  background: #e4e4e7;
+  color: #71717a;
+  box-shadow: none;
+  cursor: not-allowed;
+}
+
+.hi-vibe-bubble__send svg {
+  width: 18px;
+  height: 18px;
+}
+
+/* Locked overlay sitting inside the bubble (pre-verify) */
+.hi-vibe-bubble__lock {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.7rem;
+  padding: 1rem;
+  background: linear-gradient(
+    180deg,
+    rgba(255, 255, 255, 0.78) 0%,
+    rgba(255, 255, 255, 0.92) 100%
+  );
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+  border-radius: 22px;
+  z-index: 2;
+  text-align: center;
+}
+
+.hi-vibe-bubble__lock-icon {
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--hi-cyan);
+  background: var(--hi-cyan-soft);
+  border: 1px solid rgba(0, 180, 216, 0.3);
+  box-shadow: 0 0 18px rgba(0, 180, 216, 0.18);
+}
+
+.hi-vibe-bubble__lock-icon svg {
+  width: 22px;
+  height: 22px;
+}
+
+.hi-vibe-bubble__lock-title {
+  font-family: var(--hi-font-display);
+  font-size: 1rem;
+  font-weight: 700;
+  color: var(--hi-text);
+  margin: 0;
+}
+
+.hi-vibe-bubble__lock-sub {
+  font-size: 0.85rem;
+  color: var(--hi-text-muted);
+  margin: 0 0 0.25rem;
+  max-width: 26rem;
+  line-height: 1.4;
+}
+
+/* The verify button styling inside the overlay is provided by .world-id-button.
+   Add a tiny wrapper to keep the IDKit/MiniKit button visually centered + sized. */
+.hi-vibe-bubble__lock-cta {
+  display: inline-flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.4rem;
+  margin-top: 0.2rem;
+}
+
+.hi-vibe-bubble__lock-cta .world-id-button {
+  min-width: 16rem;
+}
+
+/* Error / config alert inside the bubble overlay */
+.hi-vibe-bubble__lock .hi-config-alert,
+.hi-vibe-bubble__lock .error-message {
+  max-width: 28rem;
+  margin: 0;
+  font-size: 0.82rem;
+}
+
+@media (max-width: 480px) {
+  .hi-vibe-hero {
+    padding: 1.75rem 0.75rem 1.5rem;
+  }
+  .hi-vibe-hero--solo {
+    padding-top: 2.25rem;
+  }
+  .hi-vibe-bubble__textarea {
+    font-size: 1rem;
+    min-height: 96px;
+  }
+  .hi-vibe-bubble__inner {
+    padding: 0.85rem 0.85rem 0.65rem;
+  }
+}
+
