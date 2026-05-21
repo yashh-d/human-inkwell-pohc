@@ -424,6 +424,9 @@ class BlockchainService {
           const authorTopic = fromAddress
             ? ethers.zeroPadValue(fromAddress.toLowerCase(), 32)
             : null;
+          // RPC log indexer often lags state by a few seconds (especially via World App's
+          // MiniKit bundler). Retry the log lookup up to ~6s so we return the real tx hash
+          // instead of forcing the caller to fall back to UserOpHash / no link.
           const head = await this.provider.getBlockNumber();
           const fromBlock = Math.max(0, head - 50_000);
           const filter = {
@@ -432,9 +435,15 @@ class BlockchainService {
             toBlock: 'latest' as const,
             topics: [topic0, entryIdTopic, authorTopic],
           };
-          const logs = await this.provider.getLogs(filter as any);
-          if (logs.length > 0) {
-            txHash = logs[logs.length - 1].transactionHash;
+          for (let attempt = 0; attempt < 5; attempt++) {
+            const logs = await this.provider.getLogs(filter as any);
+            if (logs.length > 0) {
+              txHash = logs[logs.length - 1].transactionHash;
+              break;
+            }
+            if (attempt < 4) {
+              await new Promise((r) => setTimeout(r, 1500));
+            }
           }
         }
       } catch (err) {
@@ -667,7 +676,11 @@ class BlockchainService {
           const onChain = await this.findStoredContent(data.contentHash, walletAtSubmit);
           if (onChain) {
             console.log('✅ Recovered: content is onchain despite wallet error', onChain);
-            return this.successFromIndexedFind(onChain, walletAtSubmit, submittedTxHash);
+            // In MiniKit, submittedTxHash is a UserOpHash (not a real tx hash) — never expose it
+            // as the explorer link. If the event-log lookup didn't find the real tx hash yet,
+            // we'd rather show no link than a dead one.
+            const safeSubmittedTxHash = isMiniKitBridgeAvailable() ? null : submittedTxHash;
+            return this.successFromIndexedFind(onChain, walletAtSubmit, safeSubmittedTxHash);
           }
         } catch (recoverErr) {
           console.warn('blockchain: post-error contentExists check failed', recoverErr);
