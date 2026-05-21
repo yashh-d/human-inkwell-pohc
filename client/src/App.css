@@ -2832,14 +2832,13 @@
   display: none;
 }
 
-/* Fullscreen modal shell — common to short + long.
-   Top padding makes room for the sticky toolbar. */
+/* Fullscreen modal shell — common to short + long. */
 .hi-workspace--world {
   position: fixed;
   inset: 0;
   z-index: 9999;
   padding:
-    calc(env(safe-area-inset-top, 0px) + 64px)
+    calc(env(safe-area-inset-top, 0px) + 56px)
     calc(env(safe-area-inset-right, 0px) + 16px)
     calc(env(safe-area-inset-bottom, 0px) + 16px)
     calc(env(safe-area-inset-left, 0px) + 16px);
@@ -3163,146 +3162,5 @@
 .hi-workspace-receipt__write-another:focus-visible {
   background: rgba(127, 127, 127, 0.08);
   outline: none;
-}
-
-/* ---------------------------------------------------------------------------
-   Top-right toolbar inside the workspace modal — × close, Recording/Saved
-   indicators, Save (long only) + Post.
-   ------------------------------------------------------------------------- */
-.hi-workspace__topbar {
-  position: fixed;
-  top: env(safe-area-inset-top, 0px);
-  left: env(safe-area-inset-left, 0px);
-  right: env(safe-area-inset-right, 0px);
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  padding: 10px 14px;
-  z-index: 10000;
-  background: inherit;
-  border-bottom: 1px solid rgba(127, 127, 127, 0.12);
-}
-.hi-workspace--short .hi-workspace__topbar {
-  background: rgba(11, 16, 20, 0.96);
-  backdrop-filter: blur(8px);
-  -webkit-backdrop-filter: blur(8px);
-}
-.hi-workspace--long .hi-workspace__topbar {
-  background: rgba(247, 245, 239, 0.96);
-  backdrop-filter: blur(8px);
-  -webkit-backdrop-filter: blur(8px);
-}
-
-.hi-workspace__close--inbar {
-  position: static;
-  width: 32px;
-  height: 32px;
-  font-size: 20px;
-  flex: 0 0 auto;
-}
-
-.hi-workspace__topbar-meta {
-  flex: 1 1 auto;
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  min-width: 0;
-  font-size: 0.82rem;
-  opacity: 0.85;
-  flex-wrap: wrap;
-}
-.hi-workspace__rec-pill {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  padding: 3px 10px;
-  border-radius: 9999px;
-  background: rgba(239, 68, 68, 0.12);
-  color: #ef4444;
-  font-weight: 600;
-  font-size: 0.78rem;
-}
-.hi-workspace__rec-dot {
-  width: 7px;
-  height: 7px;
-  border-radius: 50%;
-  background: #ef4444;
-  box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.5);
-  animation: hi-workspace-rec-pulse 1.6s ease-in-out infinite;
-}
-@keyframes hi-workspace-rec-pulse {
-  0%, 100% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.5); }
-  50% { box-shadow: 0 0 0 5px rgba(239, 68, 68, 0); }
-}
-.hi-workspace__saved {
-  opacity: 0.65;
-  white-space: nowrap;
-}
-
-.hi-workspace__topbar-actions {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  flex: 0 0 auto;
-}
-.hi-workspace__btn-save {
-  font-weight: 600;
-  font-size: 0.9rem;
-  padding: 8px 16px;
-  border-radius: 9999px;
-  background: transparent;
-  color: inherit;
-  border: 1px solid rgba(127, 127, 127, 0.32);
-  cursor: pointer;
-}
-.hi-workspace--long .hi-workspace__btn-save {
-  border-color: #d4cab2;
-  color: #2a2722;
-}
-.hi-workspace__btn-save:hover:not(:disabled),
-.hi-workspace__btn-save:focus-visible:not(:disabled) {
-  background: rgba(127, 127, 127, 0.08);
-  outline: none;
-}
-.hi-workspace__btn-save:disabled {
-  opacity: 0.45;
-  cursor: not-allowed;
-}
-
-/* Compact Post button when shown in the toolbar */
-.hi-workspace__post-btn--inbar {
-  padding: 8px 18px;
-  font-size: 0.92rem;
-  min-width: 0;
-}
-
-/* Inline draft-status toast under the toolbar */
-.hi-workspace__draft-note {
-  margin: -4px 0 12px;
-  padding: 6px 10px;
-  font-size: 0.85rem;
-  opacity: 0.75;
-  border-radius: 8px;
-  background: rgba(127, 127, 127, 0.08);
-  width: fit-content;
-}
-
-/* Narrow viewports — keep meta from wrapping the buttons off-screen */
-@media (max-width: 420px) {
-  .hi-workspace__topbar {
-    gap: 6px;
-    padding: 8px 12px;
-  }
-  .hi-workspace__topbar-meta {
-    font-size: 0.75rem;
-  }
-  .hi-workspace__btn-save {
-    padding: 7px 12px;
-    font-size: 0.85rem;
-  }
-  .hi-workspace__post-btn--inbar {
-    padding: 7px 14px;
-    font-size: 0.88rem;
-  }
 }
 

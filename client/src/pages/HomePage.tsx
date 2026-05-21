@@ -16,7 +16,6 @@ import { blockchainService } from '../blockchain';
 import { pushLedgerIndexAfterOnChainSuccess } from '../ledgerSupabase';
 import { useWallets } from '@privy-io/react-auth';
 import { ethers } from 'ethers';
-import { loadDraft, saveDraft, clearDraft, formatSavedAt } from '../utils/drafts';
 
 // Define interfaces for detailed biometric data
 interface BiometricFeatures {
@@ -138,10 +137,6 @@ function HomePage({
   const [title, setTitle] = useState<string>('');
   /** World mini app only: whether the immersive workspace overlay is open. */
   const [isWorkspaceOpen, setIsWorkspaceOpen] = useState<boolean>(false);
-  /** Long-form Save indicator: ISO timestamp of the last localStorage draft write, or null. */
-  const [lastSavedAt, setLastSavedAt] = useState<string | null>(null);
-  /** Transient one-line confirmation under the toolbar after Save / restore. */
-  const [draftNote, setDraftNote] = useState<string | null>(null);
   /** Transient line after copy / open share targets */
   const [shareNote, setShareNote] = useState<string | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -298,22 +293,6 @@ function HomePage({
     return () => {
       document.body.style.overflow = prev;
     };
-  }, [isInWorldApp, isWorkspaceOpen]);
-
-  // Restore long-form draft when the workspace opens, only if the composer is empty.
-  useEffect(() => {
-    if (!isInWorldApp || !isWorkspaceOpen) return;
-    if (content.trim() || title.trim()) return; // don't clobber in-progress work
-    const draft = loadDraft();
-    if (!draft) return;
-    setContent(draft.content);
-    setTitle(draft.title);
-    setContentType(draft.contentType);
-    setLastSavedAt(draft.savedAt);
-    setDraftNote(`Restored draft from ${formatSavedAt(draft.savedAt)}`);
-    window.setTimeout(() => setDraftNote(null), 3500);
-    // intentionally not depending on content/title — only run on workspace open
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isInWorldApp, isWorkspaceOpen]);
 
   const handleStartCapture = () => {
@@ -495,8 +474,6 @@ function HomePage({
         });
         setProcessingStatus('✅ Published to World Chain (Human Content Ledger).');
         console.log('🎉 Blockchain submission successful!', result);
-        clearDraft();
-        setLastSavedAt(null);
 
         if (result.entryId != null && result.walletAddress) {
           try {
@@ -583,34 +560,7 @@ function HomePage({
 
   const handleWriteAnother = () => {
     handleResetAll();
-    setLastSavedAt(null);
-    setDraftNote(null);
     // Stay inside the workspace modal — user is mid-flow, just clearing the slate.
-  };
-
-  /**
-   * Save draft to localStorage. No biometric capture is touched — user can keep typing.
-   * Long-form only; short-form is fire-and-forget like a tweet.
-   */
-  const handleSaveDraft = () => {
-    if (!content.trim() && !title.trim()) {
-      setDraftNote('Nothing to save yet.');
-      window.setTimeout(() => setDraftNote(null), 2500);
-      return;
-    }
-    const saved = saveDraft({
-      title: contentType === 'long' ? title : '',
-      content,
-      contentType,
-    });
-    if (saved) {
-      setLastSavedAt(saved.savedAt);
-      setDraftNote('Saved');
-      window.setTimeout(() => setDraftNote(null), 2000);
-    } else {
-      setDraftNote('Could not save (storage unavailable).');
-      window.setTimeout(() => setDraftNote(null), 3500);
-    }
   };
 
   return (
@@ -688,58 +638,7 @@ function HomePage({
           ref={writingSectionRef}
           aria-hidden={isInWorldApp && !isWorkspaceOpen}
         >
-          {isInWorldApp && isWorkspaceOpen && !blockchainSuccess && (
-            <div className="hi-workspace__topbar" role="toolbar" aria-label="Workspace actions">
-              <button
-                type="button"
-                className="hi-workspace__close hi-workspace__close--inbar"
-                onClick={() => setIsWorkspaceOpen(false)}
-                aria-label="Close workspace"
-              >
-                ×
-              </button>
-              <div className="hi-workspace__topbar-meta" aria-live="polite">
-                {isCapturing && (
-                  <span className="hi-workspace__rec-pill" title="Protected session active">
-                    <span className="hi-workspace__rec-dot" aria-hidden />
-                    Recording
-                  </span>
-                )}
-                {contentType === 'long' && lastSavedAt && (
-                  <span className="hi-workspace__saved" title={`Saved ${new Date(lastSavedAt).toLocaleString()}`}>
-                    Saved {formatSavedAt(lastSavedAt)}
-                  </span>
-                )}
-              </div>
-              <div className="hi-workspace__topbar-actions">
-                {contentType === 'long' && (
-                  <button
-                    type="button"
-                    onClick={handleSaveDraft}
-                    className="hi-btn hi-workspace__btn-save"
-                    disabled={!content.trim() && !title.trim()}
-                  >
-                    Save
-                  </button>
-                )}
-                <button
-                  type="button"
-                  onClick={handlePost}
-                  disabled={
-                    isProcessing ||
-                    isSubmittingToBlockchain ||
-                    !isCapturing ||
-                    !content.trim()
-                  }
-                  className="hi-btn hi-workspace__post-btn hi-workspace__post-btn--inbar"
-                  aria-label="Post to World Chain"
-                >
-                  {isProcessing ? 'Signing…' : isSubmittingToBlockchain ? 'Publishing…' : 'Post'}
-                </button>
-              </div>
-            </div>
-          )}
-          {isInWorldApp && isWorkspaceOpen && blockchainSuccess && (
+          {isInWorldApp && isWorkspaceOpen && (
             <button
               type="button"
               className="hi-workspace__close"
@@ -748,11 +647,6 @@ function HomePage({
             >
               ×
             </button>
-          )}
-          {draftNote && isInWorldApp && isWorkspaceOpen && !blockchainSuccess && (
-            <p className="hi-workspace__draft-note" role="status">
-              {draftNote}
-            </p>
           )}
 
           {isInWorldApp && isWorkspaceOpen && blockchainSuccess && (
@@ -1068,7 +962,29 @@ function HomePage({
           </span>
         </label>
         
-        {!(isInWorldApp && isWorkspaceOpen) && (
+        {isInWorldApp && isWorkspaceOpen && !blockchainSuccess ? (
+          <div className="hi-workspace__post-bar">
+            {isCapturing && <span className="hi-capture-pill">Capturing…</span>}
+            <button
+              type="button"
+              onClick={handlePost}
+              disabled={
+                isProcessing ||
+                isSubmittingToBlockchain ||
+                !isCapturing ||
+                !content.trim()
+              }
+              className="hi-btn hi-workspace__post-btn"
+              aria-label="Post to World Chain"
+            >
+              {isProcessing
+                ? 'Signing…'
+                : isSubmittingToBlockchain
+                  ? 'Publishing…'
+                  : 'Post'}
+            </button>
+          </div>
+        ) : (
           <div className="hi-btn-row">
             {isCapturing && <span className="hi-capture-pill">Capturing…</span>}
             <button
