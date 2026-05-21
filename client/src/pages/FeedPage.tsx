@@ -1,10 +1,12 @@
-import React, { useState, useCallback } from 'react';
-import {
-  DUMMY_FEED_ITEMS,
-  FEED_CHANNEL_PROFILE,
-  type DummyFeedItem,
-} from '../data/dummyFeed';
+import React, { useCallback, useEffect, useState } from 'react';
+import { Link } from 'react-router-dom';
+import { FEED_CHANNEL_PROFILE } from '../data/dummyFeed';
 import { formatRelativeTime } from '../utils/relativeTime';
+import {
+  explorerTxUrl,
+  fetchPublicFeed,
+  type LedgerSubmissionRow,
+} from '../ledgerSupabase';
 
 const PREVIEW_CHARS = 300;
 
@@ -13,6 +15,18 @@ function addressHue(addr: string): number {
   let h = 0;
   for (let i = 0; i < s.length; i += 1) h = (h * 33 + s.charCodeAt(i)) | 0;
   return Math.abs(h) % 360;
+}
+
+function shortAddress(addr: string): string {
+  const a = (addr || '').trim();
+  if (a.length < 12) return a || '0x…';
+  return `${a.slice(0, 6)}…${a.slice(-4)}`;
+}
+
+function shortTx(tx: string): string {
+  const t = (tx || '').trim();
+  if (t.length < 16) return t || '0x…';
+  return `${t.slice(0, 8)}…${t.slice(-6)}`;
 }
 
 function FeedPostText({ text }: { text: string }) {
@@ -32,59 +46,69 @@ function FeedPostText({ text }: { text: string }) {
   );
 }
 
-function FeedRow({ r }: { r: DummyFeedItem }) {
+function FeedRow({ r }: { r: LedgerSubmissionRow }) {
+  const displayName = shortAddress(r.author_address);
+  const handle = `#${r.entry_id}`;
+  const publicText = r.public_text ?? '';
+  const txUrl = r.transaction_hash ? explorerTxUrl(r.transaction_hash) : undefined;
+  const txPreview = r.transaction_hash ? shortTx(r.transaction_hash) : 'no tx';
+
   return (
     <li className="hi-feed-card">
       <div
         className="hi-feed-card__avatar"
-        style={{ '--hi-feed-hue': `${addressHue(r.author)}` } as React.CSSProperties}
+        style={{ '--hi-feed-hue': `${addressHue(r.author_address)}` } as React.CSSProperties}
         aria-hidden
-        title={r.author}
+        title={r.author_address}
       />
       <div className="hi-feed-card__main">
         <div className="hi-feed-card__byline">
-          <span className="hi-feed-card__display" title={r.displayName}>
-            {r.displayName}
+          <span className="hi-feed-card__display" title={r.author_address}>
+            {displayName}
           </span>
-          <span className="hi-feed-card__handle" title={r.author}>
-            @{r.handle}
+          <span className="hi-feed-card__handle" title={`entry #${r.entry_id}`}>
+            {handle}
           </span>
           <span className="hi-feed-card__dot" aria-hidden>
             ·
           </span>
-          <time className="hi-feed-card__time" dateTime={r.timeLabel} title={new Date(r.timeLabel).toLocaleString()}>
-            {formatRelativeTime(r.timeLabel)}
+          <time
+            className="hi-feed-card__time"
+            dateTime={r.created_at}
+            title={new Date(r.created_at).toLocaleString()}
+          >
+            {formatRelativeTime(r.created_at)}
           </time>
         </div>
 
         <p className="hi-feed-card__chips" aria-label="Post category">
-          <span className="hi-feed-pill hi-feed-pill--category">{r.formatLabel}</span>
+          <span className="hi-feed-pill hi-feed-pill--category">VERIFIED</span>
         </p>
 
-        <FeedPostText text={r.publicText} />
+        <FeedPostText text={publicText} />
 
         <p className="hi-feed-card__signature-bar" aria-label="Attestation and transaction reference">
           <span className="hi-feed-card__sig-icon" aria-hidden>
             ✓
           </span>
           <span className="hi-feed-card__sig-text">
-            Verified Human: {r.keystrokeCount.toLocaleString()} Keystrokes
+            Verified Human: {r.keystroke_count.toLocaleString()} Keystrokes
           </span>
           <span className="hi-feed-card__sig-sep" aria-hidden>
             |
           </span>
-          {r.txUrl ? (
+          {txUrl ? (
             <a
-              href={r.txUrl}
+              href={txUrl}
               className="hi-feed-card__sig-tx"
               target="_blank"
               rel="noopener noreferrer"
               title="View on block explorer"
             >
-              {r.txPreview}
+              {txPreview}
             </a>
           ) : (
-            <span className="hi-feed-card__sig-tx hi-feed-card__sig-tx--static">{r.txPreview}</span>
+            <span className="hi-feed-card__sig-tx hi-feed-card__sig-tx--static">{txPreview}</span>
           )}
         </p>
       </div>
@@ -92,13 +116,38 @@ function FeedRow({ r }: { r: DummyFeedItem }) {
   );
 }
 
+type LoadState = 'loading' | 'error' | 'loaded';
+
 const FeedPage: React.FC = () => {
-  const [listKey, setListKey] = useState(0);
+  const [rows, setRows] = useState<LedgerSubmissionRow[]>([]);
+  const [status, setStatus] = useState<LoadState>('loading');
+  const [errorMsg, setErrorMsg] = useState<string>('');
   const p = FEED_CHANNEL_PROFILE;
 
-  const refresh = useCallback(() => {
-    setListKey((k) => k + 1);
+  const load = useCallback(async () => {
+    setStatus('loading');
+    setErrorMsg('');
+    try {
+      const data = await fetchPublicFeed(50);
+      const withText = data.filter((r) => (r.public_text ?? '').trim() !== '');
+      setRows(withText);
+      setStatus('loaded');
+    } catch (e) {
+      setErrorMsg(e instanceof Error ? e.message : 'Failed to load feed');
+      setRows([]);
+      setStatus('error');
+    }
   }, []);
+
+  useEffect(() => {
+    load();
+  }, [load]);
+
+  const refresh = useCallback(() => {
+    load();
+  }, [load]);
+
+  const postCount = status === 'loaded' ? rows.length : 0;
 
   return (
     <div className="hi-feed">
@@ -106,8 +155,13 @@ const FeedPage: React.FC = () => {
         <div className="hi-feed__toprow">
           <h1 className="hi-feed__eyebrow">Feed</h1>
           <div className="hi-feed__toprow-actions">
-            <button type="button" className="hi-btn hi-btn--ghost hi-btn--sm hi-feed__refresh-btn" onClick={refresh}>
-              Refresh
+            <button
+              type="button"
+              className="hi-btn hi-btn--ghost hi-btn--sm hi-feed__refresh-btn"
+              onClick={refresh}
+              disabled={status === 'loading'}
+            >
+              {status === 'loading' ? 'Refreshing…' : 'Refresh'}
             </button>
           </div>
         </div>
@@ -188,13 +242,34 @@ const FeedPage: React.FC = () => {
           </div>
         </nav>
         <p className="hi-feed__post-count" aria-live="polite">
-          {DUMMY_FEED_ITEMS.length} {DUMMY_FEED_ITEMS.length === 1 ? 'post' : 'posts'}
+          {postCount} {postCount === 1 ? 'post' : 'posts'}
         </p>
 
-        <ul className="hi-feed__list" key={listKey} aria-label="Public posts">
-          {DUMMY_FEED_ITEMS.map((r) => (
-            <FeedRow key={r.id} r={r} />
-          ))}
+        <ul className="hi-feed__list" aria-label="Public posts">
+          {status === 'loading' && (
+            <li className="hi-feed-card">
+              <p>Loading posts…</p>
+            </li>
+          )}
+          {status === 'error' && (
+            <li className="hi-feed-card">
+              <p role="alert">
+                Could not load feed: {errorMsg}.{' '}
+                <button type="button" onClick={refresh}>
+                  Retry
+                </button>
+              </p>
+            </li>
+          )}
+          {status === 'loaded' && rows.length === 0 && (
+            <li className="hi-feed-card">
+              <p>
+                No verified posts yet. Be the first — <Link to="/">write something</Link>.
+              </p>
+            </li>
+          )}
+          {status === 'loaded' &&
+            rows.map((r) => <FeedRow key={r.id ?? `${r.entry_id}-${r.transaction_hash}`} r={r} />)}
         </ul>
       </div>
     </div>
