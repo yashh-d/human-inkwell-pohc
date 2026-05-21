@@ -1,7 +1,6 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { Link } from 'react-router-dom';
-import { ISuccessResult, IErrorState, VerificationLevel, IDKitWidget } from '@worldcoin/idkit';
-import WorldMarkIcon from '../components/WorldMarkIcon';
+import { ISuccessResult, IErrorState } from '@worldcoin/idkit';
 import { useKeystrokeCapture } from '../hooks/useKeystrokeCapture';
 import { useBiometricProcessor } from '../hooks/useBiometricProcessor';
 import { hashContent } from '../utils/crypto';
@@ -277,25 +276,6 @@ function HomePage({
       }
     };
   }, [isCapturing, stopCapture]);
-
-  // Auto-start the protected session as soon as World ID verification flips true,
-  // so the hero bubble is immediately usable without a separate "Start session" click.
-  // The textareaRef points at the hero bubble's textarea (rendered before everything
-  // else on the page), so it will exist by the time this effect runs.
-  useEffect(() => {
-    if (!isVerified) return;
-    if (isCapturing) return;
-    if (!textareaRef.current) return;
-    resetCapture();
-    setHumanSignatureHash('');
-    setContentHash('');
-    setBiometricData(null);
-    setSessionTabAwayCount(0);
-    setProcessingStatus('');
-    startCapture(textareaRef.current);
-    // intentionally not depending on isCapturing changes from elsewhere
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isVerified]);
 
   useEffect(() => {
     if (!focusWriting) return;
@@ -633,215 +613,8 @@ function HomePage({
     }
   };
 
-  // World ID config for the locked-bubble overlay's verify button.
-  // Mirrors WorldIDWidget so the browser path uses the IDKit modal and
-  // the World App path falls back to MiniKit via onVerifyMiniKit.
-  const STAGING_PLACEHOLDER = 'app_staging_12345';
-  const rawWorldIdAppId = process.env.REACT_APP_WORLD_APP_ID;
-  const worldIdAppId = (rawWorldIdAppId as `app_${string}`) || (STAGING_PLACEHOLDER as `app_${string}`);
-  const worldIdAction = process.env.REACT_APP_WORLD_ACTION || 'human-content-verification';
-  const worldIdVerificationLevel =
-    (process.env.REACT_APP_WORLD_VERIFICATION_LEVEL as VerificationLevel) || VerificationLevel.Device;
-  const worldIdIsPlaceholderAppId = !rawWorldIdAppId || rawWorldIdAppId === STAGING_PLACEHOLDER;
-
-  // Hero is the browser landing experience. World App keeps its existing
-  // immersive-overlay flow so we don't duplicate the writing surface.
-  const showHero = !isInWorldApp;
-  // Pre-verify on browser: ONLY the hero (locked bubble) is rendered.
-  const showRestOfPage = isVerified || isInWorldApp;
-
-  const lockIcon = (
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden>
-      <rect x="5" y="11" width="14" height="9" rx="2" />
-      <path d="M8 11V8a4 4 0 0 1 8 0v3" strokeLinecap="round" />
-    </svg>
-  );
-  const sendIcon = (
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" aria-hidden>
-      <path d="M12 19V5M5 12l7-7 7 7" strokeLinecap="round" strokeLinejoin="round" />
-    </svg>
-  );
-
   return (
     <>
-      {showHero && (
-        <section
-          className={
-            'hi-vibe-hero ' + (isVerified ? 'hi-vibe-hero--with-rest' : 'hi-vibe-hero--solo')
-          }
-          aria-label="Protected writing bubble"
-        >
-          <span className="hi-vibe-hero__eyebrow">
-            <span className="hi-vibe-hero__eyebrow-dot" aria-hidden />
-            Proof of human writing
-          </span>
-          <h1 className="hi-vibe-hero__headline">
-            {isVerified ? 'What are you writing today?' : 'Claim your digital authorship'}
-          </h1>
-          <p className="hi-vibe-hero__sub">
-            {isVerified
-              ? 'Type in the bubble below. Your rhythm and World ID are bound to this text and committed onchain.'
-              : 'Verify with World ID to unlock the writing surface. Your typing signature plus World ID become a permanent, onchain proof of human authorship.'}
-          </p>
-
-          <div className="hi-vibe-bubble">
-            <div className="hi-vibe-bubble__inner">
-              <textarea
-                ref={textareaRef}
-                value={content}
-                onChange={handleInputChange}
-                disabled={!isVerified || !isCapturing}
-                aria-label="Protected workspace: type to capture keystrokes for your biometric signature"
-                rows={4}
-                onPaste={(e) => {
-                  e.preventDefault();
-                  e.stopPropagation();
-                  setProcessingStatus('⚠️ Use the keyboard only here. Paste and copy are off so your biometric signature stays valid.');
-                }}
-                onCopy={(e) => {
-                  e.preventDefault();
-                  e.stopPropagation();
-                  setProcessingStatus('⚠️ Use the keyboard only here. Copy is off in this field so the signature matches what you type.');
-                }}
-                onCut={(e) => {
-                  e.preventDefault();
-                  e.stopPropagation();
-                  setProcessingStatus('⚠️ Use the keyboard only here. Cut is off in this field so the signature matches what you type.');
-                }}
-                onDrop={(e) => {
-                  e.preventDefault();
-                  e.stopPropagation();
-                  setProcessingStatus('⚠️ Drop is disabled. Type in this field so your biometric signature is calibrated to real keystrokes.');
-                }}
-                onDragOver={(e) => {
-                  e.preventDefault();
-                }}
-                onContextMenu={(e) => {
-                  e.preventDefault();
-                  setProcessingStatus('⚠️ Right-click is disabled in this field to protect your signature calibration.');
-                }}
-                onKeyDown={(e) => {
-                  if (e.ctrlKey || e.metaKey) {
-                    if (e.key === 'v' || e.key === 'c' || e.key === 'x' || e.key === 'a') {
-                      e.preventDefault();
-                      e.stopPropagation();
-                      setProcessingStatus(
-                        '⚠️ Copy/paste shortcuts are off in this field so the biometric record matches manual typing only.',
-                      );
-                    }
-                  }
-                }}
-                placeholder={
-                  isVerified
-                    ? 'Type your manuscript here. Your rhythm, hold, and flight times shape your unique biometric hash.'
-                    : 'Locked · verify with World ID to start typing'
-                }
-                className="hi-vibe-bubble__textarea"
-              />
-              <div className="hi-vibe-bubble__bar">
-                <span className="hi-vibe-bubble__meta" aria-live="polite">
-                  {isCapturing ? (
-                    <>
-                      <span className="hi-vibe-bubble__rec-dot" aria-hidden />
-                      Recording · {content.length} {content.length === 1 ? 'char' : 'chars'}
-                    </>
-                  ) : isVerified ? (
-                    'Ready'
-                  ) : (
-                    'Locked'
-                  )}
-                </span>
-                <button
-                  type="button"
-                  className="hi-vibe-bubble__send"
-                  onClick={handlePost}
-                  disabled={
-                    !isVerified ||
-                    !isCapturing ||
-                    !content.trim() ||
-                    isProcessing ||
-                    isSubmittingToBlockchain
-                  }
-                  title={
-                    !isVerified
-                      ? 'Verify with World ID first'
-                      : isProcessing
-                        ? 'Signing…'
-                        : isSubmittingToBlockchain
-                          ? 'Publishing…'
-                          : 'Sign and post to World Chain'
-                  }
-                  aria-label="Sign and post to World Chain"
-                >
-                  {sendIcon}
-                </button>
-              </div>
-            </div>
-
-            {!isVerified && (
-              <div className="hi-vibe-bubble__lock" role="dialog" aria-label="Verify with World ID to unlock">
-                <span className="hi-vibe-bubble__lock-icon" aria-hidden>
-                  {lockIcon}
-                </span>
-                <h3 className="hi-vibe-bubble__lock-title">Verify with World ID</h3>
-                <p className="hi-vibe-bubble__lock-sub">
-                  Prove you are a real person to unlock the writing surface.
-                </p>
-                <div className="hi-vibe-bubble__lock-cta">
-                  <IDKitWidget
-                    app_id={worldIdAppId}
-                    action={worldIdAction}
-                    verification_level={worldIdVerificationLevel}
-                    onSuccess={onWorldIdVerify}
-                    onError={onWorldIdError}
-                  >
-                    {({ open }) => (
-                      <button
-                        type="button"
-                        onClick={open}
-                        disabled={worldIdLoading || worldIdIsPlaceholderAppId}
-                        className="world-id-button"
-                        title={
-                          worldIdIsPlaceholderAppId
-                            ? 'Configure REACT_APP_WORLD_APP_ID and Developer Portal URL first'
-                            : undefined
-                        }
-                      >
-                        {worldIdLoading ? (
-                          <span className="loading-text">
-                            <span className="spinner">⏳</span>
-                            Verifying…
-                          </span>
-                        ) : (
-                          <span className="button-text">
-                            <WorldMarkIcon size="sm" className="world-id-btn__mark" />
-                            Verify with World ID
-                          </span>
-                        )}
-                      </button>
-                    )}
-                  </IDKitWidget>
-                </div>
-                {worldIdIsPlaceholderAppId && (
-                  <div role="alert" className="hi-config-alert">
-                    <strong>World ID is not configured for this deployment.</strong> Set{' '}
-                    <code>REACT_APP_WORLD_APP_ID</code> in Vercel and redeploy.
-                  </div>
-                )}
-                {worldIdError && (
-                  <div className="error-message">
-                    <span className="error-icon">❌</span>
-                    <span>World ID Error: {worldIdError.message || worldIdError.code}</span>
-                  </div>
-                )}
-              </div>
-            )}
-          </div>
-        </section>
-      )}
-
-      {showRestOfPage && (
-        <>
         <div className="hi-page-tldr">
           <h2 className="hi-page-tldr__title">At a glance</h2>
           <ol className="hi-page-tldr__ol" aria-label="Steps on this page">
@@ -1111,8 +884,7 @@ function HomePage({
           {!(isInWorldApp && isWorkspaceOpen && blockchainSuccess) && (
             <>
           <h2>Enter Your Protected Workspace</h2>
-          {/* Session gate — only in World App. In browser, capture auto-starts on World ID verify. */}
-          {isInWorldApp && !isCapturing && (
+          {!isCapturing ? (
             <div className="hi-session-gate">
               <button
                 type="button"
@@ -1127,8 +899,7 @@ function HomePage({
                 focused in this workspace for the cleanest signature. The biometric data never leaves your device.
               </p>
             </div>
-          )}
-          {isCapturing && (
+          ) : (
             <div className="hi-capture-status hi-capture-status--active" role="status">
               <div className="hi-capture-status__row">
                 <span className="hi-capture-status__label">
@@ -1157,13 +928,10 @@ function HomePage({
               </div>
             </div>
           )}
-          {isInWorldApp && (
           <p className="hi-warn-line">
             Manual typing is required to calibrate your biometric signature. Copy and paste are disabled to ensure the
             highest level of cryptographic integrity for your work.
           </p>
-          )}
-          {isInWorldApp && (
           <textarea
             ref={textareaRef}
             value={content}
@@ -1232,7 +1000,6 @@ function HomePage({
               isCapturing ? 'hi-textarea hi-textarea--capturing' : 'hi-textarea hi-textarea--gated'
             }
           />
-          )}
           {isInWorldApp && isWorkspaceOpen && contentType === 'short' && (
             <p
               className="hi-workspace__char-count"
@@ -1591,8 +1358,6 @@ function HomePage({
             <p className="hi-content-hash-note">SHA-256 of your UTF-8 text (what the chain stores as a hash, not the text)</p>
           </div>
         )}
-        </>
-      )}
     </>
   );
 }
