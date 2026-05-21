@@ -308,76 +308,70 @@ function HomePage({
     }
   };
 
-  const handleGenerateSignature = async (): Promise<{
-    humanHash: string;
-    textHash: string;
-    biometric: DetailedBiometricData;
-  } | null> => {
-    if (!textareaRef.current) return null;
-
+  const handleGenerateSignature = async () => {
+    if (!textareaRef.current) return;
+    
     setIsProcessing(true);
     setProcessingStatus('Processing keystroke data...');
-
+    
     try {
       // Stop capturing keystrokes
       stopCapture();
 
       const tabAwayCount = getTabAwayCount();
-
+      
       // Get raw keystroke data
       const rawKeystrokeData = getRawKeystrokeData();
-
+      
       console.log('Raw keystroke data:', rawKeystrokeData); // Debug log
-
+      
       if (rawKeystrokeData.length === 0) {
         setProcessingStatus('No keystroke data captured. Please type something first, then try again.');
         setIsProcessing(false);
-        return null;
+        return;
       }
-
+      
       if (rawKeystrokeData.length < 10) {
         setProcessingStatus(`Only ${rawKeystrokeData.length} keystroke events captured. Please type more content for better analysis.`);
         setIsProcessing(false);
-        return null;
+        return;
       }
-
+      
       setProcessingStatus('Extracting detailed biometric features...');
-
+      
       // Extract detailed biometric features
       const detailedFeatures = extractDetailedFeatures(rawKeystrokeData);
       setBiometricData(detailedFeatures);
       setSessionTabAwayCount(tabAwayCount);
-
+      
       console.log('Detailed biometric features:', detailedFeatures); // Debug log
-
+      
       if (detailedFeatures.featureVector.length === 0) {
         setProcessingStatus('Failed to extract biometric features. Please try typing again.');
         setIsProcessing(false);
-        return null;
+        return;
       }
-
+      
       setProcessingStatus('Generating human signature hash...');
-
+      
       // Generate human signature hash
       const humanHash = await generateHumanSignatureHash(detailedFeatures.featureVector);
       setHumanSignatureHash(humanHash);
-
+      
       setProcessingStatus('Generating content hash...');
-
+      
       // Generate content hash
       const textHash = await hashContent(content);
       setContentHash(textHash);
-
+      
       setProcessingStatus('Processing complete! Both hashes generated successfully.');
-
+      
       // Reset capture for next session
       resetCapture();
-
-      return { humanHash, textHash, biometric: detailedFeatures };
+      
     } catch (error) {
       console.error('Error processing biometric data:', error);
       setProcessingStatus(`Error processing biometric data: ${error instanceof Error ? error.message : 'Unknown error'}. Please try again.`);
-      return null;
     } finally {
       setIsProcessing(false);
     }
@@ -402,21 +396,13 @@ function HomePage({
     setContent(newValue);
   };
 
-  const handleSubmitToBlockchain = async (override?: {
-    contentHash: string;
-    humanSignatureHash: string;
-    biometric: DetailedBiometricData;
-  }) => {
-    const effectiveContentHash = override?.contentHash ?? contentHash;
-    const effectiveHumanSignatureHash = override?.humanSignatureHash ?? humanSignatureHash;
-    const effectiveBiometric = override?.biometric ?? biometricData;
-
-    if (!effectiveHumanSignatureHash || !effectiveContentHash) {
+  const handleSubmitToBlockchain = async () => {
+    if (!humanSignatureHash || !contentHash) {
       setProcessingStatus('⚠️ Please sign your manuscript and generate a content hash before you publish to World Chain.');
       return;
     }
 
-    if (!effectiveBiometric) {
+    if (!biometricData) {
       setProcessingStatus('⚠️ No biometric data available. Please capture keystrokes first.');
       return;
     }
@@ -429,10 +415,10 @@ function HomePage({
     try {
       // Prepare submission data
       const submissionData = {
-        contentHash: effectiveContentHash,
-        humanSignatureHash: effectiveHumanSignatureHash,
-        keystrokeCount: effectiveBiometric.totalKeystrokes,
-        typingSpeed: effectiveBiometric.rawFeatures.typingSpeed,
+        contentHash,
+        humanSignatureHash,
+        keystrokeCount: biometricData.totalKeystrokes,
+        typingSpeed: biometricData.rawFeatures.typingSpeed,
         worldIdNullifier: isVerified ? worldIdProof?.nullifier_hash : undefined
       };
 
@@ -478,10 +464,10 @@ function HomePage({
         if (result.entryId != null && result.walletAddress) {
           try {
             await pushLedgerIndexAfterOnChainSuccess(result, {
-              contentHash: effectiveContentHash,
-              humanSignatureHash: effectiveHumanSignatureHash,
-              keystrokeCount: effectiveBiometric.totalKeystrokes,
-              typingSpeed: effectiveBiometric.rawFeatures.typingSpeed,
+              contentHash,
+              humanSignatureHash,
+              keystrokeCount: biometricData.totalKeystrokes,
+              typingSpeed: biometricData.rawFeatures.typingSpeed,
               isVerified,
               worldIdNullifier: worldIdProof?.nullifier_hash,
               authorAddress: result.walletAddress,
@@ -533,34 +519,6 @@ function HomePage({
     setContentType('short');
     resetCapture();
     onWorldIdReset();
-  };
-
-  /**
-   * Single "Post"-style action: sign + publish in one click. Used by the World mini app
-   * workspace and any caller that wants the one-shot flow. On success, `blockchainSuccess`
-   * is set, which the receipt view watches to transition.
-   */
-  const handlePost = async () => {
-    if (!isCapturing) {
-      setProcessingStatus('⚠️ Start your protected session before posting.');
-      return;
-    }
-    if (!content.trim()) {
-      setProcessingStatus('⚠️ Type something before posting.');
-      return;
-    }
-    const signed = await handleGenerateSignature();
-    if (!signed) return;
-    await handleSubmitToBlockchain({
-      contentHash: signed.textHash,
-      humanSignatureHash: signed.humanHash,
-      biometric: signed.biometric,
-    });
-  };
-
-  const handleWriteAnother = () => {
-    handleResetAll();
-    // Stay inside the workspace modal — user is mid-flow, just clearing the slate.
   };
 
   return (
@@ -648,135 +606,6 @@ function HomePage({
               ×
             </button>
           )}
-
-          {isInWorldApp && isWorkspaceOpen && blockchainSuccess && (
-            <div className="hi-workspace-receipt">
-              <div className="hi-workspace-receipt__header">
-                <h2 className="hi-workspace-receipt__title">Submitted onchain</h2>
-                {typeof blockchainSuccess.entryId === 'number' && (
-                  <p className="hi-workspace-receipt__entry">Entry #{blockchainSuccess.entryId}</p>
-                )}
-                {blockchainSuccess.statusNote && (
-                  <p className="hi-workspace-receipt__note">{blockchainSuccess.statusNote}</p>
-                )}
-                <div className="hi-workspace-receipt__tx">
-                  <span className="hi-workspace-receipt__tx-label">Tx hash</span>
-                  <code className="hi-workspace-receipt__tx-hash">
-                    {blockchainSuccess.transactionHash}
-                  </code>
-                </div>
-                <div className="hi-workspace-receipt__links">
-                  {blockchainSuccess.explorerTxUrl && (
-                    <a
-                      href={blockchainSuccess.explorerTxUrl}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="hi-btn hi-btn--primary hi-workspace-receipt__link"
-                    >
-                      View transaction
-                    </a>
-                  )}
-                  {blockchainSuccess.explorerContractUrl && (
-                    <a
-                      href={blockchainSuccess.explorerContractUrl}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="hi-btn hi-btn--ghost hi-workspace-receipt__link"
-                    >
-                      View contract
-                    </a>
-                  )}
-                </div>
-              </div>
-
-              <div className="hi-workspace-receipt__share">
-                <p className="hi-workspace-receipt__share-title">Share your attestation</p>
-                <div
-                  className="hi-workspace-receipt__share-btns"
-                  role="group"
-                  aria-label="Share attestation"
-                >
-                  <button
-                    type="button"
-                    className="hi-btn hi-btn--primary hi-workspace-receipt__share-x"
-                    onClick={() => {
-                      const { text, truncated } = buildAttestationShareForX(
-                        content,
-                        blockchainSuccess.transactionHash,
-                        blockchainSuccess.explorerTxUrl,
-                      );
-                      window.open(xIntentUrl(text), '_blank', 'noopener,noreferrer');
-                      setShareNote(
-                        truncated
-                          ? 'Opened X. Post was shortened to fit.'
-                          : 'Opened X with your text and the onchain line.',
-                      );
-                      window.setTimeout(() => setShareNote(null), 6000);
-                    }}
-                  >
-                    Post on X
-                  </button>
-                  <button
-                    type="button"
-                    className="hi-btn hi-btn--primary hi-workspace-receipt__share-li"
-                    onClick={async () => {
-                      const full = buildAttestationShareBody(
-                        content,
-                        blockchainSuccess.transactionHash,
-                        blockchainSuccess.explorerTxUrl,
-                      );
-                      try {
-                        await navigator.clipboard.writeText(full);
-                        window.open(LINKEDIN_FEED_URL, '_blank', 'noopener,noreferrer');
-                        setShareNote('Copied. Paste into the LinkedIn post box (tab just opened).');
-                      } catch {
-                        setShareNote('Could not copy. Try Copy all or allow clipboard access.');
-                      }
-                      window.setTimeout(() => setShareNote(null), 6000);
-                    }}
-                  >
-                    Post on LinkedIn
-                  </button>
-                  <button
-                    type="button"
-                    className="hi-btn hi-btn--ghost hi-btn--sm hi-workspace-receipt__share-copy"
-                    onClick={async () => {
-                      const full = buildAttestationShareBody(
-                        content,
-                        blockchainSuccess.transactionHash,
-                        blockchainSuccess.explorerTxUrl,
-                      );
-                      try {
-                        await navigator.clipboard.writeText(full);
-                        setShareNote('Copied to clipboard.');
-                      } catch {
-                        setShareNote('Copy failed. Your browser may block the clipboard.');
-                      }
-                      window.setTimeout(() => setShareNote(null), 5000);
-                    }}
-                  >
-                    Copy all
-                  </button>
-                </div>
-                {shareNote && (
-                  <p className="hi-workspace-receipt__toast" role="status">
-                    {shareNote}
-                  </p>
-                )}
-              </div>
-
-              <button
-                type="button"
-                className="hi-btn hi-workspace-receipt__write-another"
-                onClick={handleWriteAnother}
-              >
-                Write another
-              </button>
-            </div>
-          )}
-
-          {!(isInWorldApp && isWorkspaceOpen && blockchainSuccess) && (
-            <>
           <h2>Enter Your Protected Workspace</h2>
           {!isCapturing ? (
             <div className="hi-session-gate">
@@ -962,59 +791,35 @@ function HomePage({
           </span>
         </label>
         
-        {isInWorldApp && isWorkspaceOpen && !blockchainSuccess ? (
-          <div className="hi-workspace__post-bar">
-            {isCapturing && <span className="hi-capture-pill">Capturing…</span>}
-            <button
-              type="button"
-              onClick={handlePost}
-              disabled={
-                isProcessing ||
-                isSubmittingToBlockchain ||
-                !isCapturing ||
-                !content.trim()
-              }
-              className="hi-btn hi-workspace__post-btn"
-              aria-label="Post to World Chain"
-            >
-              {isProcessing
-                ? 'Signing…'
-                : isSubmittingToBlockchain
-                  ? 'Publishing…'
-                  : 'Post'}
-            </button>
-          </div>
-        ) : (
-          <div className="hi-btn-row">
-            {isCapturing && <span className="hi-capture-pill">Capturing…</span>}
-            <button
-              type="button"
-              onClick={handleGenerateSignature}
-              disabled={isProcessing || !isCapturing || !content.trim()}
-              className="hi-btn hi-btn--primary"
-            >
-              {isProcessing ? 'Signing…' : 'Sign manuscript'}
-            </button>
+        <div className="hi-btn-row">
+          {isCapturing && <span className="hi-capture-pill">Capturing…</span>}
+          <button 
+            type="button"
+            onClick={handleGenerateSignature}
+            disabled={isProcessing || !isCapturing || !content.trim()}
+            className="hi-btn hi-btn--primary"
+          >
+            {isProcessing ? 'Signing…' : 'Sign manuscript'}
+          </button>
 
-            <button
-              type="button"
-              onClick={() => handleSubmitToBlockchain()}
-              disabled={isSubmittingToBlockchain || !humanSignatureHash || !contentHash}
-              className="hi-btn hi-btn--submit"
-            >
-              {isSubmittingToBlockchain ? 'Publishing…' : 'Publish to World Chain'}
-            </button>
+          <button 
+            type="button"
+            onClick={handleSubmitToBlockchain}
+            disabled={isSubmittingToBlockchain || !humanSignatureHash || !contentHash}
+            className="hi-btn hi-btn--submit"
+          >
+            {isSubmittingToBlockchain ? 'Publishing…' : 'Publish to World Chain'}
+          </button>
 
-            <button
-              type="button"
-              onClick={handleResetAll}
-              disabled={isProcessing || isSubmittingToBlockchain}
-              className="hi-btn hi-btn--danger"
-            >
-              Reset all
-            </button>
-          </div>
-        )}
+          <button 
+            type="button"
+            onClick={handleResetAll}
+            disabled={isProcessing || isSubmittingToBlockchain}
+            className="hi-btn hi-btn--danger"
+          >
+            Reset all
+          </button>
+        </div>
         
         {processingStatus && (
           <div className="hi-status-panel">
@@ -1158,8 +963,6 @@ function HomePage({
             </div>
           </div>
         )}
-            </>
-          )}
 
         {/* 🎯 DETAILED BIOMETRIC DATA DISPLAY */}
         {biometricData && (
