@@ -98,8 +98,6 @@ module.exports = async (req, res) => {
     block_timestamp,
     gas_used,
     public_text,
-    title,
-    content_type,
   } = body;
 
   if (
@@ -241,19 +239,6 @@ module.exports = async (req, res) => {
     publicTextForRow = pt.public_text;
   }
 
-  const contentTypeForRow = content_type === 'long' ? 'long' : 'short';
-  let titleForRow = null;
-  if (title != null && String(title).trim() !== '') {
-    if (contentTypeForRow !== 'long') {
-      return send(res, 400, { error: 'title is only allowed when content_type is "long"' });
-    }
-    const t = String(title).trim();
-    if (t.length > 200) {
-      return send(res, 400, { error: 'title exceeds 200 characters' });
-    }
-    titleForRow = t;
-  }
-
   const supabase = createClient(supabaseUrl, supabaseKey, { auth: { persistSession: false } });
   const row = {
     chain_id: Number(chain_id),
@@ -276,8 +261,6 @@ module.exports = async (req, res) => {
           ? String(receipt.gasUsed)
           : null,
     public_text: publicTextForRow,
-    content_type: contentTypeForRow,
-    title: titleForRow,
   };
 
   const { error } = await supabase.from('ledger_submissions').insert(row);

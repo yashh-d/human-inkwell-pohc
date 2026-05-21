@@ -44,6 +44,3 @@ blockchain/artifacts/
 blockchain/typechain-types/
 blockchain/coverage/
 .vercel
-
-# Supabase CLI local state (linked project ref, pooler URL, version cache)
-supabase/.temp/

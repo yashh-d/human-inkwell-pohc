@@ -131,12 +131,6 @@ function HomePage({
   } | null>(null);
   /** When true, send the typed text to the public feed API (server verifies it matches the onchain content hash). */
   const [publishTextToFeed, setPublishTextToFeed] = useState(true);
-  /** 'short' (tweet-like, no title) or 'long' (article-like, optional title). */
-  const [contentType, setContentType] = useState<'short' | 'long'>('short');
-  /** Long-form-only. Empty means no title. */
-  const [title, setTitle] = useState<string>('');
-  /** World mini app only: whether the immersive workspace overlay is open. */
-  const [isWorkspaceOpen, setIsWorkspaceOpen] = useState<boolean>(false);
   /** Transient line after copy / open share targets */
   const [shareNote, setShareNote] = useState<string | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -273,27 +267,13 @@ function HomePage({
   }, [isCapturing, stopCapture]);
 
   useEffect(() => {
-    if (!focusWriting) return;
-    if (isInWorldApp) {
-      setIsWorkspaceOpen(true);
-      return;
-    }
-    if (!writingSectionRef.current) return;
+    if (!focusWriting || !writingSectionRef.current) return;
     const el = writingSectionRef.current;
     const id = window.requestAnimationFrame(() => {
       el.scrollIntoView({ behavior: 'smooth', block: 'start' });
     });
     return () => window.cancelAnimationFrame(id);
-  }, [focusWriting, isInWorldApp]);
-
-  useEffect(() => {
-    if (!isInWorldApp || !isWorkspaceOpen) return;
-    const prev = document.body.style.overflow;
-    document.body.style.overflow = 'hidden';
-    return () => {
-      document.body.style.overflow = prev;
-    };
-  }, [isInWorldApp, isWorkspaceOpen]);
+  }, [focusWriting]);
 
   const handleStartCapture = () => {
     console.log('Manual start capture clicked');
@@ -472,8 +452,6 @@ function HomePage({
               worldIdNullifier: worldIdProof?.nullifier_hash,
               authorAddress: result.walletAddress,
               publicText: publishTextToFeed ? content : undefined,
-              contentType,
-              title: contentType === 'long' ? title.trim() : undefined,
             });
           } catch (e) {
             console.warn('Off-chain feed index (Supabase) failed:', e);
@@ -515,8 +493,6 @@ function HomePage({
     setBlockchainErrorHelp(null);
     setBlockchainSuccess(null);
     setShareNote(null);
-    setTitle('');
-    setContentType('short');
     resetCapture();
     onWorldIdReset();
   };
@@ -572,40 +548,7 @@ function HomePage({
           />
         </div>
 
-        {isInWorldApp && !isWorkspaceOpen && (
-          <button
-            type="button"
-            className="hi-workspace-cta"
-            onClick={() => setIsWorkspaceOpen(true)}
-            aria-label="Open writing workspace"
-          >
-            <span className="hi-workspace-cta__placeholder">What are you typing today?</span>
-            <span className="hi-workspace-cta__hint">Tap to enter your protected workspace</span>
-          </button>
-        )}
-        <div
-          id="writing"
-          className={
-            `hi-section hi-section--writing` +
-            (isInWorldApp && isWorkspaceOpen
-              ? ` hi-workspace--world hi-workspace--${contentType} is-open`
-              : isInWorldApp
-                ? ' hi-workspace--world-hidden'
-                : '')
-          }
-          ref={writingSectionRef}
-          aria-hidden={isInWorldApp && !isWorkspaceOpen}
-        >
-          {isInWorldApp && isWorkspaceOpen && (
-            <button
-              type="button"
-              className="hi-workspace__close"
-              onClick={() => setIsWorkspaceOpen(false)}
-              aria-label="Close workspace"
-            >
-              ×
-            </button>
-          )}
+        <div id="writing" className="hi-section hi-section--writing" ref={writingSectionRef}>
           <h2>Enter Your Protected Workspace</h2>
           {!isCapturing ? (
             <div className="hi-session-gate">
@@ -723,62 +666,7 @@ function HomePage({
               isCapturing ? 'hi-textarea hi-textarea--capturing' : 'hi-textarea hi-textarea--gated'
             }
           />
-          {isInWorldApp && isWorkspaceOpen && contentType === 'short' && (
-            <p
-              className="hi-workspace__char-count"
-              aria-live="polite"
-              title="Characters typed"
-            >
-              {content.length} {content.length === 1 ? 'character' : 'characters'}
-            </p>
-          )}
         </div>
-
-        <div
-          className="hi-format-toggle"
-          role="radiogroup"
-          aria-label="Content format"
-          style={{ display: 'flex', gap: 8, margin: '8px 0', flexWrap: 'wrap' }}
-        >
-          <button
-            type="button"
-            role="radio"
-            aria-checked={contentType === 'short'}
-            onClick={() => setContentType('short')}
-            className={`hi-btn hi-btn--sm ${contentType === 'short' ? 'hi-btn--primary' : 'hi-btn--ghost'}`}
-          >
-            Short post
-          </button>
-          <button
-            type="button"
-            role="radio"
-            aria-checked={contentType === 'long'}
-            onClick={() => setContentType('long')}
-            className={`hi-btn hi-btn--sm ${contentType === 'long' ? 'hi-btn--primary' : 'hi-btn--ghost'}`}
-          >
-            Long-form
-          </button>
-        </div>
-
-        {contentType === 'long' && (
-          <label
-            className="hi-title-input"
-            style={{ display: 'block', margin: '8px 0' }}
-          >
-            <span style={{ display: 'block', fontSize: '0.85rem', marginBottom: 4, opacity: 0.8 }}>
-              Title (optional, max 200 chars)
-            </span>
-            <input
-              type="text"
-              value={title}
-              maxLength={200}
-              onChange={(e) => setTitle(e.target.value)}
-              placeholder="A short title for your long-form piece"
-              className="hi-input"
-              style={{ width: '100%', padding: '8px 10px', fontSize: '1rem' }}
-            />
-          </label>
-        )}
 
         <label className="hi-feed-publish">
           <input

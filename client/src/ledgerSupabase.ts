@@ -35,10 +35,6 @@ export type LedgerSubmissionRow = {
   created_at: string;
   /** Optional; must match onchain content hash. Shown on public feed. */
   public_text?: string | null;
-  /** 'short' for tweet-like posts (no title); 'long' for articles (optional title). */
-  content_type?: 'short' | 'long';
-  /** Only allowed when content_type === 'long'. Max 200 chars. */
-  title?: string | null;
 };
 
 const CONTRACT_ADDRESS =
@@ -99,10 +95,6 @@ export async function pushLedgerIndexAfterOnChainSuccess(
     authorAddress: string;
     /** If set, stored for the public feed; server checks SHA-256(UTF-8) === contentHash. */
     publicText?: string;
-    /** 'short' (default) or 'long'. Server rejects title on short. */
-    contentType?: 'short' | 'long';
-    /** Only allowed when contentType === 'long'. Empty/undefined = no title. */
-    title?: string;
   }
 ): Promise<void> {
   if (!result.success || !result.transactionHash) return;
@@ -134,11 +126,6 @@ export async function pushLedgerIndexAfterOnChainSuccess(
   };
   if (data.publicText != null && String(data.publicText).trim() !== '') {
     payload.public_text = data.publicText;
-  }
-  const contentType = data.contentType === 'long' ? 'long' : 'short';
-  payload.content_type = contentType;
-  if (contentType === 'long' && data.title && data.title.trim() !== '') {
-    payload.title = data.title.trim().slice(0, 200);
   }
 
   const res = await fetch(apiPath('/api/ledger-onchain'), {
