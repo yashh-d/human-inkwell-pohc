@@ -36,7 +36,7 @@ export const useKeystrokeCapture = (): UseKeystrokeCaptureReturn => {
     keystrokeDataRef.current.push({
       key: event.key,
       eventType: 'keydown',
-      timestamp: performance.now()
+      timestamp: Date.now()
     });
   }, []);
 
@@ -48,7 +48,7 @@ export const useKeystrokeCapture = (): UseKeystrokeCaptureReturn => {
     keystrokeDataRef.current.push({
       key: event.key,
       eventType: 'keyup',
-      timestamp: performance.now()
+      timestamp: Date.now()
     });
   }, []);
 

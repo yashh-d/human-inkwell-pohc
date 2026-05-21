@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect, useMemo } from 'react';
 import { Link } from 'react-router-dom';
 import { ISuccessResult, IErrorState } from '@worldcoin/idkit';
 import { useKeystrokeCapture } from '../hooks/useKeystrokeCapture';
@@ -11,6 +11,14 @@ import {
   xIntentUrl,
   LINKEDIN_FEED_URL,
 } from '../utils/socialShare';
+import {
+  saveDraft,
+  loadDraft,
+  clearDraft,
+  type KeystrokeEvent as DraftKeystrokeEvent,
+  type PauseWindow,
+} from '../utils/drafts';
+import { formatRelativeTime } from '../utils/relativeTime';
 import WorldIDWidget from '../components/WorldIDWidget';
 import { blockchainService } from '../blockchain';
 import { pushLedgerIndexAfterOnChainSuccess } from '../ledgerSupabase';
@@ -133,8 +141,22 @@ function HomePage({
   const [publishTextToFeed, setPublishTextToFeed] = useState(true);
   /** Transient line after copy / open share targets */
   const [shareNote, setShareNote] = useState<string | null>(null);
+  /** Whether the fullscreen writing overlay is open. Controls the staged UX. */
+  const [isWritingOpen, setIsWritingOpen] = useState<boolean>(false);
+  /** ISO timestamp of last autosave; powers the "Saved · 12s ago" indicator. */
+  const [lastSavedAt, setLastSavedAt] = useState<string | null>(null);
+  /** Transient line under the overlay toolbar after restore/save events. */
+  const [draftNote, setDraftNote] = useState<string | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const writingSectionRef = useRef<HTMLDivElement>(null);
+  /** Keystroke events captured before the current capture session (across pauses / restores). */
+  const savedKeystrokesRef = useRef<DraftKeystrokeEvent[]>([]);
+  /** Wall-clock pause windows for the current draft; gap-stripped at feature-extraction time. */
+  const pauseWindowsRef = useRef<PauseWindow[]>([]);
+  /** ms epoch of when capture first started for this draft; persisted alongside text. */
+  const sessionStartedAtRef = useRef<number>(0);
+  /** Debounce timer for the autosave effect. */
+  const autosaveTimerRef = useRef<number | null>(null);
 
   const { startCapture, stopCapture, getRawKeystrokeData, getTabAwayCount, resetCapture, isCapturing } = useKeystrokeCapture();
   const { generateHumanSignatureHash } = useBiometricProcessor();
@@ -159,8 +181,32 @@ function HomePage({
     return { mean, standardDeviation, median, min, max };
   };
 
-  // Function to extract detailed biometric features
-  const extractDetailedFeatures = (rawKeystrokeData: KeystrokeEvent[]): DetailedBiometricData => {
+  // Function to extract detailed biometric features.
+  //
+  // pauseWindows: wall-clock (Date.now()) ranges during which capture was paused.
+  // For each event timestamp `t`, we subtract the cumulative pause-duration of
+  // every fully-elapsed pause window (pw.endedAt <= t), so a 12-hour pause
+  // becomes a zero-ms gap in the feature vector. This keeps the hash representing
+  // an unbroken typing rhythm even when the user resumed a draft hours later.
+  const extractDetailedFeatures = (
+    rawKeystrokeData: KeystrokeEvent[],
+    pauseWindows: { startedAt: number; endedAt: number }[] = []
+  ): DetailedBiometricData => {
+    const adjustTimestamp = (t: number): number => {
+      let offset = 0;
+      for (const pw of pauseWindows) {
+        if (pw.endedAt > 0 && pw.endedAt <= t && pw.endedAt > pw.startedAt) {
+          offset += pw.endedAt - pw.startedAt;
+        }
+      }
+      return t - offset;
+    };
+    const normalizedEvents: KeystrokeEvent[] = rawKeystrokeData.map((e) => ({
+      key: e.key,
+      eventType: e.eventType,
+      timestamp: adjustTimestamp(e.timestamp),
+    }));
+
     const features: BiometricFeatures = {
       holdTimes: [],
       flightTimes: [],
@@ -175,7 +221,7 @@ function HomePage({
     const allKeyDowns: { key: string; timestamp: number }[] = [];
     const allKeyUps: { key: string; timestamp: number }[] = [];
 
-    rawKeystrokeData.forEach(event => {
+    normalizedEvents.forEach(event => {
       if (event.eventType === 'keydown') {
         if (!keyDownEvents[event.key]) keyDownEvents[event.key] = [];
         keyDownEvents[event.key].push(event.timestamp);
@@ -284,74 +330,118 @@ function HomePage({
       setBiometricData(null);
       setSessionTabAwayCount(0);
       setProcessingStatus('Ready to capture keystrokes...');
+      // Fresh session = no prior keystrokes, no pauses, mark session start.
+      savedKeystrokesRef.current = [];
+      pauseWindowsRef.current = [];
+      sessionStartedAtRef.current = Date.now();
       startCapture(textareaRef.current);
     }
   };
 
-  const handleGenerateSignature = async () => {
-    if (!textareaRef.current) return;
-    
+  /** Snapshot the hook's keystroke buffer into `savedKeystrokesRef` so we can
+   *  resume capture later without losing pre-pause events. */
+  const snapshotHookBuffer = () => {
+    const buf = getRawKeystrokeData();
+    if (buf.length > 0) {
+      savedKeystrokesRef.current = savedKeystrokesRef.current.concat(buf);
+    }
+  };
+
+  /** Pause keystroke capture. Keeps text + saved keystrokes; opens a new
+   *  pause window. UI in the overlay toolbar flips Pause → Resume. */
+  const handlePauseCapture = () => {
+    if (!isCapturing) return;
+    snapshotHookBuffer();
+    pauseWindowsRef.current.push({ startedAt: Date.now(), endedAt: 0 });
+    stopCapture();
+  };
+
+  /** Resume keystroke capture in the same draft. Closes the latest pause
+   *  window and re-arms capture on the same textarea. */
+  const handleResumeCapture = () => {
+    if (isCapturing || !textareaRef.current) return;
+    const open = pauseWindowsRef.current[pauseWindowsRef.current.length - 1];
+    if (open && open.endedAt === 0) {
+      open.endedAt = Date.now();
+    }
+    startCapture(textareaRef.current);
+  };
+
+
+  const handleGenerateSignature = async (): Promise<{
+    humanHash: string;
+    textHash: string;
+    biometric: DetailedBiometricData;
+  } | null> => {
+    if (!textareaRef.current) return null;
+
     setIsProcessing(true);
     setProcessingStatus('Processing keystroke data...');
-    
+
     try {
-      // Stop capturing keystrokes
-      stopCapture();
+      // Capture is paused/stopped while we extract — snapshot first so the
+      // current buffer is merged into savedKeystrokesRef before we read it.
+      if (isCapturing) {
+        snapshotHookBuffer();
+        stopCapture();
+      }
 
       const tabAwayCount = getTabAwayCount();
-      
-      // Get raw keystroke data
-      const rawKeystrokeData = getRawKeystrokeData();
-      
-      console.log('Raw keystroke data:', rawKeystrokeData); // Debug log
-      
+
+      // Combined keystroke data across pauses + resumes for this draft.
+      const rawKeystrokeData = savedKeystrokesRef.current.slice();
+
+      console.log('Raw keystroke data:', rawKeystrokeData, 'pauses:', pauseWindowsRef.current); // Debug log
+
       if (rawKeystrokeData.length === 0) {
         setProcessingStatus('No keystroke data captured. Please type something first, then try again.');
         setIsProcessing(false);
-        return;
+        return null;
       }
-      
+
       if (rawKeystrokeData.length < 10) {
         setProcessingStatus(`Only ${rawKeystrokeData.length} keystroke events captured. Please type more content for better analysis.`);
         setIsProcessing(false);
-        return;
+        return null;
       }
-      
+
       setProcessingStatus('Extracting detailed biometric features...');
-      
-      // Extract detailed biometric features
-      const detailedFeatures = extractDetailedFeatures(rawKeystrokeData);
+
+      // Extract detailed biometric features — pass pauseWindows so gaps don't leak into the feature vector.
+      const detailedFeatures = extractDetailedFeatures(rawKeystrokeData, pauseWindowsRef.current);
       setBiometricData(detailedFeatures);
       setSessionTabAwayCount(tabAwayCount);
-      
+
       console.log('Detailed biometric features:', detailedFeatures); // Debug log
-      
+
       if (detailedFeatures.featureVector.length === 0) {
         setProcessingStatus('Failed to extract biometric features. Please try typing again.');
         setIsProcessing(false);
-        return;
+        return null;
       }
-      
+
       setProcessingStatus('Generating human signature hash...');
-      
+
       // Generate human signature hash
       const humanHash = await generateHumanSignatureHash(detailedFeatures.featureVector);
       setHumanSignatureHash(humanHash);
-      
+
       setProcessingStatus('Generating content hash...');
-      
+
       // Generate content hash
       const textHash = await hashContent(content);
       setContentHash(textHash);
-      
+
       setProcessingStatus('Processing complete! Both hashes generated successfully.');
-      
+
       // Reset capture for next session
       resetCapture();
-      
+
+      return { humanHash, textHash, biometric: detailedFeatures };
     } catch (error) {
       console.error('Error processing biometric data:', error);
       setProcessingStatus(`Error processing biometric data: ${error instanceof Error ? error.message : 'Unknown error'}. Please try again.`);
+      return null;
     } finally {
       setIsProcessing(false);
     }
@@ -376,13 +466,21 @@ function HomePage({
     setContent(newValue);
   };
 
-  const handleSubmitToBlockchain = async () => {
-    if (!humanSignatureHash || !contentHash) {
+  const handleSubmitToBlockchain = async (override?: {
+    contentHash: string;
+    humanSignatureHash: string;
+    biometric: DetailedBiometricData;
+  }) => {
+    const effectiveContentHash = override?.contentHash ?? contentHash;
+    const effectiveHumanSignatureHash = override?.humanSignatureHash ?? humanSignatureHash;
+    const effectiveBiometric = override?.biometric ?? biometricData;
+
+    if (!effectiveHumanSignatureHash || !effectiveContentHash) {
       setProcessingStatus('⚠️ Please sign your manuscript and generate a content hash before you publish to World Chain.');
       return;
     }
 
-    if (!biometricData) {
+    if (!effectiveBiometric) {
       setProcessingStatus('⚠️ No biometric data available. Please capture keystrokes first.');
       return;
     }
@@ -395,10 +493,10 @@ function HomePage({
     try {
       // Prepare submission data
       const submissionData = {
-        contentHash,
-        humanSignatureHash,
-        keystrokeCount: biometricData.totalKeystrokes,
-        typingSpeed: biometricData.rawFeatures.typingSpeed,
+        contentHash: effectiveContentHash,
+        humanSignatureHash: effectiveHumanSignatureHash,
+        keystrokeCount: effectiveBiometric.totalKeystrokes,
+        typingSpeed: effectiveBiometric.rawFeatures.typingSpeed,
         worldIdNullifier: isVerified ? worldIdProof?.nullifier_hash : undefined
       };
 
@@ -440,14 +538,17 @@ function HomePage({
         });
         setProcessingStatus('✅ Published to World Chain (Human Content Ledger).');
         console.log('🎉 Blockchain submission successful!', result);
+        // The chain entry is now the source of truth — discard the local draft.
+        clearDraft();
+        setLastSavedAt(null);
 
         if (result.entryId != null && result.walletAddress) {
           try {
             await pushLedgerIndexAfterOnChainSuccess(result, {
-              contentHash,
-              humanSignatureHash,
-              keystrokeCount: biometricData.totalKeystrokes,
-              typingSpeed: biometricData.rawFeatures.typingSpeed,
+              contentHash: effectiveContentHash,
+              humanSignatureHash: effectiveHumanSignatureHash,
+              keystrokeCount: effectiveBiometric.totalKeystrokes,
+              typingSpeed: effectiveBiometric.rawFeatures.typingSpeed,
               isVerified,
               worldIdNullifier: worldIdProof?.nullifier_hash,
               authorAddress: result.walletAddress,
@@ -483,7 +584,32 @@ function HomePage({
     }
   };
 
-  const handleResetAll = () => {
+  /** One-tap Sign + Publish. Used by the overlay's Post button. Passes the
+   *  freshly-computed hashes directly into the submit step to bypass React
+   *  state-setter batching. */
+  const handlePost = async () => {
+    if (!content.trim()) {
+      setProcessingStatus('⚠️ Type something before posting.');
+      return;
+    }
+    const signed = await handleGenerateSignature();
+    if (!signed) return;
+    await handleSubmitToBlockchain({
+      contentHash: signed.textHash,
+      humanSignatureHash: signed.humanHash,
+      biometric: signed.biometric,
+    });
+  };
+
+  /** Open the fullscreen writing overlay AND start a fresh capture session. */
+  const handleOpenWriting = () => {
+    handleStartCapture();
+    setIsWritingOpen(true);
+  };
+
+  /** "Write another" from the receipt: clear post-success state, clear draft,
+   *  return to the Start stage (overlay closes, capture stopped, content empty). */
+  const handleWriteAnother = () => {
     setContent('');
     setHumanSignatureHash('');
     setContentHash('');
@@ -493,297 +619,505 @@ function HomePage({
     setBlockchainErrorHelp(null);
     setBlockchainSuccess(null);
     setShareNote(null);
+    setLastSavedAt(null);
+    setDraftNote(null);
+    savedKeystrokesRef.current = [];
+    pauseWindowsRef.current = [];
+    sessionStartedAtRef.current = 0;
     resetCapture();
-    onWorldIdReset();
+    clearDraft();
+    setIsWritingOpen(false);
   };
+
+  // ─── Autosave (debounced) ──────────────────────────────────────────────
+  // Save the in-progress draft to localStorage 1.5s after the last edit. We
+  // persist content + keystroke events + pause windows + session-start time
+  // so a refresh restores the full biometric context, not just the text.
+  useEffect(() => {
+    if (!isWritingOpen) return;
+    if (!content.trim()) return; // nothing meaningful to save yet
+    if (autosaveTimerRef.current !== null) {
+      window.clearTimeout(autosaveTimerRef.current);
+    }
+    autosaveTimerRef.current = window.setTimeout(() => {
+      // Snapshot the hook's buffer into savedKeystrokesRef without stopping capture,
+      // so the save always reflects the full set of keystrokes typed so far.
+      const liveBuffer = getRawKeystrokeData();
+      const merged = savedKeystrokesRef.current.concat(liveBuffer);
+      const saved = saveDraft({
+        title: '',
+        content,
+        contentType: 'short',
+        keystrokeEvents: merged,
+        pauseWindows: pauseWindowsRef.current.slice(),
+        sessionStartedAt: sessionStartedAtRef.current || Date.now(),
+      });
+      if (saved) {
+        setLastSavedAt(saved.savedAt);
+      }
+    }, 1500);
+    return () => {
+      if (autosaveTimerRef.current !== null) {
+        window.clearTimeout(autosaveTimerRef.current);
+      }
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [content, isWritingOpen]);
+
+  // ─── Body class toggle so AmbientNav can hide via pure CSS ─────────────
+  useEffect(() => {
+    if (isWritingOpen || blockchainSuccess) {
+      document.body.classList.add('hi-overlay-open');
+      const prev = document.body.style.overflow;
+      document.body.style.overflow = 'hidden';
+      return () => {
+        document.body.classList.remove('hi-overlay-open');
+        document.body.style.overflow = prev;
+      };
+    }
+    return undefined;
+  }, [isWritingOpen, blockchainSuccess]);
+
+  // ─── Draft restore when the overlay opens with an empty composer ───────
+  useEffect(() => {
+    if (!isWritingOpen) return;
+    if (content.trim()) return; // don't clobber in-progress work
+    const draft = loadDraft();
+    if (!draft) return;
+    setContent(draft.content);
+    savedKeystrokesRef.current = draft.keystrokeEvents.slice();
+    pauseWindowsRef.current = draft.pauseWindows.slice();
+    sessionStartedAtRef.current = draft.sessionStartedAt;
+    setLastSavedAt(draft.savedAt);
+    setDraftNote(`Restored draft from ${formatRelativeTime(draft.savedAt)}`);
+    window.setTimeout(() => setDraftNote(null), 4000);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isWritingOpen]);
+
+  // ─── Auto-open the overlay when arriving at /write already verified ───
+  useEffect(() => {
+    if (!focusWriting) return;
+    if (!isVerified) return;
+    if (blockchainSuccess) return;
+    if (!isWritingOpen) {
+      handleOpenWriting();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [focusWriting, isVerified]);
+
+  // ─── "Saved · 2m ago" indicator label, recomputed each render ──────────
+  const savedRelativeLabel = useMemo(
+    () => (lastSavedAt ? `Saved · ${formatRelativeTime(lastSavedAt)}` : null),
+    [lastSavedAt]
+  );
+
+
+  // Reusable biometric detail block — rendered inside the receipt's <details>
+  // and nowhere else. Same data, just moved out of the verify/start/writing
+  // stages so they stay clean.
+  const biometricDetail = (
+    <>
+      {biometricData && (
+        <div className="hi-section">
+          <h3>Biometric analysis</h3>
+          <div className="hi-bio">
+            <div className="hi-bio__table-wrap">
+              <table className="hi-table hi-bio__table">
+                <thead>
+                  <tr>
+                    <th scope="col">Metric</th>
+                    <th scope="col">Value</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr className="hi-bio__row-section"><td colSpan={2}>Session</td></tr>
+                  <tr className="hi-bio__row-focus-score">
+                    <td>Human focus score (0–100)</td>
+                    <td>
+                      <span className="hi-bio__focus-num">{humanFocusScore}</span>
+                      <span className="hi-bio__focus-denom"> / 100</span>
+                      <p className="hi-bio__focus-copy">
+                        Only the <strong>tab / window leave</strong> count, −{HUMAN_FOCUS_SCORE_POINTS_OFF_PER_LEAVE} points
+                        per leave. Typing in this view is the baseline. Hold, flight, and speed below are for the hash, not
+                        this score.
+                      </p>
+                    </td>
+                  </tr>
+                  <tr><td>Tab or window leaves in session</td><td>{sessionTabAwayCount}×</td></tr>
+                  <tr><td>Keystrokes</td><td>{biometricData.totalKeystrokes}</td></tr>
+                  <tr><td>Duration</td><td>{(biometricData.captureTimespan / 1000).toFixed(2)} s</td></tr>
+                  <tr><td>Typing speed</td><td>{biometricData.rawFeatures.typingSpeed.toFixed(2)} c/s</td></tr>
+                  <tr><td>Backspace</td><td>{biometricData.rawFeatures.backspaceCount}</td></tr>
+                  <tr className="hi-bio__row-section"><td colSpan={2}>Hold times (dwell)</td></tr>
+                  <tr className="hi-bio__row-hint"><td colSpan={2}><span>Key hold duration (down → up)</span></td></tr>
+                  <BiometricTimingRows s={biometricData.statistics.holdTimes} />
+                  <tr className="hi-bio__row-section"><td colSpan={2}>Flight times (inter-key)</td></tr>
+                  <tr className="hi-bio__row-hint"><td colSpan={2}><span>Key release to next key press</span></td></tr>
+                  <BiometricTimingRows s={biometricData.statistics.flightTimes} />
+                  <tr className="hi-bio__row-section"><td colSpan={2}>Down-down (digraph)</td></tr>
+                  <tr className="hi-bio__row-hint"><td colSpan={2}><span>Time between consecutive key presses</span></td></tr>
+                  <BiometricTimingRows s={biometricData.statistics.downDownLatencies} />
+                  <tr className="hi-bio__row-section"><td colSpan={2}>Feature vector (for hash)</td></tr>
+                  <tr className="hi-bio__row-hint"><td colSpan={2}><span>Numeric pattern for this session</span></td></tr>
+                  <tr className="hi-bio__row-vector">
+                    <td colSpan={2}>
+                      <code className="hi-bio__vec hi-bio__vec--table">
+                        [{biometricData.featureVector.map((val) => val.toFixed(4)).join(', ')}]
+                      </code>
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      )}
+      {humanSignatureHash && (
+        <div className="hi-section">
+          <h3>Human signature hash</h3>
+          <div className="hi-hash-block">{humanSignatureHash}</div>
+          <p className="hi-hash-line">Generated on this device. Raw typing data is not sent off-device.</p>
+        </div>
+      )}
+      {contentHash && (
+        <div className="hi-section">
+          <h3>Content hash</h3>
+          <div className="hi-hash-block">{contentHash}</div>
+          <p className="hi-content-hash-note">SHA-256 of your UTF-8 text (what the chain stores as a hash, not the text)</p>
+        </div>
+      )}
+    </>
+  );
 
   return (
     <>
-        <div className="hi-page-tldr">
-          <h2 className="hi-page-tldr__title">At a glance</h2>
-          <ol className="hi-page-tldr__ol" aria-label="Steps on this page">
-            <li>
-              <div className="hi-page-tldr__body">
-                <span className="hi-page-tldr__head">Authenticate Identity</span>
-                <p className="hi-page-tldr__text">
-                  Secure your session with a World ID check to instantly distinguish yourself from AI-generated content
-                </p>
-              </div>
-            </li>
-            <li>
-              <div className="hi-page-tldr__body">
-                <span className="hi-page-tldr__head">Generate Your Signature</span>
-                <p className="hi-page-tldr__text">
-                  As you type, we analyze keystroke dynamics and session activity to create a unique biometric hash.
-                  This also establishes your intellectual property.
-                </p>
-              </div>
-            </li>
-            <li>
-              <div className="hi-page-tldr__body">
-                <span className="hi-page-tldr__head">Certify on World Chain</span>
-                <p className="hi-page-tldr__text">
-                  Claim your proof. This links your biometric signature to your World ID, giving you a verifiable, onchain
-                  record of your unique piece of writing.
-                </p>
-              </div>
-            </li>
-          </ol>
-          <p className="hi-page-tldr__privacy hi-page-tldr__privacy--compact">
-            <Link to="/workflow">How it works</Link>
-            <span className="hi-page-tldr__privacy-hint"> · data boundary, end-to-end flow, storage, contract</span>
-          </p>
-        </div>
-
-        <div className="hi-block">
-          <WorldIDWidget
-            isVerified={isVerified}
-            worldIdProof={worldIdProof}
-            error={worldIdError}
-            isLoading={worldIdLoading}
-            onVerify={onWorldIdVerify}
-            onError={onWorldIdError}
-            onVerifyMiniKit={onVerifyMiniKit}
-            isInWorldApp={isInWorldApp}
-          />
-        </div>
-
-        <div id="writing" className="hi-section hi-section--writing" ref={writingSectionRef}>
-          <h2>Enter Your Protected Workspace</h2>
-          {!isCapturing ? (
-            <div className="hi-session-gate">
-              <button
-                type="button"
-                className="hi-btn hi-btn--session"
-                onClick={handleStartCapture}
-                disabled={isProcessing}
-              >
-                Start your protected session
-              </button>
-              <p className="hi-session-gate__lede">
-                Once active, the engine captures your typing rhythm and window activity to verify human authorship. Stay
-                focused in this workspace for the cleanest signature. The biometric data never leaves your device.
-              </p>
+      {/* ─── Stages: verify → start ─────────────────────────────────────── */}
+      {!isWritingOpen && !blockchainSuccess && (
+        <>
+          <section className="hi-stage" ref={writingSectionRef}>
+            <div className="hi-stage-card">
+              {!isVerified ? (
+                <>
+                  <h2 className="hi-stage-card__title">Verify with World ID</h2>
+                  <p className="hi-stage-card__sub">
+                    Prove you’re a real person before we open your protected writing surface.
+                  </p>
+                  <div className="hi-stage-card__widget">
+                    <WorldIDWidget
+                      isVerified={isVerified}
+                      worldIdProof={worldIdProof}
+                      error={worldIdError}
+                      isLoading={worldIdLoading}
+                      onVerify={onWorldIdVerify}
+                      onError={onWorldIdError}
+                      onVerifyMiniKit={onVerifyMiniKit}
+                      isInWorldApp={isInWorldApp}
+                      layout="onboarding"
+                    />
+                  </div>
+                </>
+              ) : (
+                <>
+                  <span className="hi-stage-card__check" aria-hidden>✓</span>
+                  <h2 className="hi-stage-card__title">You’re verified</h2>
+                  <p className="hi-stage-card__sub">
+                    Start your protected session to open the writing workspace. Your typing rhythm and content will be
+                    bound together and posted onchain when you tap Post.
+                  </p>
+                  <button
+                    type="button"
+                    className="hi-btn hi-btn--session"
+                    onClick={handleOpenWriting}
+                    disabled={isProcessing}
+                  >
+                    Start your protected session
+                  </button>
+                  <p className="hi-stage-card__foot">
+                    Biometric data never leaves your device. Copy and paste are off in the writing surface so the
+                    signature reflects only what you type.
+                  </p>
+                </>
+              )}
             </div>
-          ) : (
-            <div className="hi-capture-status hi-capture-status--active" role="status">
-              <div className="hi-capture-status__row">
-                <span className="hi-capture-status__label">
-                  <strong>Status:</strong> Protected session active
+          </section>
+
+          <div className="hi-page-tldr">
+            <h2 className="hi-page-tldr__title">At a glance</h2>
+            <ol className="hi-page-tldr__ol" aria-label="Steps on this page">
+              <li>
+                <div className="hi-page-tldr__body">
+                  <span className="hi-page-tldr__head">Authenticate Identity</span>
+                  <p className="hi-page-tldr__text">
+                    Secure your session with a World ID check to instantly distinguish yourself from AI-generated content
+                  </p>
+                </div>
+              </li>
+              <li>
+                <div className="hi-page-tldr__body">
+                  <span className="hi-page-tldr__head">Generate Your Signature</span>
+                  <p className="hi-page-tldr__text">
+                    As you type, we analyze keystroke dynamics and session activity to create a unique biometric hash.
+                    This also establishes your intellectual property.
+                  </p>
+                </div>
+              </li>
+              <li>
+                <div className="hi-page-tldr__body">
+                  <span className="hi-page-tldr__head">Certify on World Chain</span>
+                  <p className="hi-page-tldr__text">
+                    Claim your proof. This links your biometric signature to your World ID, giving you a verifiable, onchain
+                    record of your unique piece of writing.
+                  </p>
+                </div>
+              </li>
+            </ol>
+            <p className="hi-page-tldr__privacy hi-page-tldr__privacy--compact">
+              <Link to="/workflow">How it works</Link>
+              <span className="hi-page-tldr__privacy-hint"> · data boundary, end-to-end flow, storage, contract</span>
+            </p>
+          </div>
+        </>
+      )}
+
+      {/* ─── Stage: fullscreen writing overlay ──────────────────────────── */}
+      {isWritingOpen && !blockchainSuccess && (
+        <div className="hi-overlay" role="dialog" aria-label="Protected writing workspace">
+          <div className="hi-overlay__topbar" role="toolbar" aria-label="Workspace actions">
+            <button
+              type="button"
+              className="hi-overlay__close"
+              onClick={() => setIsWritingOpen(false)}
+              aria-label="Close workspace"
+            >
+              ×
+            </button>
+            <div className="hi-overlay__meta" aria-live="polite">
+              {isCapturing && (
+                <span className="hi-overlay__rec" title="Capture is active">
+                  <span className="hi-overlay__rec-dot" aria-hidden />
+                  Recording
                 </span>
+              )}
+              {!isCapturing && savedKeystrokesRef.current.length > 0 && (
+                <span className="hi-overlay__paused-pill" title="Capture is paused">
+                  Paused
+                </span>
+              )}
+              {savedRelativeLabel && (
+                <span className="hi-overlay__save-ind" title={lastSavedAt || undefined}>
+                  {savedRelativeLabel}
+                </span>
+              )}
+            </div>
+            <div className="hi-overlay__actions">
+              {isCapturing ? (
                 <button
                   type="button"
-                  className="hi-btn hi-btn--ghost hi-btn--sm"
-                  onClick={handleStartCapture}
-                  disabled={isProcessing}
+                  className="hi-btn hi-btn--ghost"
+                  onClick={handlePauseCapture}
+                  disabled={isProcessing || isSubmittingToBlockchain}
                 >
-                  New session
+                  Pause
                 </button>
-              </div>
-              <div className="hi-cyan-glow-box hi-cyan-glow-box--tight" aria-label="What is being recorded">
-                <span className="hi-cyan-glow-box__inline">Text</span>
-                <span className="hi-cyan-glow-box__sep" aria-hidden>
-                  ·
-                </span>
-                <span className="hi-cyan-glow-box__inline">key timing</span>
-                <span className="hi-cyan-glow-box__sep" aria-hidden>
-                  ·
-                </span>
-                <span className="hi-cyan-glow-box__inline">page activity</span>
-                <span className="hi-cyan-glow-box__kicker">· local</span>
-              </div>
+              ) : (
+                <button
+                  type="button"
+                  className="hi-btn hi-btn--ghost"
+                  onClick={handleResumeCapture}
+                  disabled={isProcessing || isSubmittingToBlockchain}
+                >
+                  Resume
+                </button>
+              )}
+              <button
+                type="button"
+                className="hi-btn hi-btn--primary"
+                onClick={handlePost}
+                disabled={isProcessing || isSubmittingToBlockchain || !content.trim()}
+              >
+                {isProcessing ? 'Signing…' : isSubmittingToBlockchain ? 'Publishing…' : 'Post'}
+              </button>
             </div>
+          </div>
+
+          {draftNote && (
+            <p className="hi-overlay__draft-note" role="status">
+              {draftNote}
+            </p>
           )}
-          <p className="hi-warn-line">
-            Manual typing is required to calibrate your biometric signature. Copy and paste are disabled to ensure the
-            highest level of cryptographic integrity for your work.
-          </p>
-          <textarea
-            ref={textareaRef}
-            value={content}
-            onChange={handleInputChange}
-            disabled={!isCapturing}
-            aria-label="Protected workspace: type to capture keystrokes for your biometric signature"
-            title={!isCapturing ? 'Start a protected session to type in this field' : undefined}
-            onInput={(e) => {
-              // Additional input validation
-              const target = e.target as HTMLTextAreaElement;
-              const newValue = target.value;
-              if (newValue.length - content.length > 5) {
-                target.value = content;
-                setProcessingStatus(
-                  '⚠️ Large text insertion (possible paste). Type manually to keep your biometric signature valid.',
-                );
-              }
-            }}
-            onPaste={(e) => {
-              e.preventDefault();
-              e.stopPropagation();
-              console.log('Paste blocked!');
-              setProcessingStatus('⚠️ Use the keyboard only here. Paste and copy are off so your biometric signature stays valid.');
-            }}
-            onCopy={(e) => {
-              e.preventDefault();
-              e.stopPropagation();
-              setProcessingStatus('⚠️ Use the keyboard only here. Copy is off in this field so the signature matches what you type.');
-            }}
-            onCut={(e) => {
-              e.preventDefault();
-              e.stopPropagation();
-              setProcessingStatus('⚠️ Use the keyboard only here. Cut is off in this field so the signature matches what you type.');
-            }}
-            onDrop={(e) => {
-              e.preventDefault();
-              e.stopPropagation();
-              setProcessingStatus('⚠️ Drop is disabled. Type in this field so your biometric signature is calibrated to real keystrokes.');
-            }}
-            onDragOver={(e) => {
-              e.preventDefault();
-            }}
-            onContextMenu={(e) => {
-              e.preventDefault();
-              setProcessingStatus('⚠️ Right-click is disabled in this field to protect your signature calibration.');
-            }}
-            onKeyDown={(e) => {
-              // Disable common keyboard shortcuts for copy/paste
-              if (e.ctrlKey || e.metaKey) {
-                if (e.key === 'v' || e.key === 'c' || e.key === 'x' || e.key === 'a') {
-                  e.preventDefault();
-                  e.stopPropagation();
-                  console.log('Keyboard shortcut blocked:', e.key);
+
+          <div className="hi-overlay__body">
+            <textarea
+              ref={textareaRef}
+              value={content}
+              onChange={handleInputChange}
+              disabled={!isCapturing}
+              aria-label="Protected workspace: type to capture keystrokes for your biometric signature"
+              title={!isCapturing ? 'Resume the protected session to keep typing' : undefined}
+              onInput={(e) => {
+                const target = e.target as HTMLTextAreaElement;
+                const newValue = target.value;
+                if (newValue.length - content.length > 5) {
+                  target.value = content;
                   setProcessingStatus(
-                    '⚠️ Copy/paste shortcuts are off in this field so the biometric record matches manual typing only.',
+                    '⚠️ Large text insertion (possible paste). Type manually to keep your biometric signature valid.',
                   );
                 }
+              }}
+              onPaste={(e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                setProcessingStatus('⚠️ Use the keyboard only here. Paste and copy are off so your biometric signature stays valid.');
+              }}
+              onCopy={(e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                setProcessingStatus('⚠️ Use the keyboard only here. Copy is off in this field so the signature matches what you type.');
+              }}
+              onCut={(e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                setProcessingStatus('⚠️ Use the keyboard only here. Cut is off in this field so the signature matches what you type.');
+              }}
+              onDrop={(e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                setProcessingStatus('⚠️ Drop is disabled. Type in this field so your biometric signature is calibrated to real keystrokes.');
+              }}
+              onDragOver={(e) => {
+                e.preventDefault();
+              }}
+              onContextMenu={(e) => {
+                e.preventDefault();
+                setProcessingStatus('⚠️ Right-click is disabled in this field to protect your signature calibration.');
+              }}
+              onKeyDown={(e) => {
+                if (e.ctrlKey || e.metaKey) {
+                  if (e.key === 'v' || e.key === 'c' || e.key === 'x' || e.key === 'a') {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    setProcessingStatus(
+                      '⚠️ Copy/paste shortcuts are off in this field so the biometric record matches manual typing only.',
+                    );
+                  }
+                }
+              }}
+              placeholder={
+                isCapturing
+                  ? 'Start writing. Your rhythm shapes your unique biometric hash.'
+                  : 'Tap Resume to keep typing in your protected session.'
               }
-            }}
-            placeholder={
-              isCapturing
-                ? 'Type in this space. Your rhythm, hold, and flight times shape your unique biometric hash.'
-                : 'Start a protected session above, then type here. This field is your trusted capture surface.'
-            }
-            className={
-              isCapturing ? 'hi-textarea hi-textarea--capturing' : 'hi-textarea hi-textarea--gated'
-            }
-          />
-        </div>
+              className="hi-overlay__textarea"
+            />
 
-        <label className="hi-feed-publish">
-          <input
-            type="checkbox"
-            checked={publishTextToFeed}
-            onChange={(e) => setPublishTextToFeed(e.target.checked)}
-          />
-          <span>
-            Post my text on the <Link to="/feed">public feed</Link>
-          </span>
-        </label>
-        
-        <div className="hi-btn-row">
-          {isCapturing && <span className="hi-capture-pill">Capturing…</span>}
-          <button 
-            type="button"
-            onClick={handleGenerateSignature}
-            disabled={isProcessing || !isCapturing || !content.trim()}
-            className="hi-btn hi-btn--primary"
-          >
-            {isProcessing ? 'Signing…' : 'Sign manuscript'}
-          </button>
+            <label className="hi-feed-publish hi-overlay__feed-publish">
+              <input
+                type="checkbox"
+                checked={publishTextToFeed}
+                onChange={(e) => setPublishTextToFeed(e.target.checked)}
+              />
+              <span>
+                Post my text on the <Link to="/feed">public feed</Link>
+              </span>
+            </label>
 
-          <button 
-            type="button"
-            onClick={handleSubmitToBlockchain}
-            disabled={isSubmittingToBlockchain || !humanSignatureHash || !contentHash}
-            className="hi-btn hi-btn--submit"
-          >
-            {isSubmittingToBlockchain ? 'Publishing…' : 'Publish to World Chain'}
-          </button>
-
-          <button 
-            type="button"
-            onClick={handleResetAll}
-            disabled={isProcessing || isSubmittingToBlockchain}
-            className="hi-btn hi-btn--danger"
-          >
-            Reset all
-          </button>
-        </div>
-        
-        {processingStatus && (
-          <div className="hi-status-panel">
-            <strong>Status:</strong> {processingStatus}
-            {blockchainErrorHelp?.explorerAddressUrl && (
-              <div className="hi-blockchain-help" style={{ marginTop: 12, fontSize: 14 }}>
-                <p style={{ margin: '0 0 6px' }}>
-                  <a
-                    href={blockchainErrorHelp.explorerAddressUrl}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                  >
-                    Open your address on the block explorer
-                  </a>
-                </p>
-                <p style={{ margin: '0 0 4px' }} className="hi-muted">
-                  If the explorer does not open (common inside in-app browsers), copy this URL:
-                </p>
-                <code className="hi-code-inline">
-                  {blockchainErrorHelp.explorerAddressUrl}
-                </code>
+            {processingStatus && (
+              <div className="hi-overlay__status">
+                <strong>Status:</strong> {processingStatus}
+                {blockchainErrorHelp?.explorerAddressUrl && (
+                  <div className="hi-blockchain-help" style={{ marginTop: 12, fontSize: 14 }}>
+                    <p style={{ margin: '0 0 6px' }}>
+                      <a href={blockchainErrorHelp.explorerAddressUrl} target="_blank" rel="noopener noreferrer">
+                        Open your address on the block explorer
+                      </a>
+                    </p>
+                    <p style={{ margin: '0 0 4px' }} className="hi-muted">
+                      If the explorer does not open (common inside in-app browsers), copy this URL:
+                    </p>
+                    <code className="hi-code-inline">{blockchainErrorHelp.explorerAddressUrl}</code>
+                  </div>
+                )}
               </div>
             )}
           </div>
-        )}
+        </div>
+      )}
 
-        {blockchainSuccess && (
-          <div className="hi-success-panel">
-            <h3 className="hi-success-panel__title">
-              Submitted onchain
-              {typeof blockchainSuccess.entryId === 'number' && (
-                <span className="hi-success-panel__meta"> · Entry #{blockchainSuccess.entryId}</span>
-              )}
-            </h3>
-            {blockchainSuccess.statusNote && <p className="hi-success-panel__note">{blockchainSuccess.statusNote}</p>}
-            <div className="hi-success-panel__row">
-              <span className="hi-success-panel__label">Tx hash</span>
-              <code className="hi-success-panel__hash">{blockchainSuccess.transactionHash}</code>
+      {/* ─── Stage: receipt (fullscreen overlay, swap of writing view) ──── */}
+      {blockchainSuccess && (
+        <div className="hi-overlay" role="dialog" aria-label="Submission receipt">
+          <div className="hi-overlay__topbar" role="toolbar" aria-label="Receipt actions">
+            <button
+              type="button"
+              className="hi-overlay__close"
+              onClick={handleWriteAnother}
+              aria-label="Close receipt"
+            >
+              ×
+            </button>
+            <div className="hi-overlay__meta" />
+            <div className="hi-overlay__actions">
               <button
                 type="button"
-                className="hi-btn hi-btn--link hi-success-panel__copy"
-                onClick={() => navigator.clipboard?.writeText(blockchainSuccess.transactionHash)}
+                className="hi-btn hi-btn--ghost"
+                onClick={handleWriteAnother}
               >
-                Copy
+                Write another
               </button>
             </div>
-            {blockchainSuccess.gasUsed && (
-              <p className="hi-success-panel__gas">
-                <span className="hi-success-panel__label">Gas used</span> {blockchainSuccess.gasUsed}
-              </p>
-            )}
-            {(blockchainSuccess.explorerTxUrl || blockchainSuccess.explorerContractUrl) && (
-              <div className="hi-success-panel__links">
+          </div>
+
+          <div className="hi-overlay__body hi-overlay__body--centered">
+            <div className="hi-receipt">
+              <h2 className="hi-receipt__title">
+                Submitted onchain
+                {typeof blockchainSuccess.entryId === 'number' && (
+                  <span className="hi-receipt__entry"> · Entry #{blockchainSuccess.entryId}</span>
+                )}
+              </h2>
+              {blockchainSuccess.statusNote && (
+                <p className="hi-receipt__note">{blockchainSuccess.statusNote}</p>
+              )}
+              <div className="hi-receipt__tx">
+                <span className="hi-receipt__tx-label">Tx hash</span>
+                <code className="hi-receipt__tx-hash">{blockchainSuccess.transactionHash}</code>
+                <button
+                  type="button"
+                  className="hi-btn hi-btn--link hi-receipt__copy"
+                  onClick={() => {
+                    navigator.clipboard?.writeText(blockchainSuccess.transactionHash);
+                    setShareNote('Tx hash copied.');
+                    window.setTimeout(() => setShareNote(null), 3000);
+                  }}
+                >
+                  Copy
+                </button>
+              </div>
+
+              <div className="hi-receipt__actions" role="group" aria-label="Share attestation">
                 {blockchainSuccess.explorerTxUrl && (
-                  <a href={blockchainSuccess.explorerTxUrl} target="_blank" rel="noopener noreferrer">
+                  <a
+                    href={blockchainSuccess.explorerTxUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="hi-btn hi-btn--primary"
+                  >
                     View transaction
                   </a>
                 )}
                 {blockchainSuccess.explorerContractUrl && (
-                  <a href={blockchainSuccess.explorerContractUrl} target="_blank" rel="noopener noreferrer">
+                  <a
+                    href={blockchainSuccess.explorerContractUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="hi-btn hi-btn--ghost"
+                  >
                     Open contract
                   </a>
                 )}
-              </div>
-            )}
-
-            <div className="hi-success-panel__share">
-              <p className="hi-success-panel__share-title">Share your writing and proof</p>
-              <p className="hi-success-panel__share-desc">
-                Your text plus a line with this onchain transaction (link when the explorer has one, otherwise the
-                hash).
-              </p>
-              <div className="hi-success-panel__share-btns" role="group" aria-label="Share attestation">
                 <button
                   type="button"
-                  className="hi-btn hi-btn--sm hi-success-panel__share-btn"
+                  className="hi-btn"
                   onClick={() => {
                     const { text, truncated } = buildAttestationShareForX(
                       content,
@@ -803,7 +1137,7 @@ function HomePage({
                 </button>
                 <button
                   type="button"
-                  className="hi-btn hi-btn--sm hi-success-panel__share-btn"
+                  className="hi-btn"
                   onClick={async () => {
                     const full = buildAttestationShareBody(
                       content,
@@ -820,11 +1154,11 @@ function HomePage({
                     window.setTimeout(() => setShareNote(null), 6000);
                   }}
                 >
-                  LinkedIn
+                  Post on LinkedIn
                 </button>
                 <button
                   type="button"
-                  className="hi-btn hi-btn--sm hi-success-panel__share-btn"
+                  className="hi-btn hi-btn--ghost hi-btn--sm"
                   onClick={async () => {
                     const full = buildAttestationShareBody(
                       content,
@@ -843,128 +1177,26 @@ function HomePage({
                   Copy all
                 </button>
               </div>
-              {shareNote ? (
-                <p className="hi-success-panel__share-toast" role="status">
+
+              {shareNote && (
+                <p className="hi-receipt__toast" role="status">
                   {shareNote}
                 </p>
-              ) : null}
-            </div>
-          </div>
-        )}
+              )}
 
-        {/* 🎯 DETAILED BIOMETRIC DATA DISPLAY */}
-        {biometricData && (
-          <div className="hi-section">
-            <h3>Biometric analysis</h3>
-            <div className="hi-bio">
-              <div className="hi-bio__table-wrap">
-                <table className="hi-table hi-bio__table">
-                  <thead>
-                    <tr>
-                      <th scope="col">Metric</th>
-                      <th scope="col">Value</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    <tr className="hi-bio__row-section">
-                      <td colSpan={2}>Session</td>
-                    </tr>
-                    <tr className="hi-bio__row-focus-score">
-                      <td>Human focus score (0–100)</td>
-                      <td>
-                        <span className="hi-bio__focus-num">{humanFocusScore}</span>
-                        <span className="hi-bio__focus-denom"> / 100</span>
-                        <p className="hi-bio__focus-copy">
-                          Only the <strong>tab / window leave</strong> count, −{HUMAN_FOCUS_SCORE_POINTS_OFF_PER_LEAVE} points
-                          per leave. Typing in this view is the baseline. Hold, flight, and speed below are for the hash, not
-                          this score.
-                        </p>
-                      </td>
-                    </tr>
-                    <tr>
-                      <td>Tab or window leaves in session</td>
-                      <td>{sessionTabAwayCount}×</td>
-                    </tr>
-                    <tr>
-                      <td>Keystrokes</td>
-                      <td>{biometricData.totalKeystrokes}</td>
-                    </tr>
-                    <tr>
-                      <td>Duration</td>
-                      <td>{(biometricData.captureTimespan / 1000).toFixed(2)} s</td>
-                    </tr>
-                    <tr>
-                      <td>Typing speed</td>
-                      <td>{biometricData.rawFeatures.typingSpeed.toFixed(2)} c/s</td>
-                    </tr>
-                    <tr>
-                      <td>Backspace</td>
-                      <td>{biometricData.rawFeatures.backspaceCount}</td>
-                    </tr>
-                    <tr className="hi-bio__row-section">
-                      <td colSpan={2}>Hold times (dwell)</td>
-                    </tr>
-                    <tr className="hi-bio__row-hint">
-                      <td colSpan={2}>
-                        <span>Key hold duration (down → up)</span>
-                      </td>
-                    </tr>
-                    <BiometricTimingRows s={biometricData.statistics.holdTimes} />
-                    <tr className="hi-bio__row-section">
-                      <td colSpan={2}>Flight times (inter-key)</td>
-                    </tr>
-                    <tr className="hi-bio__row-hint">
-                      <td colSpan={2}>
-                        <span>Key release to next key press</span>
-                      </td>
-                    </tr>
-                    <BiometricTimingRows s={biometricData.statistics.flightTimes} />
-                    <tr className="hi-bio__row-section">
-                      <td colSpan={2}>Down-down (digraph)</td>
-                    </tr>
-                    <tr className="hi-bio__row-hint">
-                      <td colSpan={2}>
-                        <span>Time between consecutive key presses</span>
-                      </td>
-                    </tr>
-                    <BiometricTimingRows s={biometricData.statistics.downDownLatencies} />
-                    <tr className="hi-bio__row-section">
-                      <td colSpan={2}>Feature vector (for hash)</td>
-                    </tr>
-                    <tr className="hi-bio__row-hint">
-                      <td colSpan={2}>
-                        <span>Numeric pattern for this session</span>
-                      </td>
-                    </tr>
-                    <tr className="hi-bio__row-vector">
-                      <td colSpan={2}>
-                        <code className="hi-bio__vec hi-bio__vec--table">
-                          [{biometricData.featureVector.map((val) => val.toFixed(4)).join(', ')}]
-                        </code>
-                      </td>
-                    </tr>
-                  </tbody>
-                </table>
-              </div>
+              <details className="hi-receipt__detail">
+                <summary>Full detail · biometric, hashes, gas</summary>
+                {blockchainSuccess.gasUsed && (
+                  <p className="hi-receipt__gas">
+                    <strong>Gas used:</strong> {blockchainSuccess.gasUsed}
+                  </p>
+                )}
+                {biometricDetail}
+              </details>
             </div>
           </div>
-        )}
-        
-        {humanSignatureHash && (
-          <div className="hi-section">
-            <h3>Human signature hash</h3>
-            <div className="hi-hash-block">{humanSignatureHash}</div>
-            <p className="hi-hash-line">Generated on this device. Raw typing data is not sent off-device.</p>
-          </div>
-        )}
-        
-        {contentHash && (
-          <div className="hi-section">
-            <h3>Content hash</h3>
-            <div className="hi-hash-block">{contentHash}</div>
-            <p className="hi-content-hash-note">SHA-256 of your UTF-8 text (what the chain stores as a hash, not the text)</p>
-          </div>
-        )}
+        </div>
+      )}
     </>
   );
 }
