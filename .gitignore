@@ -44,3 +44,6 @@ blockchain/artifacts/
 blockchain/typechain-types/
 blockchain/coverage/
 .vercel
+
+# Supabase CLI working dir (local state, not project source)
+supabase/.temp/

@@ -17,6 +17,7 @@ import {
   clearDraft,
   saveDraftRemote,
   deleteDraftRemote,
+  listDraftsRemote,
   type KeystrokeEvent as DraftKeystrokeEvent,
   type PauseWindow,
 } from '../utils/drafts';
@@ -149,6 +150,11 @@ function HomePage({
   const [lastSavedAt, setLastSavedAt] = useState<string | null>(null);
   /** Transient line under the overlay toolbar after restore/save events. */
   const [draftNote, setDraftNote] = useState<string | null>(null);
+  /** True when a draft is available to resume — local OR remote.
+   *  Drives the stage-card button text ("Start writing" vs "Resume draft"). */
+  const [hasExistingDraft, setHasExistingDraft] = useState<boolean>(false);
+  /** True while a manual "Save draft" press is in flight; disables the button. */
+  const [isManualSaving, setIsManualSaving] = useState<boolean>(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const writingSectionRef = useRef<HTMLDivElement>(null);
   /** Keystroke events captured before the current capture session (across pauses / restores). */
@@ -177,6 +183,54 @@ function HomePage({
     const provider = new ethers.BrowserProvider(ethereumProvider as any);
     return provider.getSigner();
   }, [wallets]);
+
+  /** Manual "Save draft" press from the overlay toolbar. Forces a save to both
+   *  localStorage and Supabase regardless of the autosave throttle, then briefly
+   *  shows "Saved" so the user gets visible confirmation. */
+  const handleManualSaveDraft = useCallback(async () => {
+    if (!content.trim()) {
+      setDraftNote('Nothing to save yet — start typing.');
+      window.setTimeout(() => setDraftNote(null), 2500);
+      return;
+    }
+    setIsManualSaving(true);
+    try {
+      // Pull in any keystrokes from the live hook buffer so the saved draft
+      // matches what's on screen.
+      const liveBuffer = getRawKeystrokeData();
+      const merged = savedKeystrokesRef.current.concat(liveBuffer);
+      const payload = {
+        title: '',
+        content,
+        contentType: 'short' as const,
+        keystrokeEvents: merged,
+        pauseWindows: pauseWindowsRef.current.slice(),
+        sessionStartedAt: sessionStartedAtRef.current || Date.now(),
+      };
+      const saved = saveDraft(payload);
+      if (saved) setLastSavedAt(saved.savedAt);
+
+      let remoteOk = false;
+      try {
+        const signer = await getPrivySigner();
+        if (signer) {
+          await saveDraftRemote(signer, payload);
+          lastRemoteSaveAtRef.current = Date.now();
+          remoteOk = true;
+        }
+      } catch (e) {
+        console.warn('Manual remote draft save failed:', e);
+      }
+
+      setHasExistingDraft(true);
+      setDraftNote(
+        remoteOk ? 'Draft saved to your account.' : 'Draft saved on this device.'
+      );
+      window.setTimeout(() => setDraftNote(null), 3000);
+    } finally {
+      setIsManualSaving(false);
+    }
+  }, [content, getPrivySigner, getRawKeystrokeData]);
   // Function to calculate statistics
   const calculateStatistics = (values: number[]): FeatureStatistics => {
     if (values.length === 0) {
@@ -541,6 +595,7 @@ function HomePage({
         // its Supabase row so it stops appearing in the Drafts section.
         clearDraft();
         setLastSavedAt(null);
+        setHasExistingDraft(false);
         void (async () => {
           try {
             const signer = await getPrivySigner();
@@ -667,6 +722,7 @@ function HomePage({
     setShareNote(null);
     setLastSavedAt(null);
     setDraftNote(null);
+    setHasExistingDraft(false);
     savedKeystrokesRef.current = [];
     pauseWindowsRef.current = [];
     sessionStartedAtRef.current = 0;
@@ -800,6 +856,43 @@ function HomePage({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [focusWriting, isVerified]);
 
+  // ─── Detect whether a draft exists (local OR remote) ──────────────────
+  // Drives the stage-card button: "Resume draft" when there's something to come
+  // back to, "Start writing" otherwise. Local check is sync; remote check fires
+  // only when the wallet is available and only updates the flag if it's missing
+  // (we never downgrade a known-true from local to false).
+  useEffect(() => {
+    if (blockchainSuccess) return;
+    if (isWritingOpen) return;
+    const localDraft = loadDraft();
+    if (localDraft && localDraft.content.trim()) {
+      setHasExistingDraft(true);
+      return;
+    }
+    if (!wallets || wallets.length === 0) {
+      setHasExistingDraft(false);
+      return;
+    }
+    let cancelled = false;
+    (async () => {
+      try {
+        const signer = await getPrivySigner();
+        if (!signer) return;
+        const rows = await listDraftsRemote(signer);
+        if (cancelled) return;
+        const hasNonEmpty = rows.some((r) => (r.content || '').trim().length > 0);
+        setHasExistingDraft(hasNonEmpty);
+      } catch (e) {
+        if (cancelled) return;
+        console.warn('Remote draft detect failed:', e);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [wallets, isWritingOpen, blockchainSuccess]);
+
   // ─── "Saved · 2m ago" indicator label, recomputed each render ──────────
   const savedRelativeLabel = useMemo(
     () => (lastSavedAt ? `Saved · ${formatRelativeTime(lastSavedAt)}` : null),
@@ -916,8 +1009,9 @@ function HomePage({
                   <span className="hi-stage-card__check" aria-hidden>✓</span>
                   <h2 className="hi-stage-card__title">You’re verified</h2>
                   <p className="hi-stage-card__sub">
-                    Start your protected session to open the writing workspace. Your typing rhythm and content will be
-                    bound together and posted onchain when you tap Post.
+                    {hasExistingDraft
+                      ? 'You have a saved draft. Resume it to keep typing in your protected workspace, with your earlier keystroke rhythm preserved.'
+                      : 'Start writing to open the protected workspace. Your typing rhythm and content will be bound together and posted onchain when you tap Post.'}
                   </p>
                   <button
                     type="button"
@@ -925,7 +1019,7 @@ function HomePage({
                     onClick={handleOpenWriting}
                     disabled={isProcessing}
                   >
-                    Start your protected session
+                    {hasExistingDraft ? 'Resume draft' : 'Start writing'}
                   </button>
                   <p className="hi-stage-card__foot">
                     Biometric data never leaves your device. Copy and paste are off in the writing surface so the
@@ -1024,6 +1118,15 @@ function HomePage({
                   Resume
                 </button>
               )}
+              <button
+                type="button"
+                className="hi-btn hi-btn--ghost"
+                onClick={handleManualSaveDraft}
+                disabled={isProcessing || isSubmittingToBlockchain || isManualSaving || !content.trim()}
+                title="Save the current draft to this device and your account"
+              >
+                {isManualSaving ? 'Saving…' : 'Save draft'}
+              </button>
               <button
                 type="button"
                 className="hi-btn hi-btn--primary"
