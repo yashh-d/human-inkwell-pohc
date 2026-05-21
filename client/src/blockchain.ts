@@ -14,6 +14,15 @@ const NETWORK_NAME = process.env.REACT_APP_NETWORK_NAME || 'World Chain Sepolia'
 /** Alchemy Blockscout (World Chain Sepolia); worldscan.org in env is normalized away. */
 const BLOCK_EXPLORER = getBlockExplorerBaseUrl();
 
+/**
+ * Worldcoin Developer Portal API for resolving MiniKit user-op identifiers
+ * into canonical on-chain transaction hashes. Required because
+ * MiniKit.commandsAsync.sendTransaction returns a UserOpHash, not a tx hash.
+ * Reference: https://docs.world.org/mini-apps/commands/send-transaction
+ */
+const WORLDCOIN_TRANSACTION_API = 'https://developer.worldcoin.org/api/v2/minikit/transaction';
+const WORLD_APP_ID = (process.env.REACT_APP_WORLD_APP_ID || '').trim();
+
 // Contract ABI
 const CONTRACT_ABI = contractABI.abi;
 
@@ -355,6 +364,64 @@ class BlockchainService {
    * After a wallet error, poll the public RPC until the new entry is indexed
    * (or timeout). This catches “user saw an error but the tx actually landed”.
    */
+  /**
+   * Resolve a MiniKit user-op identifier into the canonical on-chain tx hash
+   * by polling the Worldcoin Developer Portal API. Returns null on timeout or
+   * a failure status. Required because MiniKit returns a UserOpHash rather
+   * than a tx hash from sendTransaction, and provider.getTransactionReceipt
+   * does not work on a UserOpHash.
+   */
+  private async resolveMiniKitTxHash(
+    transactionId: string,
+    onProgress?: (message: string) => void,
+    maxMs = 90_000
+  ): Promise<string | null> {
+    if (!WORLD_APP_ID) {
+      console.warn(
+        '[MiniKit] REACT_APP_WORLD_APP_ID is not set; cannot resolve userOpHash via Developer Portal API'
+      );
+      return null;
+    }
+    const url = `${WORLDCOIN_TRANSACTION_API}/${encodeURIComponent(transactionId)}?app_id=${encodeURIComponent(
+      WORLD_APP_ID
+    )}&type=transaction`;
+    const t0 = Date.now();
+    let lastProgress = 0;
+    while (Date.now() - t0 < maxMs) {
+      try {
+        const res = await fetch(url, { method: 'GET' });
+        if (res.ok) {
+          const data: any = await res.json();
+          const status: string | undefined = data?.transactionStatus;
+          const hash: string | undefined = data?.transactionHash;
+          if (status === 'mined' && hash) {
+            return hash;
+          }
+          if (status === 'failed') {
+            console.warn('[MiniKit] Dev Portal reports tx failed:', data);
+            return null;
+          }
+          // 'pending' / 'submitted' / unknown — keep polling
+        } else if (res.status === 404) {
+          // Brand-new submission may not be indexed by the Portal yet. Retry.
+        } else {
+          console.warn('[MiniKit] Dev Portal API responded HTTP', res.status);
+        }
+      } catch (err) {
+        console.warn('[MiniKit] Dev Portal API fetch failed:', err);
+      }
+      const elapsed = Date.now() - t0;
+      if (elapsed - lastProgress > 10_000) {
+        lastProgress = elapsed;
+        onProgress?.(
+          `⏳ Still waiting on the World App bundler to mine your transaction… (~${Math.round(elapsed / 1000)}s)`
+        );
+      }
+      await new Promise((r) => setTimeout(r, 2_000));
+    }
+    return null;
+  }
+
   private async waitForContentIndexed(
     data: BlockchainSubmissionData,
     fromAddress: string | undefined,
@@ -424,9 +491,6 @@ class BlockchainService {
           const authorTopic = fromAddress
             ? ethers.zeroPadValue(fromAddress.toLowerCase(), 32)
             : null;
-          // RPC log indexer often lags state by a few seconds (especially via World App's
-          // MiniKit bundler). Retry the log lookup up to ~6s so we return the real tx hash
-          // instead of forcing the caller to fall back to UserOpHash / no link.
           const head = await this.provider.getBlockNumber();
           const fromBlock = Math.max(0, head - 50_000);
           const filter = {
@@ -435,15 +499,9 @@ class BlockchainService {
             toBlock: 'latest' as const,
             topics: [topic0, entryIdTopic, authorTopic],
           };
-          for (let attempt = 0; attempt < 5; attempt++) {
-            const logs = await this.provider.getLogs(filter as any);
-            if (logs.length > 0) {
-              txHash = logs[logs.length - 1].transactionHash;
-              break;
-            }
-            if (attempt < 4) {
-              await new Promise((r) => setTimeout(r, 1500));
-            }
+          const logs = await this.provider.getLogs(filter as any);
+          if (logs.length > 0) {
+            txHash = logs[logs.length - 1].transactionHash;
           }
         }
       } catch (err) {
@@ -550,11 +608,25 @@ class BlockchainService {
           }
 
           const successPayload = finalPayload as MiniAppSendTransactionSuccessPayload;
-          submittedTxHash = successPayload.transaction_id;
-          console.log('📋 MiniKit Transaction submitted:', submittedTxHash);
-          
-          onProgress?.('⏳ Transaction sent via World App — waiting for block confirmation…');
-          
+          const userOpHash = successPayload.transaction_id;
+          console.log('📋 MiniKit submitted; userOpHash:', userOpHash);
+
+          // Resolve userOpHash → canonical on-chain tx hash via the Worldcoin
+          // Developer Portal API. Without this, downstream code (explorer links,
+          // success panel, share text) ends up showing the UserOpHash, which has
+          // no page on Worldscan.
+          onProgress?.('⏳ World App is mining your transaction (this can take ~20–60s)…');
+          const resolvedTxHash = await this.resolveMiniKitTxHash(userOpHash, onProgress);
+          if (resolvedTxHash) {
+            submittedTxHash = resolvedTxHash;
+            console.log('✅ MiniKit mined; canonical tx hash:', submittedTxHash);
+          } else {
+            // API couldn't confirm. Don't leak the UserOpHash — leave submittedTxHash null
+            // and let the existing event-log-based recovery code populate it later.
+            submittedTxHash = null;
+            console.warn('[MiniKit] Could not resolve userOpHash via Dev Portal API; falling back to on-chain event lookup');
+          }
+
           throw new Error('MINIKIT_AWAIT_RECEIPT');
         } catch (mkErr: any) {
           if (mkErr.message === 'MINIKIT_AWAIT_RECEIPT') throw mkErr;
@@ -676,11 +748,7 @@ class BlockchainService {
           const onChain = await this.findStoredContent(data.contentHash, walletAtSubmit);
           if (onChain) {
             console.log('✅ Recovered: content is onchain despite wallet error', onChain);
-            // In MiniKit, submittedTxHash is a UserOpHash (not a real tx hash) — never expose it
-            // as the explorer link. If the event-log lookup didn't find the real tx hash yet,
-            // we'd rather show no link than a dead one.
-            const safeSubmittedTxHash = isMiniKitBridgeAvailable() ? null : submittedTxHash;
-            return this.successFromIndexedFind(onChain, walletAtSubmit, safeSubmittedTxHash);
+            return this.successFromIndexedFind(onChain, walletAtSubmit, submittedTxHash);
           }
         } catch (recoverErr) {
           console.warn('blockchain: post-error contentExists check failed', recoverErr);
@@ -746,29 +814,6 @@ class BlockchainService {
         }
       }
 
-      const debugDump = (() => {
-        try {
-          if (error === null || error === undefined) return 'null/undefined';
-          if (typeof error === 'string') return error;
-          const seen = new WeakSet();
-          const safe: any = {};
-          for (const k of ['name', 'code', 'message', 'shortMessage', 'reason']) {
-            try { if ((error as any)[k] !== undefined) safe[k] = (error as any)[k]; } catch {}
-          }
-          try { safe.toString = String(error); } catch {}
-          // Add a top-level keys listing so we can see what fields are actually present.
-          try { safe._keys = Object.keys(error as any).slice(0, 20); } catch {}
-          return JSON.stringify(safe, (_k, v) => {
-            if (typeof v === 'object' && v !== null) {
-              if (seen.has(v)) return '[Circular]';
-              seen.add(v);
-            }
-            return typeof v === 'bigint' ? v.toString() : v;
-          });
-        } catch {
-          return '<unserializable>';
-        }
-      })();
       const raw =
         (error instanceof Error && error.message) ||
         error?.shortMessage ||
@@ -777,7 +822,7 @@ class BlockchainService {
         error?.error?.message ||
         error?.message ||
         (typeof error === 'string' ? error : null) ||
-        `Unknown blockchain error · debug: ${debugDump}`;
+        'Unknown blockchain error';
       const lower = String(raw).toLowerCase();
       let message = raw;
 
