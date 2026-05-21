@@ -1,41 +1,17 @@
 import React from 'react';
-import { usePrivy, useLoginWithSiwe } from '@privy-io/react-auth';
-import { MiniKit } from '@worldcoin/minikit-js';
+import { usePrivy } from '@privy-io/react-auth';
 import { useMiniKit } from '../hooks/useMiniKit';
 
 const AuthButton: React.FC = () => {
   const { ready, authenticated, user, logout, login } = usePrivy();
-  const { generateSiweNonce, loginWithSiwe } = useLoginWithSiwe();
-  const { isInWorldApp } = useMiniKit();
+  const { isInWorldApp, isReady: miniKitReady } = useMiniKit();
 
-  const handleLogin = async () => {
-    if (isInWorldApp) {
-      try {
-        // Get nonce from Privy
-        const privyNonce = await generateSiweNonce();
-        
-        // Request signature from World wallet
-        const { finalPayload } = await MiniKit.commandsAsync.walletAuth({
-          nonce: privyNonce,
-        });
-        
-        if (finalPayload.status === 'error') {
-          console.error('WalletAuth Error', finalPayload);
-          return;
-        }
+  if (miniKitReady && isInWorldApp) {
+    return null;
+  }
 
-        // Log in with Privy using the returned World App Signature
-        await loginWithSiwe({
-          message: finalPayload.message,
-          signature: finalPayload.signature,
-        });
-      } catch (err) {
-        console.error("SIWE MiniKit execution error", err);
-      }
-    } else {
-      // Standard Privy login overlay for Desktop/Browser users
-      login();
-    }
+  const handleLogin = () => {
+    login();
   };
 
   if (!ready) {
