@@ -746,6 +746,29 @@ class BlockchainService {
         }
       }
 
+      const debugDump = (() => {
+        try {
+          if (error === null || error === undefined) return 'null/undefined';
+          if (typeof error === 'string') return error;
+          const seen = new WeakSet();
+          const safe: any = {};
+          for (const k of ['name', 'code', 'message', 'shortMessage', 'reason']) {
+            try { if ((error as any)[k] !== undefined) safe[k] = (error as any)[k]; } catch {}
+          }
+          try { safe.toString = String(error); } catch {}
+          // Add a top-level keys listing so we can see what fields are actually present.
+          try { safe._keys = Object.keys(error as any).slice(0, 20); } catch {}
+          return JSON.stringify(safe, (_k, v) => {
+            if (typeof v === 'object' && v !== null) {
+              if (seen.has(v)) return '[Circular]';
+              seen.add(v);
+            }
+            return typeof v === 'bigint' ? v.toString() : v;
+          });
+        } catch {
+          return '<unserializable>';
+        }
+      })();
       const raw =
         (error instanceof Error && error.message) ||
         error?.shortMessage ||
@@ -754,7 +777,7 @@ class BlockchainService {
         error?.error?.message ||
         error?.message ||
         (typeof error === 'string' ? error : null) ||
-        'Unknown blockchain error';
+        `Unknown blockchain error · debug: ${debugDump}`;
       const lower = String(raw).toLowerCase();
       let message = raw;
 
