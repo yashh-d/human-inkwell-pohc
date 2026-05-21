@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect, useMemo } from 'react';
+import React, { useState, useRef, useEffect, useMemo, useCallback } from 'react';
 import { Link } from 'react-router-dom';
 import { ISuccessResult, IErrorState } from '@worldcoin/idkit';
 import { useKeystrokeCapture } from '../hooks/useKeystrokeCapture';
@@ -15,6 +15,8 @@ import {
   saveDraft,
   loadDraft,
   clearDraft,
+  saveDraftRemote,
+  deleteDraftRemote,
   type KeystrokeEvent as DraftKeystrokeEvent,
   type PauseWindow,
 } from '../utils/drafts';
@@ -157,11 +159,24 @@ function HomePage({
   const sessionStartedAtRef = useRef<number>(0);
   /** Debounce timer for the autosave effect. */
   const autosaveTimerRef = useRef<number | null>(null);
+  /** Throttle remote draft sync so autosave doesn't hammer the API on every keystroke. */
+  const lastRemoteSaveAtRef = useRef<number>(0);
+  const remoteSavePendingRef = useRef<boolean>(false);
 
   const { startCapture, stopCapture, getRawKeystrokeData, getTabAwayCount, resetCapture, isCapturing } = useKeystrokeCapture();
   const { generateHumanSignatureHash } = useBiometricProcessor();
   const humanFocusScore = humanFocusScoreFromTabAwayCount(sessionTabAwayCount);
   const { wallets } = useWallets();
+
+  /** Build an ethers.Signer from the Privy embedded wallet, if one is connected.
+   *  Used by remote-draft sync so the server can verify the row owner. */
+  const getPrivySigner = useCallback(async (): Promise<ethers.Signer | null> => {
+    if (!wallets || wallets.length === 0) return null;
+    const wallet = wallets.find((w) => w.walletClientType === 'privy') || wallets[0];
+    const ethereumProvider = await wallet.getEthereumProvider();
+    const provider = new ethers.BrowserProvider(ethereumProvider as any);
+    return provider.getSigner();
+  }, [wallets]);
   // Function to calculate statistics
   const calculateStatistics = (values: number[]): FeatureStatistics => {
     if (values.length === 0) {
@@ -321,22 +336,6 @@ function HomePage({
     return () => window.cancelAnimationFrame(id);
   }, [focusWriting]);
 
-  const handleStartCapture = () => {
-    console.log('Manual start capture clicked');
-    if (textareaRef.current) {
-      resetCapture();
-      setHumanSignatureHash('');
-      setContentHash('');
-      setBiometricData(null);
-      setSessionTabAwayCount(0);
-      setProcessingStatus('Ready to capture keystrokes...');
-      // Fresh session = no prior keystrokes, no pauses, mark session start.
-      savedKeystrokesRef.current = [];
-      pauseWindowsRef.current = [];
-      sessionStartedAtRef.current = Date.now();
-      startCapture(textareaRef.current);
-    }
-  };
 
   /** Snapshot the hook's keystroke buffer into `savedKeystrokesRef` so we can
    *  resume capture later without losing pre-pause events. */
@@ -538,9 +537,18 @@ function HomePage({
         });
         setProcessingStatus('✅ Published to World Chain (Human Content Ledger).');
         console.log('🎉 Blockchain submission successful!', result);
-        // The chain entry is now the source of truth — discard the local draft.
+        // The chain entry is now the source of truth — discard the local draft and
+        // its Supabase row so it stops appearing in the Drafts section.
         clearDraft();
         setLastSavedAt(null);
+        void (async () => {
+          try {
+            const signer = await getPrivySigner();
+            if (signer) await deleteDraftRemote(signer);
+          } catch (e) {
+            console.warn('Remote draft delete failed:', e);
+          }
+        })();
 
         if (result.entryId != null && result.walletAddress) {
           try {
@@ -601,10 +609,48 @@ function HomePage({
     });
   };
 
-  /** Open the fullscreen writing overlay AND start a fresh capture session. */
+  /** Open the fullscreen writing overlay. Capture auto-starts in a useEffect
+   *  below once the textarea is mounted — but only when no draft was restored.
+   *  If a draft exists, the user lands on a Resume button so they can choose
+   *  to continue. */
   const handleOpenWriting = () => {
-    handleStartCapture();
     setIsWritingOpen(true);
+  };
+
+  /** Close the overlay cleanly: stop capture (its listeners were on the
+   *  about-to-unmount textarea anyway) and force a draft save so anything
+   *  typed in the last <1.5s of the debounce window isn't lost. */
+  const handleCloseWriting = () => {
+    if (isCapturing) {
+      snapshotHookBuffer();
+      stopCapture();
+    }
+    if (content.trim()) {
+      const payload = {
+        title: '',
+        content,
+        contentType: 'short' as const,
+        keystrokeEvents: savedKeystrokesRef.current.slice(),
+        pauseWindows: pauseWindowsRef.current.slice(),
+        sessionStartedAt: sessionStartedAtRef.current || Date.now(),
+      };
+      const saved = saveDraft(payload);
+      if (saved) setLastSavedAt(saved.savedAt);
+      // Force a remote sync on close so the latest text reaches Supabase even if
+      // the user closed during the autosave's 5s throttle window.
+      void (async () => {
+        try {
+          const signer = await getPrivySigner();
+          if (signer) {
+            await saveDraftRemote(signer, payload);
+            lastRemoteSaveAtRef.current = Date.now();
+          }
+        } catch (e) {
+          console.warn('Remote draft save (close) failed:', e);
+        }
+      })();
+    }
+    setIsWritingOpen(false);
   };
 
   /** "Write another" from the receipt: clear post-success state, clear draft,
@@ -644,16 +690,36 @@ function HomePage({
       // so the save always reflects the full set of keystrokes typed so far.
       const liveBuffer = getRawKeystrokeData();
       const merged = savedKeystrokesRef.current.concat(liveBuffer);
-      const saved = saveDraft({
+      const payload = {
         title: '',
         content,
-        contentType: 'short',
+        contentType: 'short' as const,
         keystrokeEvents: merged,
         pauseWindows: pauseWindowsRef.current.slice(),
         sessionStartedAt: sessionStartedAtRef.current || Date.now(),
-      });
+      };
+      const saved = saveDraft(payload);
       if (saved) {
         setLastSavedAt(saved.savedAt);
+      }
+
+      // Fire-and-forget Supabase sync, throttled to >=5s between writes so
+      // continuous typing doesn't sign-and-POST on every 1.5s autosave tick.
+      const now = Date.now();
+      if (!remoteSavePendingRef.current && now - lastRemoteSaveAtRef.current >= 5000) {
+        remoteSavePendingRef.current = true;
+        void (async () => {
+          try {
+            const signer = await getPrivySigner();
+            if (!signer) return;
+            await saveDraftRemote(signer, payload);
+            lastRemoteSaveAtRef.current = Date.now();
+          } catch (e) {
+            console.warn('Remote draft save failed:', e);
+          } finally {
+            remoteSavePendingRef.current = false;
+          }
+        })();
       }
     }, 1500);
     return () => {
@@ -678,19 +744,48 @@ function HomePage({
     return undefined;
   }, [isWritingOpen, blockchainSuccess]);
 
-  // ─── Draft restore when the overlay opens with an empty composer ───────
+  // ─── Open: restore draft if present, else auto-start a fresh capture ───
+  // Runs after the overlay mounts so `textareaRef.current` is set. The two
+  // branches differ in UX intent:
+  //   • Fresh open (no draft) → auto-start capture, user sees Pause button
+  //   • Restored draft        → wait for explicit Resume tap so the user
+  //                             knows their session is back under capture
   useEffect(() => {
     if (!isWritingOpen) return;
-    if (content.trim()) return; // don't clobber in-progress work
-    const draft = loadDraft();
-    if (!draft) return;
-    setContent(draft.content);
-    savedKeystrokesRef.current = draft.keystrokeEvents.slice();
-    pauseWindowsRef.current = draft.pauseWindows.slice();
-    sessionStartedAtRef.current = draft.sessionStartedAt;
-    setLastSavedAt(draft.savedAt);
-    setDraftNote(`Restored draft from ${formatRelativeTime(draft.savedAt)}`);
-    window.setTimeout(() => setDraftNote(null), 4000);
+    if (!textareaRef.current) return;
+    if (isCapturing) return; // already live (e.g. user just resumed)
+
+    // 1) Try to restore a saved draft when nothing is in flight in-memory.
+    let restoredFromDraft = false;
+    if (!content.trim() && savedKeystrokesRef.current.length === 0) {
+      const draft = loadDraft();
+      if (draft) {
+        setContent(draft.content);
+        savedKeystrokesRef.current = draft.keystrokeEvents.slice();
+        pauseWindowsRef.current = draft.pauseWindows.slice();
+        sessionStartedAtRef.current = draft.sessionStartedAt;
+        setLastSavedAt(draft.savedAt);
+        setDraftNote(`Restored draft from ${formatRelativeTime(draft.savedAt)}`);
+        window.setTimeout(() => setDraftNote(null), 4000);
+        restoredFromDraft = true;
+      }
+    }
+
+    // 2) Fresh open with no draft → reset state and auto-start capture.
+    if (!restoredFromDraft && !content.trim() && savedKeystrokesRef.current.length === 0) {
+      resetCapture();
+      setHumanSignatureHash('');
+      setContentHash('');
+      setBiometricData(null);
+      setSessionTabAwayCount(0);
+      setProcessingStatus('');
+      savedKeystrokesRef.current = [];
+      pauseWindowsRef.current = [];
+      sessionStartedAtRef.current = Date.now();
+      startCapture(textareaRef.current);
+    }
+    // Restored draft branch: do NOT auto-start. The Resume button on the
+    // toolbar will fire startCapture() when the user explicitly continues.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isWritingOpen]);
 
@@ -886,7 +981,7 @@ function HomePage({
             <button
               type="button"
               className="hi-overlay__close"
-              onClick={() => setIsWritingOpen(false)}
+              onClick={handleCloseWriting}
               aria-label="Close workspace"
             >
               ×

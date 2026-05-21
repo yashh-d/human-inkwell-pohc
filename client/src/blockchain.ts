@@ -499,9 +499,19 @@ class BlockchainService {
             toBlock: 'latest' as const,
             topics: [topic0, entryIdTopic, authorTopic],
           };
-          const logs = await this.provider.getLogs(filter as any);
-          if (logs.length > 0) {
-            txHash = logs[logs.length - 1].transactionHash;
+          // RPC log indexer often lags state by a few seconds (especially via
+          // World App's MiniKit bundler). Retry getLogs up to ~6s so we return
+          // the real bundler tx hash rather than nothing. This is the fallback
+          // path when resolveMiniKitTxHash (Dev Portal API) didn't return.
+          for (let attempt = 0; attempt < 5; attempt++) {
+            const logs = await this.provider.getLogs(filter as any);
+            if (logs.length > 0) {
+              txHash = logs[logs.length - 1].transactionHash;
+              break;
+            }
+            if (attempt < 4) {
+              await new Promise((r) => setTimeout(r, 1500));
+            }
           }
         }
       } catch (err) {
