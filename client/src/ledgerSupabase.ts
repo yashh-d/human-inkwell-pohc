@@ -251,6 +251,37 @@ export async function fetchMyLedgerRows(signer: Signer): Promise<LedgerSubmissio
 }
 
 /**
+ * Same data as {@link fetchMyLedgerRows} but with no wallet signature.
+ * Author address is already public on-chain, so the read is unsigned.
+ *
+ * Used by My Content inside the World App, where the user has no Privy
+ * embedded wallet to ethers.signMessage() with — only a MiniKit wallet.
+ */
+export async function fetchLedgerRowsByAuthor(
+  authorAddress: string
+): Promise<LedgerSubmissionRow[]> {
+  const addr = (authorAddress || '').toLowerCase();
+  if (!/^0x[0-9a-f]{40}$/.test(addr)) {
+    throw new Error('Invalid author address');
+  }
+  const res = await fetch(`${apiPath('/api/my-ledger')}?author=${addr}`, { method: 'GET' });
+  if (!res.ok) {
+    const body = await res.text();
+    let msg = body;
+    try {
+      const j = JSON.parse(body) as { error?: string };
+      if (j?.error) msg = j.error;
+    } catch {
+      /* not json */
+    }
+    throw new Error(msg || res.statusText);
+  }
+  const data = (await res.json()) as { ok?: boolean; rows?: LedgerSubmissionRow[] };
+  if (!data?.ok || !data.rows) return [];
+  return data.rows;
+}
+
+/**
  * Public list of World-ID–verified index rows (newest first). GET /api/feed.
  * Same-origin in production; for local `npm start`, set REACT_APP_API_BASE to your Vercel URL
  * or run `vercel dev` from `client/`.
