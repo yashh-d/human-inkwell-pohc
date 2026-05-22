@@ -216,6 +216,32 @@ const MyContentPage: React.FC = () => {
         </div>
       )}
 
+      {viewer.status === 'needs-auth' && (
+        <div className="hi-my-content__empty">
+          <h2 className="hi-my-content__empty-title">View your content</h2>
+          <p className="hi-my-content__empty-body">
+            Tap below to confirm your World App wallet — we use it only to look up posts you’ve attested onchain.
+            Nothing is stored beyond what’s already public on Worldscan.
+          </p>
+          <button
+            type="button"
+            className="hi-btn hi-btn--primary"
+            style={{ marginTop: '1rem' }}
+            onClick={() => {
+              void viewer.authenticate();
+            }}
+            disabled={viewer.isAuthenticating}
+          >
+            {viewer.isAuthenticating ? 'Confirming…' : 'View my content'}
+          </button>
+          {viewer.authError && (
+            <p className="hi-my-content__inline-note" style={{ marginTop: '0.75rem' }} role="alert">
+              {viewer.authError}
+            </p>
+          )}
+        </div>
+      )}
+
       {/* ─── Drafts (Privy/browser only — World App drafts stay local) ──── */}
       {viewer.status === 'ready' && showDraftSection && (
         <section className="hi-my-content__section hi-my-content__section--drafts">

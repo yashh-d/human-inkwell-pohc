@@ -27,6 +27,7 @@ import { blockchainService } from '../blockchain';
 import { pushLedgerIndexAfterOnChainSuccess } from '../ledgerSupabase';
 import { useWallets } from '@privy-io/react-auth';
 import { ethers } from 'ethers';
+import { rememberMiniKitWallet } from '../utils/miniKitWallet';
 
 // Define interfaces for detailed biometric data
 interface BiometricFeatures {
@@ -606,6 +607,10 @@ function HomePage({
         })();
 
         if (result.entryId != null && result.walletAddress) {
+          // Remember the MiniKit wallet so My Content can render without a
+          // second auth prompt on cold load. No-op for Privy callers (Privy
+          // wallets are sourced from useWallets there).
+          rememberMiniKitWallet(result.walletAddress);
           try {
             await pushLedgerIndexAfterOnChainSuccess(result, {
               contentHash: effectiveContentHash,
