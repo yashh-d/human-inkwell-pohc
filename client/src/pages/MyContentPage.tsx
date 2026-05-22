@@ -12,13 +12,53 @@ import {
   listDraftsRemote,
   deleteDraftRemote,
   hydrateLocalFromRemote,
+  loadDraft,
+  clearDraft,
   type RemoteDraftRow,
+  type DraftPayload,
 } from '../utils/drafts';
 import { formatRelativeTime } from '../utils/relativeTime';
 import { useViewerAddress } from '../hooks/useViewerAddress';
 
 type PublishedStatus = 'loading' | 'loaded' | 'error';
 type DraftStatus = 'idle' | 'loading' | 'loaded' | 'error' | 'unavailable';
+
+/**
+ * Unified draft row shape used by the table + cards.
+ * Local drafts (localStorage) and remote drafts (Supabase) are normalized
+ * to this so the renderer doesn't need branches per source.
+ */
+type DraftRow = {
+  /** Stable id; 'local-default' for the localStorage draft. */
+  id: string;
+  source: 'local' | 'remote';
+  content: string;
+  keystrokeCount: number;
+  updatedAt: string; // ISO
+  /** Set only when source === 'remote' */
+  remote?: RemoteDraftRow;
+};
+
+function localDraftToRow(d: DraftPayload): DraftRow {
+  return {
+    id: 'local-default',
+    source: 'local',
+    content: d.content,
+    keystrokeCount: Array.isArray(d.keystrokeEvents) ? d.keystrokeEvents.length : 0,
+    updatedAt: d.savedAt,
+  };
+}
+
+function remoteDraftToRow(d: RemoteDraftRow): DraftRow {
+  return {
+    id: d.id,
+    source: 'remote',
+    content: d.content || '',
+    keystrokeCount: Array.isArray(d.keystroke_events) ? d.keystroke_events.length : 0,
+    updatedAt: d.updated_at,
+    remote: d,
+  };
+}
 
 const PREVIEW_TABLE_LIMIT = 280;
 
@@ -50,7 +90,8 @@ const MyContentPage: React.FC = () => {
   const [publishedStatus, setPublishedStatus] = useState<PublishedStatus>('loading');
   const [publishedError, setPublishedError] = useState<string>('');
 
-  const [drafts, setDrafts] = useState<RemoteDraftRow[]>([]);
+  const [remoteDrafts, setRemoteDrafts] = useState<RemoteDraftRow[]>([]);
+  const [localDraft, setLocalDraft] = useState<DraftPayload | null>(null);
   const [draftStatus, setDraftStatus] = useState<DraftStatus>('idle');
   const [draftError, setDraftError] = useState<string>('');
   const [deletingDraftId, setDeletingDraftId] = useState<string | null>(null);
@@ -86,15 +127,21 @@ const MyContentPage: React.FC = () => {
     };
   }, [viewer.status, viewer.address, retryToken]);
 
-  // ─── Load drafts when a Privy signer is available (browser path) ───────
-  // World App users have no Privy wallet; drafts there are local-only,
-  // surfaced inline on the writing page itself.
+  // ─── Local draft (localStorage) — always check, regardless of source ────
+  // World App users have no Privy wallet, so remote drafts don't work for
+  // them. But the writing surface still autosaves locally, and that draft
+  // should be visible & resumable here too.
+  useEffect(() => {
+    setLocalDraft(loadDraft());
+  }, [retryToken]);
+
+  // ─── Remote drafts (Supabase) — Privy/browser only ──────────────────────
   useEffect(() => {
     if (viewer.status !== 'ready') return;
 
     if (viewer.source !== 'privy' || !wallets || wallets.length === 0) {
       setDraftStatus('unavailable');
-      setDrafts([]);
+      setRemoteDrafts([]);
       return;
     }
 
@@ -109,12 +156,12 @@ const MyContentPage: React.FC = () => {
         const signer = await provider.getSigner();
         const fetched = await listDraftsRemote(signer);
         if (cancelled) return;
-        setDrafts(fetched);
+        setRemoteDrafts(fetched);
         setDraftStatus('loaded');
       } catch (err) {
         if (cancelled) return;
         setDraftError(err instanceof Error ? err.message : String(err));
-        setDrafts([]);
+        setRemoteDrafts([]);
         setDraftStatus('error');
       }
     })();
@@ -123,31 +170,64 @@ const MyContentPage: React.FC = () => {
     };
   }, [viewer.status, viewer.source, wallets, retryToken]);
 
+  // ─── Merge: local draft + remote drafts, newest first, dedup by content ─
+  const drafts = useMemo<DraftRow[]>(() => {
+    const rows: DraftRow[] = [];
+    if (localDraft && localDraft.content.trim()) {
+      rows.push(localDraftToRow(localDraft));
+    }
+    for (const r of remoteDrafts) {
+      // Skip a remote row if it's identical to the local draft we just pushed
+      // (avoids "two copies of the same draft" in the table).
+      if (
+        localDraft &&
+        (r.content || '').trim() === (localDraft.content || '').trim() &&
+        (r.content || '').trim().length > 0
+      ) {
+        continue;
+      }
+      rows.push(remoteDraftToRow(r));
+    }
+    return rows;
+  }, [localDraft, remoteDrafts]);
+
   const retry = useCallback(() => {
     lastFetchedAddrRef.current = null;
     setRetryToken((n) => n + 1);
   }, []);
 
   const handleResumeDraft = useCallback(
-    (draft: RemoteDraftRow) => {
-      hydrateLocalFromRemote(draft);
+    (draft: DraftRow) => {
+      // Local drafts are already in localStorage — HomePage's restore path
+      // (loadDraft inside the writing-overlay open effect) will pick it up
+      // when /write mounts. Remote drafts need a one-time hydration first.
+      if (draft.source === 'remote' && draft.remote) {
+        hydrateLocalFromRemote(draft.remote);
+      }
       navigate('/write');
     },
     [navigate]
   );
 
   const handleDeleteDraft = useCallback(
-    async (draft: RemoteDraftRow) => {
-      if (!wallets || wallets.length === 0) return;
+    async (draft: DraftRow) => {
       if (!window.confirm('Delete this draft? This cannot be undone.')) return;
       setDeletingDraftId(draft.id);
       try {
-        const wallet = wallets.find((w) => w.walletClientType === 'privy') || wallets[0];
-        const ethProvider = await wallet.getEthereumProvider();
-        const provider = new ethers.BrowserProvider(ethProvider as any);
-        const signer = await provider.getSigner();
-        await deleteDraftRemote(signer, draft.draft_key);
-        setDrafts((prev) => prev.filter((d) => d.id !== draft.id));
+        if (draft.source === 'local') {
+          clearDraft();
+          setLocalDraft(null);
+        } else if (draft.source === 'remote' && draft.remote) {
+          if (!wallets || wallets.length === 0) {
+            throw new Error('No wallet available to authorize this delete.');
+          }
+          const wallet = wallets.find((w) => w.walletClientType === 'privy') || wallets[0];
+          const ethProvider = await wallet.getEthereumProvider();
+          const provider = new ethers.BrowserProvider(ethProvider as any);
+          const signer = await provider.getSigner();
+          await deleteDraftRemote(signer, draft.remote.draft_key);
+          setRemoteDrafts((prev) => prev.filter((d) => d.id !== draft.id));
+        }
       } catch (e) {
         console.warn('Delete draft failed:', e);
         window.alert(`Could not delete draft: ${e instanceof Error ? e.message : String(e)}`);
@@ -165,7 +245,11 @@ const MyContentPage: React.FC = () => {
     return '';
   }, [viewer.source]);
 
-  const showDraftSection = draftStatus === 'loading' || draftStatus === 'loaded' || draftStatus === 'error';
+  // Show the section whenever there is a draft (local or remote), or while
+  // we're actively loading remote drafts, or when remote drafts errored —
+  // so the user always sees state, not silence.
+  const showDraftSection =
+    drafts.length > 0 || draftStatus === 'loading' || draftStatus === 'error';
 
   return (
     <div className="hi-my-content">
@@ -242,38 +326,34 @@ const MyContentPage: React.FC = () => {
         </div>
       )}
 
-      {/* ─── Drafts (Privy/browser only — World App drafts stay local) ──── */}
-      {viewer.status === 'ready' && showDraftSection && (
+      {/* ─── Drafts — local always, remote when a Privy signer exists ─── */}
+      {showDraftSection && (
         <section className="hi-my-content__section hi-my-content__section--drafts">
           <h2 className="hi-my-content__section-title">
             Drafts{' '}
-            {draftStatus === 'loaded' && (
+            {drafts.length > 0 && (
               <span className="hi-my-content__section-count">({drafts.length})</span>
             )}
           </h2>
           <p className="hi-my-content__section-sub">
-            Saved automatically as you write. Resume to keep typing in the protected workspace; posting onchain moves the
-            piece into Published below.
+            Saved automatically as you write. Resume to keep typing in the protected workspace; posting onchain moves
+            the piece into Published below.
           </p>
 
-          {draftStatus === 'loading' && (
+          {draftStatus === 'loading' && drafts.length === 0 && (
             <p className="hi-my-content__inline-note">Loading drafts…</p>
           )}
 
           {draftStatus === 'error' && (
             <p className="hi-my-content__inline-note" role="alert">
-              Could not load drafts: {draftError}.{' '}
+              Could not load remote drafts: {draftError}.{' '}
               <button type="button" className="hi-btn hi-btn--link" onClick={retry}>
                 Retry
               </button>
             </p>
           )}
 
-          {draftStatus === 'loaded' && drafts.length === 0 && (
-            <p className="hi-my-content__inline-note">No saved drafts.</p>
-          )}
-
-          {draftStatus === 'loaded' && drafts.length > 0 && (
+          {drafts.length > 0 && (
             <>
               <div className="hi-my-content__table-wrap">
                 <div className="hi-table-wrap" role="region" aria-label="Drafts (table)">
@@ -291,23 +371,35 @@ const MyContentPage: React.FC = () => {
                       {drafts.map((d) => {
                         const previewFull = d.content || '[empty draft]';
                         const previewShort = truncatePreview(previewFull);
-                        const ks = Array.isArray(d.keystroke_events) ? d.keystroke_events.length : 0;
-                        const when = formatRelativeTime(d.updated_at);
+                        const when = formatRelativeTime(d.updatedAt);
                         return (
                           <tr key={d.id}>
                             <td>
                               <span
                                 className="hi-content-format-pill hi-content-format-pill--draft"
-                                title="Unposted draft, stored in Supabase"
+                                title={
+                                  d.source === 'local'
+                                    ? 'Unposted draft, saved on this device'
+                                    : 'Unposted draft, stored in your account'
+                                }
                               >
                                 DRAFT
                               </span>
+                              {d.source === 'local' && (
+                                <span
+                                  className="hi-content-format-pill"
+                                  style={{ marginLeft: 6 }}
+                                  title="Saved on this device only — not yet synced to your account"
+                                >
+                                  THIS DEVICE
+                                </span>
+                              )}
                             </td>
                             <td className="hi-table__preview hi-table__preview--long">{previewShort}</td>
                             <td className="hi-table__ks" title="Keystroke events captured so far">
-                              {ks.toLocaleString()}
+                              {d.keystrokeCount.toLocaleString()}
                             </td>
-                            <td className="hi-table__col-when hi-table__when" title={d.updated_at}>
+                            <td className="hi-table__col-when hi-table__when" title={d.updatedAt}>
                               {when}
                             </td>
                             <td>
@@ -339,18 +431,24 @@ const MyContentPage: React.FC = () => {
               <ul className="hi-my-content__feed" aria-label="Drafts (cards)">
                 {drafts.map((d) => {
                   const previewFull = d.content || '[empty draft]';
-                  const ks = Array.isArray(d.keystroke_events) ? d.keystroke_events.length : 0;
-                  const when = formatRelativeTime(d.updated_at);
+                  const when = formatRelativeTime(d.updatedAt);
                   return (
                     <li key={d.id} className="hi-my-content__card">
                       <div className="hi-my-content__card-top">
                         <span className="hi-content-format-pill hi-content-format-pill--draft">DRAFT</span>
-                        <time className="hi-my-content__time" title={d.updated_at}>
+                        {d.source === 'local' && (
+                          <span className="hi-content-format-pill" style={{ marginLeft: 6 }}>
+                            THIS DEVICE
+                          </span>
+                        )}
+                        <time className="hi-my-content__time" title={d.updatedAt}>
                           Saved {when}
                         </time>
                       </div>
                       <p className="hi-my-content__preview-text">{previewFull}</p>
-                      <p className="hi-my-content__keystroke-line">{ks.toLocaleString()} keystrokes</p>
+                      <p className="hi-my-content__keystroke-line">
+                        {d.keystrokeCount.toLocaleString()} keystrokes
+                      </p>
                       <div className="hi-my-content__hashes" aria-label="Draft actions">
                         <button type="button" className="hi-btn hi-btn--link" onClick={() => handleResumeDraft(d)}>
                           Resume writing

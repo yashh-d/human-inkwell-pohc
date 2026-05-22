@@ -156,6 +156,8 @@ function HomePage({
   const [hasExistingDraft, setHasExistingDraft] = useState<boolean>(false);
   /** True while a manual "Save draft" press is in flight; disables the button. */
   const [isManualSaving, setIsManualSaving] = useState<boolean>(false);
+  /** Flip true for ~1.6s after a manual save lands so the button can flash "Saved ✓". */
+  const [justSavedDraft, setJustSavedDraft] = useState<boolean>(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const writingSectionRef = useRef<HTMLDivElement>(null);
   /** Keystroke events captured before the current capture session (across pauses / restores). */
@@ -228,6 +230,8 @@ function HomePage({
         remoteOk ? 'Draft saved to your account.' : 'Draft saved on this device.'
       );
       window.setTimeout(() => setDraftNote(null), 3000);
+      setJustSavedDraft(true);
+      window.setTimeout(() => setJustSavedDraft(false), 1600);
     } finally {
       setIsManualSaving(false);
     }
@@ -1125,12 +1129,12 @@ function HomePage({
               )}
               <button
                 type="button"
-                className="hi-btn hi-btn--ghost"
+                className={`hi-btn hi-btn--ghost${justSavedDraft ? ' is-saved' : ''}`}
                 onClick={handleManualSaveDraft}
                 disabled={isProcessing || isSubmittingToBlockchain || isManualSaving || !content.trim()}
                 title="Save the current draft to this device and your account"
               >
-                {isManualSaving ? 'Saving…' : 'Save draft'}
+                {isManualSaving ? 'Saving…' : justSavedDraft ? 'Saved ✓' : 'Save draft'}
               </button>
               <button
                 type="button"

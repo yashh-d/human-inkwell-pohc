@@ -241,6 +241,15 @@ body.hi-overlay-open .hi-ambient { display: none; }
   color: var(--hi-text);
 }
 
+/* Transient confirmation state — used by Save draft button after a save lands */
+.hi-btn.is-saved,
+.hi-btn.is-saved:disabled {
+  background: var(--hi-success-surface);
+  border-color: var(--hi-success-border);
+  color: var(--hi-success-ink);
+  opacity: 1;
+}
+
 .hi-btn--link {
   background: transparent;
   border: none;
