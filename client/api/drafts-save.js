@@ -1,5 +1,5 @@
 /**
- * Vercel serverless: upsert a draft into `content_drafts` for the calling wallet.
+ * Vercel serverless: upsert a draft into `hi_content_drafts` for the calling wallet.
  *
  * Auth: wallet-signed message of the form
  *   Human Inkwell save draft\nauthor:<lower-hex>\ntime:<ms>\n
@@ -136,7 +136,7 @@ module.exports = async (req, res) => {
   };
 
   const { data, error } = await supabase
-    .from('content_drafts')
+    .from('hi_content_drafts')
     .upsert(row, { onConflict: 'author_address,draft_key' })
     .select('id, updated_at')
     .single();

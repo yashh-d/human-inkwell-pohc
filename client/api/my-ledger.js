@@ -17,8 +17,9 @@ const { verifyMessage, getAddress, isAddress } = require('ethers');
 const { getSupabaseCreds } = require('./_supabaseEnv');
 
 const MAX_AGE_MS = 10 * 60 * 1000;
-const SELECT_COLS =
-  'id, chain_id, contract_address, entry_id, author_address, transaction_hash, content_hash, human_signature_hash, world_id_nullifier, is_verified, keystroke_count, typing_speed_scaled, block_number, block_timestamp, gas_used, created_at, public_text';
+const SELECT_COLS_BASE =
+  'id, chain_id, contract_address, entry_id, author_address, transaction_hash, content_hash, human_signature_hash, world_id_nullifier, is_verified, keystroke_count, typing_speed_scaled, block_number, block_timestamp, gas_used, created_at';
+const SELECT_COLS_WITH_TEXT = `${SELECT_COLS_BASE}, public_text`;
 
 function send(res, code, data) {
   res.setHeader('Access-Control-Allow-Origin', '*');
@@ -49,12 +50,28 @@ async function queryRowsForAuthor(addr) {
   const { url: supabaseUrl, key: supabaseKey, error: supaErr } = getSupabaseCreds();
   if (supaErr) return { error: supaErr };
   const supabase = createClient(supabaseUrl, supabaseKey, { auth: { persistSession: false } });
-  const { data, error } = await supabase
+
+  // Prefer the SELECT with public_text. If the column hasn't been migrated yet
+  // (column does not exist), fall back to the base columns so My Content still
+  // renders — just without the preview text.
+  let { data, error } = await supabase
     .from('ledger_submissions')
-    .select(SELECT_COLS)
+    .select(SELECT_COLS_WITH_TEXT)
     .eq('author_address', addr)
     .order('created_at', { ascending: false })
     .limit(100);
+
+  if (error && /public_text/i.test(error.message || '')) {
+    const fallback = await supabase
+      .from('ledger_submissions')
+      .select(SELECT_COLS_BASE)
+      .eq('author_address', addr)
+      .order('created_at', { ascending: false })
+      .limit(100);
+    data = fallback.data;
+    error = fallback.error;
+  }
+
   if (error) return { error: error.message || 'Query failed' };
   return { rows: data || [] };
 }

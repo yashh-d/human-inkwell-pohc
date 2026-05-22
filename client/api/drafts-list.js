@@ -1,5 +1,5 @@
 /**
- * Vercel serverless: list `content_drafts` rows for the calling wallet.
+ * Vercel serverless: list `hi_content_drafts` rows for the calling wallet.
  *
  * Auth: wallet-signed message of the form
  *   Human Inkwell list drafts\nauthor:<lower-hex>\ntime:<ms>\n
@@ -91,7 +91,7 @@ module.exports = async (req, res) => {
   const addr = getAddress(author_address).toLowerCase();
 
   const { data, error } = await supabase
-    .from('content_drafts')
+    .from('hi_content_drafts')
     .select(
       'id, author_address, draft_key, title, content, content_type, keystroke_events, pause_windows, session_started_at, created_at, updated_at'
     )

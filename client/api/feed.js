@@ -39,14 +39,29 @@ module.exports = async (req, res) => {
   }
 
   const supabase = createClient(supabaseUrl, supabaseKey, { auth: { persistSession: false } });
-  const { data, error } = await supabase
+  const baseCols =
+    'id, chain_id, contract_address, entry_id, author_address, transaction_hash, content_hash, human_signature_hash, world_id_nullifier, is_verified, keystroke_count, typing_speed_scaled, block_number, block_timestamp, gas_used, created_at';
+  const colsWithText = `${baseCols}, public_text`;
+
+  // Prefer SELECT with public_text. Fall back if the column hasn't been added
+  // yet so the feed renders (without preview text) instead of 500'ing.
+  let { data, error } = await supabase
     .from('ledger_submissions')
-    .select(
-      'id, chain_id, contract_address, entry_id, author_address, transaction_hash, content_hash, human_signature_hash, world_id_nullifier, is_verified, keystroke_count, typing_speed_scaled, block_number, block_timestamp, gas_used, created_at, public_text'
-    )
+    .select(colsWithText)
     .eq('is_verified', true)
     .order('created_at', { ascending: false })
     .limit(limit);
+
+  if (error && /public_text/i.test(error.message || '')) {
+    const fallback = await supabase
+      .from('ledger_submissions')
+      .select(baseCols)
+      .eq('is_verified', true)
+      .order('created_at', { ascending: false })
+      .limit(limit);
+    data = fallback.data;
+    error = fallback.error;
+  }
 
   if (error) {
     console.error(error);

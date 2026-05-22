@@ -1,5 +1,5 @@
 /**
- * Vercel serverless: delete one draft from `content_drafts` for the calling wallet.
+ * Vercel serverless: delete one draft from `hi_content_drafts` for the calling wallet.
  *
  * Auth: wallet-signed message of the form
  *   Human Inkwell delete draft\nauthor:<lower-hex>\ndraft_key:<key>\ntime:<ms>\n
@@ -92,7 +92,7 @@ module.exports = async (req, res) => {
   const key = (draft_key && String(draft_key).trim()) || 'default';
 
   const { error } = await supabase
-    .from('content_drafts')
+    .from('hi_content_drafts')
     .delete()
     .eq('author_address', addr)
     .eq('draft_key', key);
