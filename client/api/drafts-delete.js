@@ -1,22 +1,19 @@
 /**
- * Vercel serverless: delete one draft from `hi_content_drafts` for the calling wallet.
+ * Delete one draft row from `hi_content_drafts`.
  *
- * Auth: wallet-signed message of the form
- *   Human Inkwell delete draft\nauthor:<lower-hex>\ndraft_key:<key>\ntime:<ms>\n
+ *   POST /api/drafts-delete { author_address, draft_key? }
+ *
+ * No signature required — see drafts-list.js for rationale.
  */
 const { createClient } = require('@supabase/supabase-js');
-const { verifyMessage, getAddress } = require('ethers');
+const { getAddress, isAddress } = require('ethers');
 const { getSupabaseCreds } = require('./_supabaseEnv');
-
-const MAX_AGE_MS = 10 * 60 * 1000;
 
 function send(res, code, data) {
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
   res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
-  if (code === 204) {
-    return res.status(204).end();
-  }
+  if (code === 204) return res.status(204).end();
   res.setHeader('Content-Type', 'application/json; charset=utf-8');
   return res.status(code).send(JSON.stringify(data));
 }
@@ -38,12 +35,8 @@ function readJson(req) {
 }
 
 module.exports = async (req, res) => {
-  if (req.method === 'OPTIONS') {
-    return send(res, 204, {});
-  }
-  if (req.method !== 'POST') {
-    return send(res, 405, { error: 'Method not allowed' });
-  }
+  if (req.method === 'OPTIONS') return send(res, 204, {});
+  if (req.method !== 'POST') return send(res, 405, { error: 'Method not allowed' });
 
   let body;
   if (req.body && typeof req.body === 'object' && !Buffer.isBuffer(req.body)) {
@@ -56,40 +49,17 @@ module.exports = async (req, res) => {
     }
   }
 
-  const { message, signature, author_address, draft_key } = body;
-  if (!message || !signature || !author_address) {
-    return send(res, 400, { error: 'Missing message, signature, or author_address' });
+  const { author_address, draft_key } = body || {};
+  if (!author_address || !isAddress(String(author_address))) {
+    return send(res, 400, { error: 'Missing or invalid author_address' });
   }
-
-  let recovered;
-  try {
-    recovered = verifyMessage(message, signature);
-  } catch {
-    return send(res, 401, { error: 'Invalid signature' });
-  }
-  if (getAddress(recovered) !== getAddress(author_address)) {
-    return send(res, 401, { error: 'Invalid signature for author' });
-  }
-  if (!String(message).startsWith('Human Inkwell delete draft\n')) {
-    return send(res, 400, { error: 'Invalid message prefix' });
-  }
-  const m = String(message).match(/time:(\d+)/);
-  if (!m) {
-    return send(res, 400, { error: 'Invalid time in message' });
-  }
-  const t = parseInt(m[1], 10);
-  if (Date.now() - t > MAX_AGE_MS) {
-    return send(res, 401, { error: 'Message expired' });
-  }
+  const key = (draft_key && String(draft_key).trim()) || 'default';
 
   const { url: supabaseUrl, key: supabaseKey, error: supaErr } = getSupabaseCreds();
-  if (supaErr) {
-    return send(res, 500, { error: supaErr });
-  }
+  if (supaErr) return send(res, 500, { error: supaErr });
 
   const supabase = createClient(supabaseUrl, supabaseKey, { auth: { persistSession: false } });
-  const addr = getAddress(author_address).toLowerCase();
-  const key = (draft_key && String(draft_key).trim()) || 'default';
+  const addr = getAddress(String(author_address)).toLowerCase();
 
   const { error } = await supabase
     .from('hi_content_drafts')
@@ -98,7 +68,7 @@ module.exports = async (req, res) => {
     .eq('draft_key', key);
 
   if (error) {
-    console.error(error);
+    console.error('[drafts-delete]', error);
     return send(res, 500, { error: error.message || 'Delete failed' });
   }
   return send(res, 200, { ok: true });

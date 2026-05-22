@@ -1,7 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { useWallets } from '@privy-io/react-auth';
-import { ethers } from 'ethers';
 import { truncateHex } from '../ledgerDemo';
 import {
   explorerTxUrl,
@@ -83,7 +81,6 @@ function shortAddress(addr: string | null): string {
 
 const MyContentPage: React.FC = () => {
   const viewer = useViewerAddress();
-  const { wallets } = useWallets();
   const navigate = useNavigate();
 
   const [rows, setRows] = useState<LedgerSubmissionRow[]>([]);
@@ -135,26 +132,16 @@ const MyContentPage: React.FC = () => {
     setLocalDraft(loadDraft());
   }, [retryToken]);
 
-  // ─── Remote drafts (Supabase) — Privy/browser only ──────────────────────
+  // ─── Remote drafts (Supabase) — same address-based path for everyone ───
   useEffect(() => {
     if (viewer.status !== 'ready') return;
-
-    if (viewer.source !== 'privy' || !wallets || wallets.length === 0) {
-      setDraftStatus('unavailable');
-      setRemoteDrafts([]);
-      return;
-    }
 
     let cancelled = false;
     setDraftStatus('loading');
     setDraftError('');
     (async () => {
       try {
-        const wallet = wallets.find((w) => w.walletClientType === 'privy') || wallets[0];
-        const ethProvider = await wallet.getEthereumProvider();
-        const provider = new ethers.BrowserProvider(ethProvider as any);
-        const signer = await provider.getSigner();
-        const fetched = await listDraftsRemote(signer);
+        const fetched = await listDraftsRemote(viewer.address);
         if (cancelled) return;
         setRemoteDrafts(fetched);
         setDraftStatus('loaded');
@@ -168,7 +155,7 @@ const MyContentPage: React.FC = () => {
     return () => {
       cancelled = true;
     };
-  }, [viewer.status, viewer.source, wallets, retryToken]);
+  }, [viewer.status, viewer.address, retryToken]);
 
   // ─── Merge: local draft + remote drafts, newest first, dedup by content ─
   const drafts = useMemo<DraftRow[]>(() => {
@@ -218,14 +205,10 @@ const MyContentPage: React.FC = () => {
           clearDraft();
           setLocalDraft(null);
         } else if (draft.source === 'remote' && draft.remote) {
-          if (!wallets || wallets.length === 0) {
+          if (viewer.status !== 'ready') {
             throw new Error('No wallet available to authorize this delete.');
           }
-          const wallet = wallets.find((w) => w.walletClientType === 'privy') || wallets[0];
-          const ethProvider = await wallet.getEthereumProvider();
-          const provider = new ethers.BrowserProvider(ethProvider as any);
-          const signer = await provider.getSigner();
-          await deleteDraftRemote(signer, draft.remote.draft_key);
+          await deleteDraftRemote(viewer.address, draft.remote.draft_key);
           setRemoteDrafts((prev) => prev.filter((d) => d.id !== draft.id));
         }
       } catch (e) {
@@ -235,7 +218,7 @@ const MyContentPage: React.FC = () => {
         setDeletingDraftId(null);
       }
     },
-    [wallets]
+    [viewer]
   );
 
   // ─── Render helpers ────────────────────────────────────────────────────

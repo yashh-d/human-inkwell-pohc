@@ -28,6 +28,7 @@ import { pushLedgerIndexAfterOnChainSuccess } from '../ledgerSupabase';
 import { useWallets } from '@privy-io/react-auth';
 import { ethers } from 'ethers';
 import { rememberMiniKitWallet } from '../utils/miniKitWallet';
+import { useViewerAddress } from '../hooks/useViewerAddress';
 
 // Define interfaces for detailed biometric data
 interface BiometricFeatures {
@@ -176,9 +177,11 @@ function HomePage({
   const { generateHumanSignatureHash } = useBiometricProcessor();
   const humanFocusScore = humanFocusScoreFromTabAwayCount(sessionTabAwayCount);
   const { wallets } = useWallets();
+  const viewer = useViewerAddress();
 
   /** Build an ethers.Signer from the Privy embedded wallet, if one is connected.
-   *  Used by remote-draft sync so the server can verify the row owner. */
+   *  Used only by the on-chain submit path (storeContent) — drafts now use the
+   *  MiniKit-friendly address-only API and do NOT need a signer. */
   const getPrivySigner = useCallback(async (): Promise<ethers.Signer | null> => {
     if (!wallets || wallets.length === 0) return null;
     const wallet = wallets.find((w) => w.walletClientType === 'privy') || wallets[0];
@@ -187,9 +190,17 @@ function HomePage({
     return provider.getSigner();
   }, [wallets]);
 
-  /** Manual "Save draft" press from the overlay toolbar. Forces a save to both
-   *  localStorage and Supabase regardless of the autosave throttle, then briefly
-   *  shows "Saved" so the user gets visible confirmation. */
+  /** Resolve the wallet address used to key drafts (and ledger reads).
+   *  MiniKit address in World App, Privy address in browser. Returns null while
+   *  still loading or when the user hasn't authenticated yet. */
+  const getAuthorAddress = useCallback((): string | null => {
+    return viewer.status === 'ready' ? viewer.address : null;
+  }, [viewer]);
+
+  /** Manual "Save draft" press from the overlay toolbar. Always writes
+   *  localStorage; pushes remote when we know the author's address (MiniKit or
+   *  Privy). If we're in World App but haven't walletAuth'd yet, trigger that
+   *  flow inline so the next save lands remotely too. */
   const handleManualSaveDraft = useCallback(async () => {
     if (!content.trim()) {
       setDraftNote('Nothing to save yet — start typing.');
@@ -198,8 +209,6 @@ function HomePage({
     }
     setIsManualSaving(true);
     try {
-      // Pull in any keystrokes from the live hook buffer so the saved draft
-      // matches what's on screen.
       const liveBuffer = getRawKeystrokeData();
       const merged = savedKeystrokesRef.current.concat(liveBuffer);
       const payload = {
@@ -213,29 +222,46 @@ function HomePage({
       const saved = saveDraft(payload);
       if (saved) setLastSavedAt(saved.savedAt);
 
+      // If we're in World App without a cached address, prompt walletAuth so
+      // this save (and every save after) can sync remotely.
+      let author = getAuthorAddress();
+      if (!author && viewer.status === 'needs-auth') {
+        try {
+          await viewer.authenticate();
+          author = getAuthorAddress();
+        } catch (e) {
+          console.warn('walletAuth during save failed:', e);
+        }
+      }
+
       let remoteOk = false;
-      try {
-        const signer = await getPrivySigner();
-        if (signer) {
-          await saveDraftRemote(signer, payload);
+      let remoteErr: string | null = null;
+      if (author) {
+        try {
+          await saveDraftRemote(author, payload);
           lastRemoteSaveAtRef.current = Date.now();
           remoteOk = true;
+        } catch (e) {
+          remoteErr = e instanceof Error ? e.message : String(e);
+          console.warn('Remote draft save failed:', e);
         }
-      } catch (e) {
-        console.warn('Manual remote draft save failed:', e);
       }
 
       setHasExistingDraft(true);
       setDraftNote(
-        remoteOk ? 'Draft saved to your account.' : 'Draft saved on this device.'
+        remoteOk
+          ? 'Draft saved to your account.'
+          : remoteErr
+            ? `Saved on this device. Remote sync failed: ${remoteErr}`
+            : 'Saved on this device. Sign in to sync across devices.'
       );
-      window.setTimeout(() => setDraftNote(null), 3000);
+      window.setTimeout(() => setDraftNote(null), 4500);
       setJustSavedDraft(true);
       window.setTimeout(() => setJustSavedDraft(false), 1600);
     } finally {
       setIsManualSaving(false);
     }
-  }, [content, getPrivySigner, getRawKeystrokeData]);
+  }, [content, getAuthorAddress, getRawKeystrokeData, viewer]);
   // Function to calculate statistics
   const calculateStatistics = (values: number[]): FeatureStatistics => {
     if (values.length === 0) {
@@ -601,14 +627,14 @@ function HomePage({
         clearDraft();
         setLastSavedAt(null);
         setHasExistingDraft(false);
-        void (async () => {
-          try {
-            const signer = await getPrivySigner();
-            if (signer) await deleteDraftRemote(signer);
-          } catch (e) {
-            console.warn('Remote draft delete failed:', e);
-          }
-        })();
+        // Prefer the address the chain confirmed (result.walletAddress) over
+        // the viewer state, since that's the exact author that owns the row.
+        const deleteAuthor = (result.walletAddress || getAuthorAddress() || '').toLowerCase();
+        if (deleteAuthor) {
+          void deleteDraftRemote(deleteAuthor).catch((e) =>
+            console.warn('Remote draft delete failed:', e)
+          );
+        }
 
         if (result.entryId != null && result.walletAddress) {
           // Remember the MiniKit wallet so My Content can render without a
@@ -702,17 +728,14 @@ function HomePage({
       if (saved) setLastSavedAt(saved.savedAt);
       // Force a remote sync on close so the latest text reaches Supabase even if
       // the user closed during the autosave's 5s throttle window.
-      void (async () => {
-        try {
-          const signer = await getPrivySigner();
-          if (signer) {
-            await saveDraftRemote(signer, payload);
+      const closeAuthor = getAuthorAddress();
+      if (closeAuthor) {
+        void saveDraftRemote(closeAuthor, payload)
+          .then(() => {
             lastRemoteSaveAtRef.current = Date.now();
-          }
-        } catch (e) {
-          console.warn('Remote draft save (close) failed:', e);
-        }
-      })();
+          })
+          .catch((e) => console.warn('Remote draft save (close) failed:', e));
+      }
     }
     setIsWritingOpen(false);
   };
@@ -769,22 +792,19 @@ function HomePage({
       }
 
       // Fire-and-forget Supabase sync, throttled to >=5s between writes so
-      // continuous typing doesn't sign-and-POST on every 1.5s autosave tick.
+      // continuous typing doesn't POST on every 1.5s autosave tick.
       const now = Date.now();
-      if (!remoteSavePendingRef.current && now - lastRemoteSaveAtRef.current >= 5000) {
+      const autosaveAuthor = getAuthorAddress();
+      if (autosaveAuthor && !remoteSavePendingRef.current && now - lastRemoteSaveAtRef.current >= 5000) {
         remoteSavePendingRef.current = true;
-        void (async () => {
-          try {
-            const signer = await getPrivySigner();
-            if (!signer) return;
-            await saveDraftRemote(signer, payload);
+        void saveDraftRemote(autosaveAuthor, payload)
+          .then(() => {
             lastRemoteSaveAtRef.current = Date.now();
-          } catch (e) {
-            console.warn('Remote draft save failed:', e);
-          } finally {
+          })
+          .catch((e) => console.warn('Remote draft save failed:', e))
+          .finally(() => {
             remoteSavePendingRef.current = false;
-          }
-        })();
+          });
       }
     }, 1500);
     return () => {
@@ -878,16 +898,15 @@ function HomePage({
       setHasExistingDraft(true);
       return;
     }
-    if (!wallets || wallets.length === 0) {
+    const detectAuthor = getAuthorAddress();
+    if (!detectAuthor) {
       setHasExistingDraft(false);
       return;
     }
     let cancelled = false;
     (async () => {
       try {
-        const signer = await getPrivySigner();
-        if (!signer) return;
-        const rows = await listDraftsRemote(signer);
+        const rows = await listDraftsRemote(detectAuthor);
         if (cancelled) return;
         const hasNonEmpty = rows.some((r) => (r.content || '').trim().length > 0);
         setHasExistingDraft(hasNonEmpty);
@@ -900,7 +919,7 @@ function HomePage({
       cancelled = true;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [wallets, isWritingOpen, blockchainSuccess]);
+  }, [viewer.status, viewer.address, isWritingOpen, blockchainSuccess]);
 
   // ─── "Saved · 2m ago" indicator label, recomputed each render ──────────
   const savedRelativeLabel = useMemo(

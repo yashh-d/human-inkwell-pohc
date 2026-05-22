@@ -3,17 +3,17 @@
  *
  * Two layers behind the same shape:
  *   • localStorage  — instant, works without a wallet, survives reload.
- *   • Supabase      — cross-device, wallet-signed via /api/drafts-*.
+ *   • Supabase      — cross-device, keyed by wallet address via /api/drafts-*.
+ *
+ * MiniKit-first: remote save no longer requires an ECDSA signer. The wallet
+ * address (proven once via MiniKit walletAuth or supplied by Privy) is the
+ * row key. This lets World App users sync drafts the same way browser users
+ * do — Safe wallets can't ECDSA-personal-sign, so the old signed-message
+ * scheme silently dropped them.
  *
  * Drafts are cleared after a successful Post (the onchain entry is the source
  * of truth from then on).
- *
- * The v2 shape stores keystrokeEvents + pauseWindows so the biometric capture
- * state survives Pause/Resume across sessions. Append-on-resume with
- * pause-gap-strip at feature-extraction time keeps the final hash representing
- * the full rhythm of all writing that produced the content.
  */
-import type { Signer } from 'ethers';
 
 export type KeystrokeEvent = {
   key: string;
@@ -103,8 +103,7 @@ export function formatSavedAt(iso: string | null): string {
 }
 
 // ───────────────────────── Remote (Supabase) sync ─────────────────────────
-//
-// Shape returned by /api/drafts-list (snake_case to match the row).
+
 export type RemoteDraftRow = {
   id: string;
   author_address: string;
@@ -138,30 +137,29 @@ async function parseErrorBody(res: Response): Promise<string> {
   return body || res.statusText;
 }
 
+function normalizeAddress(addr: string): string {
+  const a = (addr || '').toLowerCase();
+  if (!/^0x[0-9a-f]{40}$/.test(a)) {
+    throw new Error('Invalid author address');
+  }
+  return a;
+}
+
 /**
- * Push the current draft to Supabase for cross-device resume.
- *
- * Requires a wallet `signer` so the server can verify the row belongs to the
- * caller. Privy embedded wallets sign silently, so this is safe to call from
- * the autosave debounce without prompting the user.
+ * Upsert the current draft to Supabase for cross-device resume.
+ * No signature: the address is the row key. See drafts-list.js for rationale.
  */
 export async function saveDraftRemote(
-  signer: Signer,
+  authorAddress: string,
   payload: Omit<DraftPayload, 'savedAt'>,
   draftKey: string = 'default'
 ): Promise<{ id: string; updated_at: string } | null> {
-  const author = (await signer.getAddress()).toLowerCase();
-  const time = Date.now();
-  const message = `Human Inkwell save draft\nauthor:${author}\ntime:${time}\n`;
-  const signature = await signer.signMessage(message);
-
+  const addr = normalizeAddress(authorAddress);
   const res = await fetch(apiPath('/api/drafts-save'), {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
-      message,
-      signature,
-      author_address: author,
+      author_address: addr,
       draft_key: draftKey,
       title: payload.title,
       content: payload.content,
@@ -179,18 +177,10 @@ export async function saveDraftRemote(
   return { id: data.id, updated_at: data.updated_at };
 }
 
-/** List all drafts belonging to the calling wallet, newest first. */
-export async function listDraftsRemote(signer: Signer): Promise<RemoteDraftRow[]> {
-  const author = (await signer.getAddress()).toLowerCase();
-  const time = Date.now();
-  const message = `Human Inkwell list drafts\nauthor:${author}\ntime:${time}\n`;
-  const signature = await signer.signMessage(message);
-
-  const res = await fetch(apiPath('/api/drafts-list'), {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ message, signature, author_address: author }),
-  });
+/** List all drafts belonging to a wallet, newest first. */
+export async function listDraftsRemote(authorAddress: string): Promise<RemoteDraftRow[]> {
+  const addr = normalizeAddress(authorAddress);
+  const res = await fetch(`${apiPath('/api/drafts-list')}?author=${addr}`, { method: 'GET' });
   if (!res.ok) {
     throw new Error(await parseErrorBody(res));
   }
@@ -199,28 +189,23 @@ export async function listDraftsRemote(signer: Signer): Promise<RemoteDraftRow[]
   return data.rows;
 }
 
-/** Delete one draft (called after a successful Post). */
+/** Delete one draft (after a successful Post, or by user request). */
 export async function deleteDraftRemote(
-  signer: Signer,
+  authorAddress: string,
   draftKey: string = 'default'
 ): Promise<void> {
-  const author = (await signer.getAddress()).toLowerCase();
-  const time = Date.now();
-  const message = `Human Inkwell delete draft\nauthor:${author}\ndraft_key:${draftKey}\ntime:${time}\n`;
-  const signature = await signer.signMessage(message);
-
+  const addr = normalizeAddress(authorAddress);
   const res = await fetch(apiPath('/api/drafts-delete'), {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ message, signature, author_address: author, draft_key: draftKey }),
+    body: JSON.stringify({ author_address: addr, draft_key: draftKey }),
   });
   if (!res.ok) {
     throw new Error(await parseErrorBody(res));
   }
 }
 
-/** Map a remote row back into the local DraftPayload shape so the writing
- *  workspace's restore code can consume it without a special case. */
+/** Map a remote row back into the local DraftPayload shape. */
 export function remoteRowToDraftPayload(row: RemoteDraftRow): DraftPayload {
   return {
     title: row.title || '',
