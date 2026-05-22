@@ -9,13 +9,15 @@ type BrandHeaderProps = {
 
 const BrandHeader: React.FC<BrandHeaderProps> = ({ subtitle }) => {
   return (
-    <header className="hi-app-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-      <div className="hi-app-header__body">
-        <PoweredByWorld variant="header" showTagline={false} />
-        {subtitle && <p className="hi-app-header__subtitle">{subtitle}</p>}
-      </div>
-      <div className="hi-app-header__auth">
-        <AuthButton />
+    <header className="hi-app-header">
+      <div className="hi-app-header__inner">
+        <div className="hi-app-header__body">
+          <PoweredByWorld variant="header" showTagline={false} />
+          {subtitle && <p className="hi-app-header__subtitle">{subtitle}</p>}
+        </div>
+        <div className="hi-app-header__auth">
+          <AuthButton />
+        </div>
       </div>
     </header>
   );
