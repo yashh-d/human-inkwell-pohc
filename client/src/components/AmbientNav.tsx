@@ -19,19 +19,6 @@ const AmbientNav: React.FC = () => {
           <span className="hi-ambient__label">Home</span>
         </NavLink>
         <NavLink
-          to="/feed"
-          className={({ isActive }) => `hi-ambient__item${isActive ? ' is-active' : ''}`}
-          title="Feed"
-        >
-          <span className="hi-ambient__icon" aria-hidden>
-            <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round">
-              <path d="M4 6.5h16M4 12h10M4 17.5h16" />
-              <path d="M18 9l2.5 3L18 15" />
-            </svg>
-          </span>
-          <span className="hi-ambient__label">Feed</span>
-        </NavLink>
-        <NavLink
           to="/write"
           className={({ isActive }) => `hi-ambient__item${isActive ? ' is-active' : ''}`}
           title="Writing"
@@ -44,18 +31,17 @@ const AmbientNav: React.FC = () => {
           <span className="hi-ambient__label">Write</span>
         </NavLink>
         <NavLink
-          to="/my-content"
+          to="/workflow"
           className={({ isActive }) => `hi-ambient__item${isActive ? ' is-active' : ''}`}
-          title="My content"
+          title="How it works"
         >
           <span className="hi-ambient__icon" aria-hidden>
             <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round">
-              <path d="M20 21v-2a4 4 0 0 0-3-3.87M4 21v-2a4 4 0 0 1 3-3.87" />
-              <circle cx="12" cy="7" r="4" />
+              <circle cx="12" cy="12" r="9" />
+              <path d="M12 8v4l2.5 2.5" />
             </svg>
           </span>
-          <span className="hi-ambient__label hi-ambient__label--long">My content</span>
-          <span className="hi-ambient__label hi-ambient__label--short">You</span>
+          <span className="hi-ambient__label">How</span>
         </NavLink>
       </div>
     </nav>

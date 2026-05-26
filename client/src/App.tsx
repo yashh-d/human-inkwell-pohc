@@ -7,8 +7,6 @@ import { useWorldID } from './hooks/useWorldID';
 import { useMiniKit } from './hooks/useMiniKit';
 import AppLayout from './layouts/AppLayout';
 import HomePage from './pages/HomePage';
-import MyContentPage from './pages/MyContentPage';
-import FeedPage from './pages/FeedPage';
 import WorkflowPage from './pages/WorkflowPage';
 
 /** Only mount when enabled so `/_vercel/insights/script.js` is not requested on hosts where it 404s as HTML. */
@@ -94,9 +92,6 @@ function App() {
               }
             />
             <Route path="/workflow" element={<WorkflowPage />} />
-            <Route path="/feed" element={<FeedPage />} />
-            <Route path="/my-content" element={<MyContentPage />} />
-            <Route path="/ledger" element={<Navigate to="/my-content" replace />} />
             <Route path="*" element={<Navigate to="/" replace />} />
           </Route>
         </Routes>
