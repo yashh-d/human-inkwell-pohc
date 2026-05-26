@@ -57,6 +57,22 @@ interface KeystrokeEvent {
 
 type PauseWindow = { startedAt: number; endedAt: number };
 
+/** Loading phrases rotated while the on-chain submit is in flight. One is
+ *  picked at random per submission and shown until success / error — they keep
+ *  the page calm instead of leaking the verbose progress text from blockchain.ts. */
+const SUBMIT_PHRASES = [
+  'Chiseling your name into the chain',
+  'Setting your words in stone',
+  'Carving your signature in',
+  'Etching your proof forever',
+  'Stamping your authorship',
+  'Pressing your mark onchain',
+];
+
+function pickSubmitPhrase(): string {
+  return SUBMIT_PHRASES[Math.floor(Math.random() * SUBMIT_PHRASES.length)];
+}
+
 function formatMs(n: number, digits = 2) {
   return n.toFixed(digits);
 }
@@ -269,6 +285,9 @@ function HomePage({
   const [shareNote, setShareNote] = useState<string | null>(null);
   /** Whether the fullscreen writing overlay is open. */
   const [isWritingOpen, setIsWritingOpen] = useState<boolean>(false);
+  /** Random phrase displayed during on-chain submit. Picked once per attempt
+   *  so the user sees a single calm message instead of a flicker of stages. */
+  const [submitPhrase, setSubmitPhrase] = useState<string | null>(null);
 
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const writingSectionRef = useRef<HTMLDivElement>(null);
@@ -434,7 +453,8 @@ function HomePage({
     setIsSubmittingToBlockchain(true);
     setBlockchainErrorHelp(null);
     setBlockchainSuccess(null);
-    setProcessingStatus('🔗 Connecting to wallet...');
+    setSubmitPhrase(pickSubmitPhrase());
+    setProcessingStatus('');
 
     try {
       const submissionData = {
@@ -445,7 +465,8 @@ function HomePage({
         worldIdNullifier: isVerified ? worldIdProof?.nullifier_hash : undefined,
       };
 
-      setProcessingStatus('⛓️ Publishing to World Chain (Human Content Ledger)…');
+      // Stage label is intentionally minimal — the prominent UI shows the
+      // submitPhrase; processingStatus is reserved for surfacing errors.
 
       let privySigner: ethers.Signer | undefined;
       let privyAddress: string | undefined;
@@ -459,13 +480,16 @@ function HomePage({
       }
 
       const result = await blockchainService.submitContent(submissionData, {
-        onProgress: (msg) => setProcessingStatus(msg),
+        // Drop the verbose stage messages on the floor; the loading UI shows
+        // a single calm phrase. Console still gets them via blockchain.ts logs.
+        onProgress: () => {},
         privySigner,
         privyAddress,
       });
 
       if (result.success && result.transactionHash) {
         setBlockchainErrorHelp(null);
+        setSubmitPhrase(null);
         setBlockchainSuccess({
           transactionHash: result.transactionHash,
           entryId: result.entryId,
@@ -475,17 +499,18 @@ function HomePage({
           explorerAddressUrl: result.explorerAddressUrl,
           statusNote: result.statusNote,
         });
-        setProcessingStatus('✅ Published to World Chain (Human Content Ledger).');
+        setProcessingStatus('');
 
         if (result.walletAddress) {
           // Remember the MiniKit wallet for future surfaces that need an identity.
           rememberMiniKitWallet(result.walletAddress);
         }
       } else {
+        setSubmitPhrase(null);
         setProcessingStatus(
           result.quietUi
             ? result.error || 'Could not confirm. You can try again in a few seconds.'
-            : `❌ ${result.error || 'Unknown blockchain error'}`
+            : `${result.error || 'Unknown blockchain error'}`
         );
         if (result.quietUi) {
           setBlockchainErrorHelp(null);
@@ -498,8 +523,9 @@ function HomePage({
       }
     } catch (error) {
       console.error('Blockchain submission failed:', error);
+      setSubmitPhrase(null);
       setProcessingStatus(
-        `❌ Could not publish to World Chain: ${error instanceof Error ? error.message : 'Unknown error'}`
+        `Could not publish to World Chain: ${error instanceof Error ? error.message : 'Unknown error'}`
       );
     } finally {
       setIsSubmittingToBlockchain(false);
@@ -878,9 +904,21 @@ function HomePage({
               className="hi-overlay__textarea"
             />
 
-            {processingStatus && (
+            {/* Clean loading state during submit: one short randomized phrase,
+                no emoji, Space Grotesk. Replaces the verbose stage messages. */}
+            {(isSubmittingToBlockchain || isProcessing) && submitPhrase && (
+              <div className="hi-submit-loading" role="status" aria-live="polite">
+                <span className="hi-submit-loading__dot" aria-hidden />
+                <span className="hi-submit-loading__text">{submitPhrase}…</span>
+              </div>
+            )}
+
+            {/* Show the raw status block only when NOT mid-submit — so paste
+                warnings and error details surface, but the loud "Status: …"
+                bar doesn't compete with the loading state. */}
+            {!isSubmittingToBlockchain && !isProcessing && processingStatus && (
               <div className="hi-overlay__status">
-                <strong>Status:</strong> {processingStatus}
+                {processingStatus}
                 {blockchainErrorHelp?.explorerAddressUrl && (
                   <div className="hi-blockchain-help" style={{ marginTop: 12, fontSize: 14 }}>
                     <p style={{ margin: '0 0 6px' }}>

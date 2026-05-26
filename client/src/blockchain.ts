@@ -414,7 +414,7 @@ class BlockchainService {
       if (elapsed - lastProgress > 10_000) {
         lastProgress = elapsed;
         onProgress?.(
-          `⏳ Still waiting on the World App bundler to mine your transaction… (~${Math.round(elapsed / 1000)}s)`
+          `Still waiting on the World App bundler to mine your transaction… (~${Math.round(elapsed / 1000)}s)`
         );
       }
       await new Promise((r) => setTimeout(r, 2_000));
@@ -441,7 +441,7 @@ class BlockchainService {
       if (elapsed - lastUi > 10_000) {
         lastUi = elapsed;
         onProgress?.(
-          `⏳ Still polling the public RPC for your content… (~${Math.round(elapsed / 1000)}s)`
+          `Still polling the public RPC for your content… (~${Math.round(elapsed / 1000)}s)`
         );
       }
       await new Promise((r) => setTimeout(r, 1500));
@@ -581,7 +581,7 @@ class BlockchainService {
       }
 
       console.log('⛓️ Submitting to blockchain...');
-      onProgress?.('⏳ Generating transaction...');
+      onProgress?.('Generating transaction...');
 
       const typingScaled = Math.floor(data.typingSpeed * 1000);
 
@@ -595,7 +595,7 @@ class BlockchainService {
 
       if (useMiniKit) {
         // --- 📱 MINIKIT PATH ---
-        onProgress?.('⏳ Please confirm the transaction in World App...');
+        onProgress?.('Please confirm the transaction in World App...');
         
         try {
           const { finalPayload } = await MiniKit.commandsAsync.sendTransaction({
@@ -625,7 +625,7 @@ class BlockchainService {
           // Developer Portal API. Without this, downstream code (explorer links,
           // success panel, share text) ends up showing the UserOpHash, which has
           // no page on Worldscan.
-          onProgress?.('⏳ World App is mining your transaction (this can take ~20–60s)…');
+          onProgress?.('World App is mining your transaction (this can take ~20–60s)…');
           const resolvedTxHash = await this.resolveMiniKitTxHash(userOpHash, onProgress);
           if (resolvedTxHash) {
             submittedTxHash = resolvedTxHash;
@@ -645,7 +645,7 @@ class BlockchainService {
         
       } else {
         // --- 💻 BROWSER WALLET PATH (Gasless) ---
-        onProgress?.('⏳ Please sign the free intent with your wallet...');
+        onProgress?.('Please sign the free intent with your wallet...');
         
         try {
           console.log('[Blockchain] Fetching on-chain nonce for author:', walletAtSubmit);
@@ -697,7 +697,7 @@ class BlockchainService {
           const signature = await signer!.signTypedData(domain, types, value);
           console.log('[Blockchain] Signature generated successfully!', signature);
 
-          onProgress?.('⏳ Signature gathered! Relaying to World Chain...');
+          onProgress?.('Signature gathered! Relaying to World Chain...');
           console.log('[Blockchain] Initiating fetch request to Vercel Relayer...');
 
           const response = await fetch('/api/relay', {
@@ -720,7 +720,7 @@ class BlockchainService {
 
           submittedTxHash = relayData.transactionHash;
           console.log('📋 Relayed Transaction submitted:', submittedTxHash);
-          onProgress?.('⏳ Transaction relayed — waiting for block confirmation…');
+          onProgress?.('Transaction relayed — waiting for block confirmation…');
 
           // We wait for the relayed transaction to be mined
           const receipt = await this.provider.waitForTransaction(submittedTxHash!);
@@ -752,7 +752,7 @@ class BlockchainService {
         error?.message?.includes('Wallet connection was rejected');
 
       if (!isPreflightError) {
-        onProgress?.('⏳ Confirming on World Chain (checking the ledger)…');
+        onProgress?.('Confirming on World Chain (checking the ledger)…');
         // STEP 1 — Contract may already show the new row even if the wallet errored.
         try {
           const onChain = await this.findStoredContent(data.contentHash, walletAtSubmit);
@@ -811,8 +811,8 @@ class BlockchainService {
         try {
           onProgress?.(
             isMiniKitFallback 
-              ? '⏳ Waiting for your transaction to be packaged and mined automatically (up to ~60s)…'
-              : '⏳ Polling the chain in the background (no new MetaMask request) — up to ~90s for your entry…'
+              ? 'Waiting for your transaction to be packaged and mined automatically (up to ~60s)…'
+              : 'Polling the chain in the background (no new MetaMask request) — up to ~90s for your entry…'
           );
           const longPolled = await this.waitForContentIndexed(data, walletAtSubmit, 90_000, onProgress);
           if (longPolled) {

@@ -752,6 +752,51 @@ body.hi-overlay-open .hi-ambient { display: none; }
 
 .hi-overlay__status strong { color: var(--hi-ink); }
 
+/* ─── Clean submit loading state ───────────────────────────────────────
+   Replaces the verbose "Status: ⏳ Waiting for World mini app…" line during
+   on-chain submit with one short randomized phrase + a calm pulsing dot. */
+.hi-submit-loading {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.6rem;
+  margin: 1.25rem auto 0;
+  padding: 0.7rem 1.1rem;
+  background: var(--hi-surface);
+  border: 1px solid var(--hi-border);
+  border-radius: var(--hi-r-pill);
+  box-shadow: var(--hi-shadow-sm);
+  align-self: center;
+}
+
+.hi-submit-loading__dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--hi-cyan);
+  box-shadow: 0 0 0 0 rgba(0, 180, 216, 0.55);
+  animation: hi-submit-pulse 1.4s ease-out infinite;
+  flex: 0 0 auto;
+}
+
+@keyframes hi-submit-pulse {
+  0%   { box-shadow: 0 0 0 0 rgba(0, 180, 216, 0.5); }
+  70%  { box-shadow: 0 0 0 10px rgba(0, 180, 216, 0); }
+  100% { box-shadow: 0 0 0 0 rgba(0, 180, 216, 0); }
+}
+
+.hi-submit-loading__text {
+  font-family: var(--hi-font-display);
+  font-size: 0.95rem;
+  font-weight: 500;
+  letter-spacing: -0.01em;
+  color: var(--hi-ink);
+  line-height: 1.2;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .hi-submit-loading__dot { animation: none; }
+}
+
 /* Feed-publish row (checkbox) */
 .hi-feed-publish {
   display: inline-flex;
