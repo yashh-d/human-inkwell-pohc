@@ -491,25 +491,35 @@ class BlockchainService {
           const authorTopic = fromAddress
             ? ethers.zeroPadValue(fromAddress.toLowerCase(), 32)
             : null;
-          const head = await this.provider.getBlockNumber();
-          const fromBlock = Math.max(0, head - 50_000);
-          const filter = {
-            address: CONTRACT_ADDRESS,
-            fromBlock,
-            toBlock: 'latest' as const,
-            topics: [topic0, entryIdTopic, authorTopic],
-          };
-          // RPC log indexer often lags state by a few seconds (especially via
-          // World App's MiniKit bundler). Retry getLogs up to ~6s so we return
-          // the real bundler tx hash rather than nothing. This is the fallback
-          // path when resolveMiniKitTxHash (Dev Portal API) didn't return.
-          for (let attempt = 0; attempt < 5; attempt++) {
-            const logs = await this.provider.getLogs(filter as any);
-            if (logs.length > 0) {
-              txHash = logs[logs.length - 1].transactionHash;
-              break;
+          // The entry was just stored, so its log is at/near the chain head.
+          // Alchemy's free tier caps eth_getLogs at a 10-block range, so we
+          // scan the recent tail in ≤10-block windows (newest first) instead of
+          // one wide 50k-block query (which errors out on the free tier and
+          // returns no hash). RPC log indexers also lag state by a few seconds
+          // (especially via World App's MiniKit bundler), so we retry the whole
+          // recent-tail scan a few times before giving up.
+          const WINDOW = 10;          // max free-tier getLogs range
+          const RECENT_BLOCKS = 200;  // how far back to look (~recent tail)
+          for (let attempt = 0; attempt < 5 && !txHash; attempt++) {
+            const head = await this.provider.getBlockNumber();
+            const oldest = Math.max(0, head - RECENT_BLOCKS);
+            for (let to = head; to >= oldest && !txHash; to -= WINDOW) {
+              const from = Math.max(oldest, to - WINDOW + 1);
+              try {
+                const logs = await this.provider.getLogs({
+                  address: CONTRACT_ADDRESS,
+                  fromBlock: from,
+                  toBlock: to,
+                  topics: [topic0, entryIdTopic, authorTopic],
+                } as any);
+                if (logs.length > 0) {
+                  txHash = logs[logs.length - 1].transactionHash;
+                }
+              } catch (windowErr) {
+                console.warn('blockchain: getLogs window failed', from, to, windowErr);
+              }
             }
-            if (attempt < 4) {
+            if (!txHash && attempt < 4) {
               await new Promise((r) => setTimeout(r, 1500));
             }
           }

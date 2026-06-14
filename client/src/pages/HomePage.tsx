@@ -487,11 +487,15 @@ function HomePage({
         privyAddress,
       });
 
-      if (result.success && result.transactionHash) {
+      // A gasless relay that lands on-chain is a success even when the tx hash
+      // could not be resolved (e.g. Alchemy's free tier throttles the getLogs
+      // lookup). Treat a confirmed entryId as success and let the receipt show
+      // the explorer-by-entry/contract links instead of a hash.
+      if (result.success && (result.transactionHash || typeof result.entryId === 'number')) {
         setBlockchainErrorHelp(null);
         setSubmitPhrase(null);
         setBlockchainSuccess({
-          transactionHash: result.transactionHash,
+          transactionHash: result.transactionHash || '',
           entryId: result.entryId,
           gasUsed: result.gasUsed,
           explorerTxUrl: result.explorerTxUrl,
@@ -973,21 +977,27 @@ function HomePage({
               {blockchainSuccess.statusNote && (
                 <p className="hi-receipt__note">{blockchainSuccess.statusNote}</p>
               )}
-              <div className="hi-receipt__tx">
-                <span className="hi-receipt__tx-label">Tx hash</span>
-                <code className="hi-receipt__tx-hash">{blockchainSuccess.transactionHash}</code>
-                <button
-                  type="button"
-                  className="hi-btn hi-btn--link hi-receipt__copy"
-                  onClick={() => {
-                    navigator.clipboard?.writeText(blockchainSuccess.transactionHash);
-                    setShareNote('Tx hash copied.');
-                    window.setTimeout(() => setShareNote(null), 3000);
-                  }}
-                >
-                  Copy
-                </button>
-              </div>
+              {blockchainSuccess.transactionHash ? (
+                <div className="hi-receipt__tx">
+                  <span className="hi-receipt__tx-label">Tx hash</span>
+                  <code className="hi-receipt__tx-hash">{blockchainSuccess.transactionHash}</code>
+                  <button
+                    type="button"
+                    className="hi-btn hi-btn--link hi-receipt__copy"
+                    onClick={() => {
+                      navigator.clipboard?.writeText(blockchainSuccess.transactionHash);
+                      setShareNote('Tx hash copied.');
+                      window.setTimeout(() => setShareNote(null), 3000);
+                    }}
+                  >
+                    Copy
+                  </button>
+                </div>
+              ) : (
+                <p className="hi-receipt__note">
+                  Stored onchain. The transaction hash is still being indexed — use the links below to view it on the explorer.
+                </p>
+              )}
 
               <div className="hi-receipt__actions" role="group" aria-label="Share attestation">
                 {blockchainSuccess.explorerTxUrl && (
@@ -1017,7 +1027,7 @@ function HomePage({
                     const { text, truncated } = buildAttestationShareForX(
                       content,
                       blockchainSuccess.transactionHash,
-                      blockchainSuccess.explorerTxUrl
+                      blockchainSuccess.explorerTxUrl || blockchainSuccess.explorerContractUrl
                     );
                     window.open(xIntentUrl(text), '_blank', 'noopener,noreferrer');
                     setShareNote(
@@ -1037,7 +1047,7 @@ function HomePage({
                     const full = buildAttestationShareBody(
                       content,
                       blockchainSuccess.transactionHash,
-                      blockchainSuccess.explorerTxUrl
+                      blockchainSuccess.explorerTxUrl || blockchainSuccess.explorerContractUrl
                     );
                     try {
                       await navigator.clipboard.writeText(full);
@@ -1058,7 +1068,7 @@ function HomePage({
                     const full = buildAttestationShareBody(
                       content,
                       blockchainSuccess.transactionHash,
-                      blockchainSuccess.explorerTxUrl
+                      blockchainSuccess.explorerTxUrl || blockchainSuccess.explorerContractUrl
                     );
                     try {
                       await navigator.clipboard.writeText(full);
