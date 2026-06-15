@@ -38,6 +38,17 @@ type ProofMetrics = {
   textLength?: number;
 };
 
+type RevisionAnalysis = {
+  editCount: number;
+  typedEdits: number;
+  pasteEdits: number;
+  typedChars: number;
+  pastedChars: number;
+  humanTypedRatio: number;
+  largestPaste: number;
+  timeline?: { type: 'type' | 'paste'; chars: number }[];
+};
+
 type ExtensionProof = {
   v: number;
   source: string;
@@ -50,6 +61,7 @@ type ExtensionProof = {
   url?: string | null;
   email?: string | null;
   metrics?: ProofMetrics;
+  revision?: RevisionAnalysis | null;
 };
 
 const PROOF_KEY = 'humanink_pending_proof';
@@ -278,6 +290,32 @@ export default function PublishProofPage() {
         {success && submit.result.transactionHash && <Row k="Tx" v={short(submit.result.transactionHash)} />}
       </div>
 
+      {/* Revision analysis — edit timeline reconstructed from the capture */}
+      {proof.revision && proof.revision.editCount > 0 && (() => {
+        const rev = proof.revision!;
+        const tp = Math.round(rev.humanTypedRatio * 100);
+        const c = tp >= 90 ? '#6ee7b7' : tp >= 60 ? '#fbbf24' : '#f87171';
+        return (
+          <div style={styles.card}>
+            <div style={styles.sec}>Revision analysis</div>
+            <div style={styles.barWrap}><div style={{ ...styles.barFill, width: `${tp}%`, background: c }} /></div>
+            <div style={styles.scoreRow}><span>Typed {tp}%</span><span>Pasted {100 - tp}%</span></div>
+            <Row k="Edit events" v={String(rev.editCount)} />
+            <Row k="Typing bursts" v={String(rev.typedEdits)} />
+            {rev.pasteEdits > 0 && <Row k="Paste insertions" v={String(rev.pasteEdits)} />}
+            {rev.timeline && rev.timeline.length > 0 && (
+              <div style={styles.timeline}>
+                {rev.timeline.map((e, i) => (
+                  <span key={i} style={{ ...styles.chip, ...(e.type === 'paste' ? styles.chipPaste : styles.chipType) }}>
+                    {e.type === 'paste' ? `📋 ${e.chars}` : `⌨ ${e.chars}`}
+                  </span>
+                ))}
+              </div>
+            )}
+          </div>
+        );
+      })()}
+
       {success ? (
         <>
           <p style={styles.muted}>
@@ -340,4 +378,9 @@ const styles: Record<string, React.CSSProperties> = {
   rowV: { fontFamily: 'ui-monospace, Menlo, monospace', wordBreak: 'break-all', textAlign: 'right' },
   primary: { width: '100%', padding: '11px 14px', borderRadius: 8, border: 'none', background: '#6ee7b7', color: '#0b0d10', fontWeight: 650, fontSize: 14, cursor: 'pointer' },
   link: { color: '#6ee7b7', fontSize: 13, textDecoration: 'none' },
+  sec: { fontSize: 11, textTransform: 'uppercase', letterSpacing: 0.6, opacity: 0.6, marginBottom: 8 },
+  timeline: { display: 'flex', flexWrap: 'wrap', gap: 3, marginTop: 10 },
+  chip: { fontSize: 10, padding: '2px 6px', borderRadius: 4, whiteSpace: 'nowrap', border: '1px solid rgba(255,255,255,0.12)' },
+  chipType: { background: 'rgba(110,231,183,0.14)', color: '#6ee7b7' },
+  chipPaste: { background: 'rgba(251,191,36,0.16)', color: '#fbbf24' },
 };
