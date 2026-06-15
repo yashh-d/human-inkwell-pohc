@@ -8,6 +8,7 @@ import { useMiniKit } from './hooks/useMiniKit';
 import AppLayout from './layouts/AppLayout';
 import HomePage from './pages/HomePage';
 import WorkflowPage from './pages/WorkflowPage';
+import PublishProofPage from './pages/PublishProofPage';
 
 /** Only mount when enabled so `/_vercel/insights/script.js` is not requested on hosts where it 404s as HTML. */
 function VercelAnalyticsGate() {
@@ -92,6 +93,7 @@ function App() {
               }
             />
             <Route path="/workflow" element={<WorkflowPage />} />
+            <Route path="/publish" element={<PublishProofPage />} />
             <Route path="*" element={<Navigate to="/" replace />} />
           </Route>
         </Routes>
