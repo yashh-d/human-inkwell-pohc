@@ -10,17 +10,33 @@ import { rememberMiniKitWallet } from '../utils/miniKitWallet';
 /**
  * /publish — entry point for the Human Ink Chrome extension.
  *
- * The extension captures keystroke biometrics (incl. Google Docs) on the user's
- * machine, computes the SAME hashes this app uses, and opens:
- *   https://humanink.xyz/publish#proof=<base64url-JSON>
- *
- * Here we: (1) parse that payload, (2) auto-provision the author's account — one
- * tap "Continue with Google" creates a Privy embedded wallet (config:
- * createOnLogin 'users-without-wallets'), no seed phrase, no extension wallet —
- * and (3) run the existing gasless sign + submit flow with the SUPPLIED hashes.
- * No keystroke re-capture. The proof rides the URL fragment (never hits a
- * server) and is mirrored to sessionStorage so it survives the OAuth round-trip.
+ * DEMO MODE (SIMULATE = true): no wallet, no relayer, no real tx. We render the
+ * full captured metrics + a simulated "GPT Zero"-style AI score (driven mainly
+ * by the copy-paste signal for now) and a simulated on-chain receipt. Flip
+ * SIMULATE to false to use the real gasless flow below (Privy embedded wallet →
+ * EIP-712 → /api/relay → HumanContentLedger), and swap computeAiScore() for a
+ * real AI-detector API call.
  */
+const SIMULATE = true;
+
+const CONTRACT_ADDRESS = '0x08A70Fed4d80893fC03Bd3E1D8cfb36E58a9E95d';
+const EXPLORER_BASE = 'https://sepolia.worldscan.org';
+
+type ProofMetrics = {
+  wpm?: number;
+  typingSpeedCharsPerSec?: number;
+  keystrokeCount?: number;
+  backspaceCount?: number;
+  pasteCount?: number;
+  pastedChars?: number;
+  largestPaste?: number;
+  bigPastes?: number;
+  humanTypedRatio?: number;
+  pageExits?: number;
+  hiddenMs?: number;
+  elapsedMs?: number;
+  textLength?: number;
+};
 
 type ExtensionProof = {
   v: number;
@@ -33,6 +49,7 @@ type ExtensionProof = {
   docTitle?: string | null;
   url?: string | null;
   email?: string | null;
+  metrics?: ProofMetrics;
 };
 
 const PROOF_KEY = 'humanink_pending_proof';
@@ -43,16 +60,12 @@ function b64urlDecode(s: string): string {
   return decodeURIComponent(escape(atob(b64 + pad)));
 }
 
-/** Read the proof from the URL fragment, falling back to the sessionStorage
- *  mirror (so a Privy OAuth redirect that remounts the app doesn't lose it). */
 function loadProof(): { proof?: ExtensionProof; error?: string } {
   const m = (window.location.hash || '').match(/proof=([^&]+)/);
   if (m) {
     try {
       const obj = JSON.parse(b64urlDecode(m[1])) as ExtensionProof;
-      if (!obj.contentHash || !obj.humanSignatureHash) {
-        return { error: 'Proof payload is missing its hashes.' };
-      }
+      if (!obj.contentHash || !obj.humanSignatureHash) return { error: 'Proof payload is missing its hashes.' };
       try { sessionStorage.setItem(PROOF_KEY, JSON.stringify(obj)); } catch { /* private mode */ }
       return { proof: obj };
     } catch (e) {
@@ -68,6 +81,31 @@ function loadProof(): { proof?: ExtensionProof; error?: string } {
 
 const short = (h?: string | null) => (h ? `${h.slice(0, 10)}…${h.slice(-8)}` : '—');
 
+/**
+ * Simulated AI-detection score (stand-in for GPT Zero / an AI-detector API).
+ * For the demo this is driven mainly by the copy-paste signal: the more of the
+ * text arrived as large pastes vs. typed keystrokes, the more "AI-assisted".
+ */
+function computeAiScore(m: ProofMetrics) {
+  const humanRatio = typeof m.humanTypedRatio === 'number' ? m.humanTypedRatio : 1;
+  const pastedRatio = Math.max(0, Math.min(1, 1 - humanRatio));
+  let ai = pastedRatio * 100;
+  if ((m.bigPastes || 0) > 0) ai += Math.min(30, (m.bigPastes || 0) * 15);
+  // Natural editing (backspaces) at a human cadence nudges back toward human.
+  if ((m.backspaceCount || 0) > 0 && (m.wpm || 0) >= 15 && (m.wpm || 0) <= 110) ai -= 8;
+  ai = Math.max(1, Math.min(99, Math.round(ai)));
+  const human = 100 - ai;
+  const verdict = ai < 30 ? 'Likely human' : ai <= 70 ? 'Mixed signals' : 'Likely AI-assisted';
+  const color = ai < 30 ? '#6ee7b7' : ai <= 70 ? '#fbbf24' : '#f87171';
+  return { ai, human, verdict, color, pastedRatio };
+}
+
+const fmtMs = (ms?: number) => {
+  if (!ms) return '0s';
+  const s = Math.round(ms / 1000);
+  return s < 60 ? `${s}s` : `${Math.floor(s / 60)}m ${s % 60}s`;
+};
+
 type SubmitState =
   | { phase: 'idle' }
   | { phase: 'submitting' }
@@ -80,8 +118,6 @@ export default function PublishProofPage() {
   const { wallets } = useWallets();
   const [submit, setSubmit] = useState<SubmitState>({ phase: 'idle' });
   const [authError, setAuthError] = useState<string | null>(null);
-  // Intent to publish as soon as the wallet is ready (set when the user taps
-  // before sign-in completes). Survives the popup OAuth flow in-memory.
   const [pendingPublish, setPendingPublish] = useState(false);
 
   const { initOAuth } = useLoginWithOAuth({
@@ -91,13 +127,35 @@ export default function PublishProofPage() {
     },
   });
 
-  // Clear the proof from the address bar once parsed (kept in sessionStorage).
+  const ai = useMemo(() => (proof ? computeAiScore(proof.metrics || {}) : null), [proof]);
+
   useEffect(() => {
     if (proof && window.location.hash) {
       try { window.history.replaceState(null, '', window.location.pathname); } catch { /* no-op */ }
     }
   }, [proof]);
 
+  // ---- DEMO: simulate the on-chain write (no wallet / relayer) ----
+  const simulatePublish = useCallback(() => {
+    if (!proof) return;
+    setSubmit({ phase: 'submitting' });
+    window.setTimeout(() => {
+      const fakeTx = `0x${proof.contentHash.slice(0, 64)}`;
+      const entryId = parseInt(proof.contentHash.slice(0, 6), 16) % 100000;
+      try { sessionStorage.removeItem(PROOF_KEY); } catch { /* ignore */ }
+      setSubmit({
+        phase: 'success',
+        result: {
+          simulated: true,
+          transactionHash: fakeTx,
+          entryId,
+          explorerContractUrl: `${EXPLORER_BASE}/address/${CONTRACT_ADDRESS}`,
+        },
+      });
+    }, 700);
+  }, [proof]);
+
+  // ---- REAL: gasless sign + submit (used when SIMULATE = false) ----
   const doPublish = useCallback(async () => {
     if (!proof || identity.status !== 'ready') return;
     setSubmit({ phase: 'submitting' });
@@ -109,25 +167,15 @@ export default function PublishProofPage() {
         typingSpeed: proof.typingSpeed,
         worldIdNullifier: undefined,
       };
-
-      // Browser (Privy) needs an explicit embedded-wallet signer; inside World
-      // App, MiniKit signs and submitContent picks the wallet up itself.
       let privySigner: ethers.Signer | undefined;
       let privyAddress: string | undefined;
       if (identity.source === 'privy' && wallets && wallets.length > 0) {
         const wallet = wallets.find((w) => w.walletClientType === 'privy') || wallets[0];
         privyAddress = wallet.address;
-        const ethereumProvider = await wallet.getEthereumProvider();
-        const provider = new ethers.BrowserProvider(ethereumProvider as any);
+        const provider = new ethers.BrowserProvider((await wallet.getEthereumProvider()) as any);
         privySigner = await provider.getSigner();
       }
-
-      const result = await blockchainService.submitContent(submissionData, {
-        onProgress: () => {},
-        privySigner,
-        privyAddress,
-      });
-
+      const result = await blockchainService.submitContent(submissionData, { onProgress: () => {}, privySigner, privyAddress });
       if (result.success && (result.transactionHash || typeof result.entryId === 'number')) {
         const authorAddress = result.walletAddress || identity.address;
         if (result.walletAddress) rememberMiniKitWallet(result.walletAddress);
@@ -140,9 +188,7 @@ export default function PublishProofPage() {
             isVerified: false,
             authorAddress,
           });
-        } catch (e) {
-          console.warn('Ledger indexing failed (on-chain write still succeeded):', e);
-        }
+        } catch (e) { console.warn('Ledger indexing failed (on-chain write still succeeded):', e); }
         try { sessionStorage.removeItem(PROOF_KEY); } catch { /* ignore */ }
         setSubmit({ phase: 'success', result });
       } else {
@@ -153,35 +199,26 @@ export default function PublishProofPage() {
     }
   }, [proof, identity, wallets]);
 
-  // Once the wallet is ready and the user has signalled intent, publish.
   useEffect(() => {
-    if (pendingPublish && identity.status === 'ready' && submit.phase === 'idle') {
+    if (!SIMULATE && pendingPublish && identity.status === 'ready' && submit.phase === 'idle') {
       setPendingPublish(false);
       doPublish();
     }
   }, [pendingPublish, identity.status, submit.phase, doPublish]);
 
-  // Single primary action: provision the account if needed, then publish.
   const handlePrimary = useCallback(() => {
     setAuthError(null);
-    if (identity.status === 'ready') {
-      doPublish();
-    } else if (identity.status === 'needs-auth') {
+    if (SIMULATE) { simulatePublish(); return; }
+    if (identity.status === 'ready') doPublish();
+    else if (identity.status === 'needs-auth') { setPendingPublish(true); identity.authenticate(); }
+    else {
       setPendingPublish(true);
-      identity.authenticate(); // World App walletAuth
-    } else {
-      // Browser: one-tap Google → Privy auto-creates the embedded wallet.
-      setPendingPublish(true);
-      try {
-        initOAuth({ provider: 'google' });
-      } catch (e) {
-        setPendingPublish(false);
-        setAuthError(e instanceof Error ? e.message : 'Could not start Google sign-in.');
-      }
+      try { initOAuth({ provider: 'google' }); }
+      catch (e) { setPendingPublish(false); setAuthError(e instanceof Error ? e.message : 'Could not start Google sign-in.'); }
     }
-  }, [identity, doPublish, initOAuth]);
+  }, [identity, doPublish, initOAuth, simulatePublish]);
 
-  if (parseError || !proof) {
+  if (parseError || !proof || !ai) {
     return (
       <div style={styles.wrap}>
         <h1 style={styles.h1}>Publish proof</h1>
@@ -191,68 +228,76 @@ export default function PublishProofPage() {
     );
   }
 
-  if (submit.phase === 'success') {
-    const r = submit.result;
-    return (
-      <div style={styles.wrap}>
-        <h1 style={styles.h1}>✓ Proof published on-chain</h1>
-        <p style={styles.muted}>Your human-authorship proof is now recorded in HumanContentLedger.</p>
-        <div style={styles.card}>
-          {typeof r.entryId === 'number' && <Row k="Entry" v={`#${r.entryId}`} />}
-          {r.transactionHash && <Row k="Tx" v={short(r.transactionHash)} />}
-          {r.gasUsed && <Row k="Gas" v={String(r.gasUsed)} />}
-          <Row k="Content hash" v={short(proof.contentHash)} />
-          <Row k="Human signature" v={short(proof.humanSignatureHash)} />
-        </div>
-        <div style={styles.links}>
-          {r.explorerTxUrl && <a style={styles.link} href={r.explorerTxUrl} target="_blank" rel="noreferrer">View transaction ↗</a>}
-          {r.explorerContractUrl && <a style={styles.link} href={r.explorerContractUrl} target="_blank" rel="noreferrer">View contract ↗</a>}
-        </div>
-        <Link to="/" style={styles.link}>← Back to Human Ink</Link>
-      </div>
-    );
-  }
-
-  const busy = submit.phase === 'submitting' || pendingPublish;
-  const primaryLabel = busy
-    ? (identity.status === 'ready' ? 'Publishing…' : 'Setting up your account…')
-    : identity.status === 'ready'
-      ? 'Confirm & publish on-chain'
-      : identity.status === 'needs-auth'
-        ? 'Sign in with World App & publish'
-        : 'Continue with Google & publish';
+  const m = proof.metrics || {};
+  const success = submit.phase === 'success';
+  const busy = submit.phase === 'submitting' || (!SIMULATE && pendingPublish);
 
   return (
     <div style={styles.wrap}>
-      <h1 style={styles.h1}>Publish proof of human writing</h1>
+      <h1 style={styles.h1}>{success ? '✓ Proof published' : 'Proof of human writing'}</h1>
       <p style={styles.muted}>
         Captured by the Human Ink extension{proof.context === 'google-docs' ? ' from Google Docs' : ''}
-        {proof.email ? ` · ${proof.email}` : ''}. Review and publish on-chain.
+        {proof.email ? ` · ${proof.email}` : ''}.{SIMULATE ? ' Demo — simulated on-chain write.' : ''}
       </p>
+
+      {/* AI detection score (simulated) */}
+      <div style={{ ...styles.card, borderColor: ai.color }}>
+        <div style={styles.scoreHead}>
+          <span style={styles.muted}>GPT Zero score <span style={styles.tag}>simulated</span></span>
+          <span style={{ ...styles.verdict, color: ai.color }}>{ai.verdict}</span>
+        </div>
+        <div style={styles.barWrap}>
+          <div style={{ ...styles.barFill, width: `${ai.human}%`, background: ai.color }} />
+        </div>
+        <div style={styles.scoreRow}>
+          <span>Human {ai.human}%</span>
+          <span>AI-assisted {ai.ai}%</span>
+        </div>
+      </div>
+
+      {/* Captured behavioral metrics */}
+      <div style={styles.grid}>
+        <Stat k={m.wpm ?? 0} l="WPM" />
+        <Stat k={m.keystrokeCount ?? proof.keystrokeCount} l="keystrokes" />
+        <Stat k={m.backspaceCount ?? 0} l="backspaces" />
+        <Stat k={m.pageExits ?? 0} l="page exits" />
+        <Stat k={m.pasteCount ?? 0} l="pastes" />
+        <Stat k={m.bigPastes ?? 0} l="big pastes" warn={(m.bigPastes ?? 0) > 0} />
+      </div>
 
       <div style={styles.card}>
         {proof.docTitle && <Row k="Document" v={proof.docTitle} />}
-        {proof.url && <Row k="Source" v={proof.url} />}
-        <Row k="Keystrokes" v={String(proof.keystrokeCount)} />
-        <Row k="Typing speed" v={`${proof.typingSpeed.toFixed(1)} keys/sec`} />
+        <Row k="Human-typed" v={`${Math.round((m.humanTypedRatio ?? 1) * 100)}%`} />
+        <Row k="Pasted chars" v={String(m.pastedChars ?? 0)} />
+        <Row k="Largest paste" v={`${m.largestPaste ?? 0} chars`} />
+        <Row k="Session length" v={fmtMs(m.elapsedMs)} />
+        <Row k="Hidden time" v={fmtMs(m.hiddenMs)} />
         <Row k="Content hash" v={short(proof.contentHash)} />
         <Row k="Human signature" v={short(proof.humanSignatureHash)} />
+        {success && typeof submit.result.entryId === 'number' && <Row k="Ledger entry" v={`#${submit.result.entryId}`} />}
+        {success && submit.result.transactionHash && <Row k="Tx" v={short(submit.result.transactionHash)} />}
       </div>
 
-      {identity.status === 'ready' && (
-        <p style={styles.muted}>
-          Account <span style={styles.mono}>{short(identity.address)}</span> ({identity.source})
-        </p>
+      {success ? (
+        <>
+          <p style={styles.muted}>
+            {submit.result.simulated ? 'Simulated write · World Chain Sepolia (demo)' : 'Recorded in HumanContentLedger.'}
+          </p>
+          {submit.result.explorerContractUrl && (
+            <a style={styles.link} href={submit.result.explorerContractUrl} target="_blank" rel="noreferrer">View contract ↗</a>
+          )}
+          <Link to="/" style={{ ...styles.link, display: 'block', marginTop: 12 }}>← Back to Human Ink</Link>
+        </>
+      ) : (
+        <>
+          <button style={{ ...styles.primary, opacity: busy ? 0.6 : 1 }} disabled={busy} onClick={handlePrimary}>
+            {busy ? 'Publishing…' : SIMULATE ? 'Publish proof on-chain' : 'Continue with Google & publish'}
+          </button>
+          {(authError || identity.authError) && <p style={styles.error}>{authError || identity.authError}</p>}
+          {submit.phase === 'error' && <p style={styles.error}>{submit.message}</p>}
+          <Link to="/" style={{ ...styles.link, marginTop: 14, display: 'block' }}>Cancel</Link>
+        </>
       )}
-
-      <button style={{ ...styles.primary, opacity: busy ? 0.6 : 1 }} disabled={busy} onClick={handlePrimary}>
-        {primaryLabel}
-      </button>
-
-      {(authError || identity.authError) && <p style={styles.error}>{authError || identity.authError}</p>}
-      {submit.phase === 'error' && <p style={styles.error}>{submit.message}</p>}
-
-      <Link to="/" style={{ ...styles.link, marginTop: 16 }}>Cancel</Link>
     </div>
   );
 }
@@ -265,24 +310,34 @@ function Row({ k, v }: { k: string; v: string }) {
     </div>
   );
 }
+function Stat({ k, l, warn }: { k: number | string; l: string; warn?: boolean }) {
+  return (
+    <div style={styles.stat}>
+      <span style={{ ...styles.statK, color: warn ? '#fbbf24' : 'inherit' }}>{k}</span>
+      <span style={styles.statL}>{l}</span>
+    </div>
+  );
+}
 
 const styles: Record<string, React.CSSProperties> = {
   wrap: { maxWidth: 460, margin: '32px auto', padding: '0 20px', color: 'inherit' },
   h1: { fontSize: 20, marginBottom: 6 },
   muted: { fontSize: 13, opacity: 0.7, margin: '6px 0' },
   error: { fontSize: 13, color: '#f87171', margin: '8px 0' },
-  card: {
-    border: '1px solid rgba(255,255,255,0.12)', borderRadius: 10, padding: 14,
-    margin: '14px 0', background: 'rgba(255,255,255,0.03)',
-  },
+  tag: { fontSize: 9, textTransform: 'uppercase', letterSpacing: 0.5, opacity: 0.6, border: '1px solid currentColor', borderRadius: 4, padding: '1px 4px', marginLeft: 4 },
+  card: { border: '1px solid rgba(255,255,255,0.14)', borderRadius: 10, padding: 14, margin: '12px 0', background: 'rgba(255,255,255,0.03)' },
+  scoreHead: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 },
+  verdict: { fontSize: 13, fontWeight: 650 },
+  barWrap: { height: 8, borderRadius: 999, background: 'rgba(255,255,255,0.12)', overflow: 'hidden' },
+  barFill: { height: '100%', borderRadius: 999, transition: 'width 0.5s' },
+  scoreRow: { display: 'flex', justifyContent: 'space-between', fontSize: 11, opacity: 0.7, marginTop: 5 },
+  grid: { display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 6, margin: '12px 0' },
+  stat: { border: '1px solid rgba(255,255,255,0.1)', borderRadius: 8, padding: '8px 4px', textAlign: 'center', background: 'rgba(255,255,255,0.03)' },
+  statK: { display: 'block', fontSize: 17, fontWeight: 650 },
+  statL: { display: 'block', fontSize: 9, opacity: 0.6, marginTop: 2 },
   row: { display: 'flex', justifyContent: 'space-between', gap: 12, padding: '5px 0', fontSize: 13 },
   rowK: { opacity: 0.6 },
   rowV: { fontFamily: 'ui-monospace, Menlo, monospace', wordBreak: 'break-all', textAlign: 'right' },
-  mono: { fontFamily: 'ui-monospace, Menlo, monospace' },
-  primary: {
-    width: '100%', padding: '11px 14px', borderRadius: 8, border: 'none',
-    background: '#6ee7b7', color: '#0b0d10', fontWeight: 650, fontSize: 14, cursor: 'pointer',
-  },
-  links: { display: 'flex', gap: 14, margin: '12px 0' },
-  link: { color: '#6ee7b7', fontSize: 13, textDecoration: 'none', display: 'inline-block' },
+  primary: { width: '100%', padding: '11px 14px', borderRadius: 8, border: 'none', background: '#6ee7b7', color: '#0b0d10', fontWeight: 650, fontSize: 14, cursor: 'pointer' },
+  link: { color: '#6ee7b7', fontSize: 13, textDecoration: 'none' },
 };
