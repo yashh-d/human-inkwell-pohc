@@ -289,6 +289,14 @@ function HomePage({
    *  so the user sees a single calm message instead of a flicker of stages. */
   const [submitPhrase, setSubmitPhrase] = useState<string | null>(null);
 
+  /** Demo mode: lets anyone try the writing surface and see their full
+   *  biometric breakdown without World ID, Privy, a wallet, or any signing /
+   *  on-chain write. Everything runs on-device exactly as the real flow does
+   *  up to (but not including) the blockchain submit. */
+  const [demoMode, setDemoMode] = useState<boolean>(false);
+  /** When true, show the demo result overlay (the local biometric preview). */
+  const [demoReceipt, setDemoReceipt] = useState<boolean>(false);
+
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const writingSectionRef = useRef<HTMLDivElement>(null);
 
@@ -536,7 +544,7 @@ function HomePage({
     }
   };
 
-  /** One-tap Sign + Publish. */
+  /** One-tap Sign + Publish (or, in demo mode, Sign + Preview locally). */
   const handlePost = async () => {
     if (!content.trim()) {
       setProcessingStatus('⚠️ Type something before posting.');
@@ -544,11 +552,27 @@ function HomePage({
     }
     const signed = await handleGenerateSignature();
     if (!signed) return;
+
+    // Demo: stop after on-device signing — no wallet, no relay, no on-chain
+    // write. Just surface the biometric breakdown the real flow would post.
+    if (demoMode) {
+      setIsWritingOpen(false);
+      setDemoReceipt(true);
+      return;
+    }
+
     await handleSubmitToBlockchain({
       contentHash: signed.textHash,
       humanSignatureHash: signed.humanHash,
       biometric: signed.biometric,
     });
+  };
+
+  /** Enter the writing surface in demo mode — no World ID / wallet required. */
+  const handleStartDemo = () => {
+    setDemoMode(true);
+    setProcessingStatus('');
+    handleOpenWriting();
   };
 
   // ─── Overlay open/close ────────────────────────────────────────────────
@@ -575,6 +599,8 @@ function HomePage({
     setBlockchainErrorHelp(null);
     setBlockchainSuccess(null);
     setShareNote(null);
+    setDemoMode(false);
+    setDemoReceipt(false);
     sessionKeystrokesRef.current = [];
     pauseWindowsRef.current = [];
     resetCapture();
@@ -583,7 +609,7 @@ function HomePage({
 
   // ─── Body class toggle so AmbientNav can hide via pure CSS ─────────────
   useEffect(() => {
-    if (isWritingOpen || blockchainSuccess) {
+    if (isWritingOpen || blockchainSuccess || demoReceipt) {
       document.body.classList.add('hi-overlay-open');
       const prev = document.body.style.overflow;
       document.body.style.overflow = 'hidden';
@@ -593,7 +619,7 @@ function HomePage({
       };
     }
     return undefined;
-  }, [isWritingOpen, blockchainSuccess]);
+  }, [isWritingOpen, blockchainSuccess, demoReceipt]);
 
   // ─── Open: reset state and auto-start capture ──────────────────────────
   useEffect(() => {
@@ -701,7 +727,7 @@ function HomePage({
   return (
     <>
       {/* ─── Stages: verify → start ─────────────────────────────────────── */}
-      {!isWritingOpen && !blockchainSuccess && (
+      {!isWritingOpen && !blockchainSuccess && !demoReceipt && (
         <>
           <section className="hi-stage" ref={writingSectionRef}>
             <div className="hi-stage-card">
@@ -723,6 +749,19 @@ function HomePage({
                       isInWorldApp={isInWorldApp}
                       layout="onboarding"
                     />
+                  </div>
+                  <div className="hi-stage-card__demo">
+                    <button
+                      type="button"
+                      className="hi-btn hi-btn--link"
+                      onClick={handleStartDemo}
+                    >
+                      Just try it — see your biometrics without signing in
+                    </button>
+                    <p className="hi-stage-card__foot">
+                      A demo: type, then preview the exact rhythm data and hashes we’d post.
+                      Nothing is signed or written onchain.
+                    </p>
                   </div>
                 </>
               ) : (
@@ -801,6 +840,11 @@ function HomePage({
               ×
             </button>
             <div className="hi-overlay__meta" aria-live="polite">
+              {demoMode && (
+                <span className="hi-overlay__demo-pill" title="Demo — nothing is signed or written onchain">
+                  Demo
+                </span>
+              )}
               {isCapturing && (
                 <span className="hi-overlay__rec" title="Capture is active">
                   <span className="hi-overlay__rec-dot" aria-hidden />
@@ -839,7 +883,13 @@ function HomePage({
                 onClick={handlePost}
                 disabled={isProcessing || isSubmittingToBlockchain || !content.trim()}
               >
-                {isProcessing ? 'Signing…' : isSubmittingToBlockchain ? 'Publishing…' : 'Post'}
+                {isProcessing
+                  ? (demoMode ? 'Analyzing…' : 'Signing…')
+                  : isSubmittingToBlockchain
+                  ? 'Publishing…'
+                  : demoMode
+                  ? 'See my biometrics'
+                  : 'Post'}
               </button>
             </div>
           </div>
@@ -1096,6 +1146,73 @@ function HomePage({
                     <strong>Gas used:</strong> {blockchainSuccess.gasUsed}
                   </p>
                 )}
+                {biometricDetail}
+              </details>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ─── Stage: demo result (local biometric preview, nothing onchain) ── */}
+      {demoReceipt && (
+        <div className="hi-overlay" role="dialog" aria-label="Demo result">
+          <div className="hi-overlay__topbar" role="toolbar" aria-label="Demo actions">
+            <button
+              type="button"
+              className="hi-overlay__close"
+              onClick={handleWriteAnother}
+              aria-label="Close demo"
+            >
+              ×
+            </button>
+            <div className="hi-overlay__meta">
+              <span className="hi-overlay__demo-pill" title="Demo — nothing is signed or written onchain">
+                Demo
+              </span>
+            </div>
+            <div className="hi-overlay__actions">
+              <button
+                type="button"
+                className="hi-btn hi-btn--ghost"
+                onClick={handleWriteAnother}
+              >
+                Try again
+              </button>
+            </div>
+          </div>
+
+          <div className="hi-overlay__body hi-overlay__body--centered">
+            <div className="hi-receipt">
+              <div
+                className="hi-receipt__note"
+                role="note"
+                style={{
+                  background: '#fff7d6',
+                  border: '1px solid #e8d98a',
+                  borderRadius: 8,
+                  padding: '10px 12px',
+                  marginBottom: 12,
+                }}
+              >
+                <strong>Demo preview.</strong> Nothing was signed, and nothing was written to
+                World Chain. This is computed entirely on your device.
+              </div>
+              <h2 className="hi-receipt__title">Your biometric preview</h2>
+              <p className="hi-receipt__note">
+                This is exactly what the real flow analyzes and posts onchain — your typing
+                rhythm and the two hashes below. To make it permanent, verify with World ID.
+              </p>
+              <div className="hi-receipt__actions" role="group" aria-label="Demo next steps">
+                <button
+                  type="button"
+                  className="hi-btn hi-btn--primary"
+                  onClick={handleWriteAnother}
+                >
+                  Verify with World ID to post for real
+                </button>
+              </div>
+              <details className="hi-receipt__detail" open>
+                <summary>Full detail · biometric, hashes</summary>
                 {biometricDetail}
               </details>
             </div>

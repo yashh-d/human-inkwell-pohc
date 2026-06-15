@@ -674,6 +674,25 @@ body.hi-overlay-open .hi-ambient { display: none; }
   text-transform: uppercase;
 }
 
+.hi-overlay__demo-pill {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.3rem 0.75rem;
+  background: #fff7d6;
+  border: 1px solid #e8d98a;
+  border-radius: var(--hi-r-pill);
+  font-size: 0.72rem;
+  font-weight: 700;
+  color: #8a6d00;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.hi-stage-card__demo {
+  margin-top: 1rem;
+  text-align: center;
+}
+
 .hi-overlay__actions {
   display: inline-flex;
   align-items: center;
