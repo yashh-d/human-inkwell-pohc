@@ -70,6 +70,8 @@ type ExtensionProof = {
     firstModified: number | null;
     lastModified: number | null;
     spanMs: number;
+    spanDays?: number;
+    editDays?: number;
     authors: string[];
   } | null;
 };
@@ -305,7 +307,20 @@ export default function PublishProofPage() {
         <div style={styles.card}>
           <div style={styles.sec}>Google Docs revision history</div>
           <Row k="Saved revisions" v={String(proof.docsRevision.revisionCount)} />
-          <Row k="Span" v={fmtMs(proof.docsRevision.spanMs)} />
+          <Row
+            k="Edited across"
+            v={(() => {
+              const d = proof.docsRevision.editDays || 0;
+              const sp = proof.docsRevision.spanDays || 0;
+              return d <= 1 ? '1 day' : `${d} days${sp > d ? ` (over ${sp})` : ''}`;
+            })()}
+          />
+          {proof.docsRevision.firstModified && (
+            <Row
+              k="Date range"
+              v={`${new Date(proof.docsRevision.firstModified).toLocaleDateString()} → ${new Date(proof.docsRevision.lastModified!).toLocaleDateString()}`}
+            />
+          )}
           <Row k="Editors" v={proof.docsRevision.authors.length ? proof.docsRevision.authors.join(', ') : '—'} />
         </div>
       )}
