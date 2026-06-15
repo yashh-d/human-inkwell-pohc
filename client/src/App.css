@@ -713,6 +713,10 @@ body.hi-overlay-open .hi-ambient { display: none; }
 
 .hi-overlay__body {
   flex: 1 1 auto;
+  /* Without min-height: 0 a flex child keeps its content height (min-height:
+     auto), so long content (e.g. the expanded demo biometric detail) overflows
+     the fixed viewport instead of letting overflow-y: auto scroll. */
+  min-height: 0;
   display: flex;
   flex-direction: column;
   padding: 1.5rem 1.5rem 2rem;
