@@ -19,8 +19,10 @@ import { rememberMiniKitWallet } from '../utils/miniKitWallet';
  */
 const SIMULATE = true;
 
-const CONTRACT_ADDRESS = '0x08A70Fed4d80893fC03Bd3E1D8cfb36E58a9E95d';
-const EXPLORER_BASE = 'https://sepolia.worldscan.org';
+// Real deployed contract + explorer, from the app's env (falls back to the
+// known World Chain Sepolia deployment).
+const CONTRACT_ADDRESS = process.env.REACT_APP_CONTRACT_ADDRESS || '0x08A70Fed4d80893fC03Bd3E1D8cfb36E58a9E95d';
+const EXPLORER_BASE = (process.env.REACT_APP_BLOCKCHAIN_EXPLORER_URL || 'https://sepolia.worldscan.org').replace(/\/+$/, '');
 
 type ProofMetrics = {
   wpm?: number;
@@ -62,6 +64,14 @@ type ExtensionProof = {
   email?: string | null;
   metrics?: ProofMetrics;
   revision?: RevisionAnalysis | null;
+  docsRevision?: {
+    source: string;
+    revisionCount: number;
+    firstModified: number | null;
+    lastModified: number | null;
+    spanMs: number;
+    authors: string[];
+  } | null;
 };
 
 const PROOF_KEY = 'humanink_pending_proof';
@@ -289,6 +299,16 @@ export default function PublishProofPage() {
         {success && typeof submit.result.entryId === 'number' && <Row k="Ledger entry" v={`#${submit.result.entryId}`} />}
         {success && submit.result.transactionHash && <Row k="Tx" v={short(submit.result.transactionHash)} />}
       </div>
+
+      {/* Real Google Docs revision history (Drive API) */}
+      {proof.docsRevision && proof.docsRevision.revisionCount > 0 && (
+        <div style={styles.card}>
+          <div style={styles.sec}>Google Docs revision history</div>
+          <Row k="Saved revisions" v={String(proof.docsRevision.revisionCount)} />
+          <Row k="Span" v={fmtMs(proof.docsRevision.spanMs)} />
+          <Row k="Editors" v={proof.docsRevision.authors.length ? proof.docsRevision.authors.join(', ') : '—'} />
+        </div>
+      )}
 
       {/* Revision analysis — edit timeline reconstructed from the capture */}
       {proof.revision && proof.revision.editCount > 0 && (() => {
