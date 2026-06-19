@@ -1,0 +1,181 @@
+/* ───────────────────────────────────────────────────────────────
+   About page — Humanink. Builds on the landing system (.lp tokens &
+   buttons from LandingPage.css); adds the intro, pipeline, privacy
+   and glossary layouts. Same restrained, editorial language.
+   ─────────────────────────────────────────────────────────────── */
+
+.about-nav__home { display: inline-flex; align-items: center; line-height: 0; }
+
+/* ── Intro ───────────────────────────────────────────────── */
+.about-intro {
+  max-width: 880px;
+  margin: 0 auto;
+  padding: clamp(3rem, 7vw, 6rem) clamp(1.1rem, 4vw, 3.5rem) clamp(2rem, 4vw, 3rem);
+  animation: lp-rise 0.7s cubic-bezier(0.2, 0.8, 0.2, 1) both;
+}
+.about-intro__title {
+  font-size: clamp(2.6rem, 6vw, 4.3rem);
+  line-height: 1.05;
+  letter-spacing: -0.04em;
+  font-weight: 700;
+  margin: 0 0 1.4rem;
+}
+.about-intro__lede {
+  font-size: clamp(1.08rem, 1.7vw, 1.3rem);
+  line-height: 1.62;
+  color: var(--lp-muted);
+  max-width: 60ch;
+  margin: 0;
+}
+
+/* ── Prose section (why it matters) ──────────────────────── */
+.about-prose {
+  max-width: 1120px;
+  margin: 0 auto;
+  padding: clamp(3rem, 7vw, 5.5rem) clamp(1.1rem, 4vw, 3.5rem);
+  border-top: 1px solid var(--lp-line-soft);
+}
+.about-prose .lp-section-title { margin-bottom: 2.2rem; max-width: 22ch; }
+.about-prose__cols {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: clamp(1.6rem, 4vw, 3.5rem);
+}
+.about-prose__cols p {
+  font-size: 1.04rem;
+  line-height: 1.66;
+  color: var(--lp-muted);
+  margin: 0;
+}
+
+/* ── Pipeline (reuses .lp-steps) ─────────────────────────── */
+.about-pipeline {
+  max-width: 1120px;
+  margin: 0 auto;
+  padding: clamp(3rem, 7vw, 5.5rem) clamp(1.1rem, 4vw, 3.5rem);
+  border-top: 1px solid var(--lp-line-soft);
+}
+.about-pipeline__head { margin-bottom: 3rem; }
+
+.about-works { margin-top: clamp(2.4rem, 5vw, 3.4rem); }
+.about-works__label {
+  display: block;
+  font-size: 0.72rem;
+  font-weight: 600;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--lp-faint);
+  margin-bottom: 0.9rem;
+}
+.about-works__logos { display: flex; align-items: center; gap: 0.7rem; flex-wrap: wrap; }
+.about-works__cta { margin-left: 0.3rem; }
+
+/* ── Privacy ─────────────────────────────────────────────── */
+.about-privacy {
+  max-width: 1120px;
+  margin: 0 auto;
+  padding: clamp(3rem, 7vw, 5.5rem) clamp(1.1rem, 4vw, 3.5rem);
+  border-top: 1px solid var(--lp-line-soft);
+}
+.about-privacy__head { margin-bottom: 2.6rem; }
+.about-privacy__sub {
+  font-size: 1.06rem;
+  line-height: 1.6;
+  color: var(--lp-muted);
+  max-width: 52ch;
+  margin: 1.2rem 0 0;
+}
+.about-privacy__grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 1.1rem;
+}
+.about-card {
+  padding: 1.8rem 1.7rem 1.9rem;
+  background: #fff;
+  border: 1px solid var(--lp-line);
+  border-radius: 14px;
+}
+.about-card--keep { border-color: rgba(0, 180, 216, 0.35); }
+.about-card__tag {
+  display: inline-block;
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  margin-bottom: 1.2rem;
+}
+.about-card__tag--keep { color: var(--lp-cyan-ink); }
+.about-card__tag--never { color: var(--lp-faint); }
+
+.about-list { list-style: none; margin: 0; padding: 0; }
+.about-list li {
+  position: relative;
+  padding-left: 1.7rem;
+  font-size: 0.98rem;
+  line-height: 1.5;
+  color: var(--lp-ink);
+  margin-bottom: 0.95rem;
+}
+.about-list li:last-child { margin-bottom: 0; }
+.about-list li::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 0.36em;
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: var(--lp-cyan);
+  box-shadow: 0 0 0 4px rgba(0, 180, 216, 0.14);
+}
+.about-list--never li { color: var(--lp-muted); }
+.about-list--never li::before {
+  background: transparent;
+  border: 1.5px solid rgba(11, 13, 14, 0.28);
+  box-shadow: none;
+  width: 8px;
+  height: 8px;
+  top: 0.42em;
+}
+
+/* ── Glossary ────────────────────────────────────────────── */
+.about-glossary {
+  max-width: 1120px;
+  margin: 0 auto;
+  padding: clamp(3rem, 7vw, 5.5rem) clamp(1.1rem, 4vw, 3.5rem);
+  border-top: 1px solid var(--lp-line-soft);
+}
+.about-glossary__head { margin-bottom: 2.6rem; }
+.about-defs { margin: 0; }
+.about-def {
+  display: grid;
+  grid-template-columns: 0.32fr 0.68fr;
+  gap: clamp(1rem, 4vw, 3rem);
+  padding: 1.5rem 0;
+  border-top: 1px solid var(--lp-line-soft);
+}
+.about-def:first-child { border-top: none; }
+.about-def dt {
+  font-size: 1.12rem;
+  font-weight: 700;
+  letter-spacing: -0.015em;
+  color: var(--lp-ink);
+}
+.about-def dd {
+  margin: 0;
+  font-size: 1rem;
+  line-height: 1.6;
+  color: var(--lp-muted);
+}
+
+/* ── Responsive ──────────────────────────────────────────── */
+@media (max-width: 900px) {
+  .about-prose__cols { grid-template-columns: 1fr; }
+  .about-privacy__grid { grid-template-columns: 1fr; }
+  .about-def { grid-template-columns: 1fr; gap: 0.4rem; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .about-intro { animation: none; }
+}

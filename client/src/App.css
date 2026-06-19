@@ -724,6 +724,8 @@ body.hi-overlay-open .hi-ambient { display: none; }
   width: 100%;
   margin: 0 auto;
   overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior: contain;
 }
 
 .hi-overlay__body--centered {
@@ -865,6 +867,11 @@ body.hi-overlay-open .hi-ambient { display: none; }
   box-shadow: var(--hi-shadow-md);
   position: relative;
   overflow: hidden;
+  /* In the flex-column overlay body, `overflow: hidden` would otherwise give
+     this card an auto min-height of 0, letting it shrink to the viewport and
+     CLIP long content (e.g. the expanded biometric detail) instead of growing
+     and letting the body scroll. Pin its size so the body scrolls instead. */
+  flex: 0 0 auto;
 }
 
 .hi-receipt::before {

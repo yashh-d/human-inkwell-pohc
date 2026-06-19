@@ -6,6 +6,8 @@ import OnboardingFlow, { isOnboardingMarkedDone } from './components/OnboardingF
 import { useWorldID } from './hooks/useWorldID';
 import { useMiniKit } from './hooks/useMiniKit';
 import AppLayout from './layouts/AppLayout';
+import LandingPage from './pages/LandingPage';
+import AboutPage from './pages/AboutPage';
 import HomePage from './pages/HomePage';
 import WorkflowPage from './pages/WorkflowPage';
 import PublishProofPage from './pages/PublishProofPage';
@@ -33,69 +35,53 @@ function App() {
     resetVerification,
   } = useWorldID();
 
-  if (onboardingOpen) {
-    return (
-      <div className="App">
-        <OnboardingFlow
-          worldIdProps={{
-            isVerified,
-            worldIdProof,
-            error: worldIdError,
-            isLoading: worldIdLoading,
-            onVerify: handleVerify,
-            onError: handleError,
-            onVerifyMiniKit: verifyViaMiniKit,
-            isInWorldApp,
-          }}
-          onComplete={() => setOnboardingOpen(false)}
-        />
-        <VercelAnalyticsGate />
-      </div>
-    );
-  }
+  // Onboarding now gates only the app routes (not the marketing landing at /),
+  // so a first-time visitor sees the homepage and meets onboarding when they
+  // enter the app via a CTA. Rendered as the app layout's element with no
+  // <Outlet/>, so child app routes stay hidden until onboarding completes.
+  const onboardingEl = (
+    <OnboardingFlow
+      worldIdProps={{
+        isVerified,
+        worldIdProof,
+        error: worldIdError,
+        isLoading: worldIdLoading,
+        onVerify: handleVerify,
+        onError: handleError,
+        onVerifyMiniKit: verifyViaMiniKit,
+        isInWorldApp,
+      }}
+      onComplete={() => setOnboardingOpen(false)}
+    />
+  );
+
+  const writeEl = (
+    <HomePage
+      isInWorldApp={isInWorldApp}
+      onVerifyMiniKit={verifyViaMiniKit}
+      isVerified={isVerified}
+      worldIdProof={worldIdProof}
+      worldIdError={worldIdError}
+      worldIdLoading={worldIdLoading}
+      onWorldIdVerify={handleVerify}
+      onWorldIdError={handleError}
+      onWorldIdReset={resetVerification}
+      focusWriting
+    />
+  );
 
   return (
     <BrowserRouter>
       <div className="App">
         <Routes>
-          <Route element={<AppLayout />}>
-            <Route
-              path="/"
-              element={
-                <HomePage
-                  isInWorldApp={isInWorldApp}
-                  onVerifyMiniKit={verifyViaMiniKit}
-                  isVerified={isVerified}
-                  worldIdProof={worldIdProof}
-                  worldIdError={worldIdError}
-                  worldIdLoading={worldIdLoading}
-                  onWorldIdVerify={handleVerify}
-                  onWorldIdError={handleError}
-                  onWorldIdReset={resetVerification}
-                />
-              }
-            />
-            <Route
-              path="/write"
-              element={
-                <HomePage
-                  isInWorldApp={isInWorldApp}
-                  onVerifyMiniKit={verifyViaMiniKit}
-                  isVerified={isVerified}
-                  worldIdProof={worldIdProof}
-                  worldIdError={worldIdError}
-                  worldIdLoading={worldIdLoading}
-                  onWorldIdVerify={handleVerify}
-                  onWorldIdError={handleError}
-                  onWorldIdReset={resetVerification}
-                  focusWriting
-                />
-              }
-            />
+          <Route path="/" element={<LandingPage />} />
+          <Route path="/about" element={<AboutPage />} />
+          <Route element={onboardingOpen ? onboardingEl : <AppLayout />}>
+            <Route path="/write" element={writeEl} />
             <Route path="/workflow" element={<WorkflowPage />} />
             <Route path="/publish" element={<PublishProofPage />} />
-            <Route path="*" element={<Navigate to="/" replace />} />
           </Route>
+          <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
         <VercelAnalyticsGate />
       </div>

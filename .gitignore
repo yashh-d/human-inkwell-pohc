@@ -47,3 +47,14 @@ blockchain/coverage/
 
 # Supabase CLI working dir (local state, not project source)
 supabase/.temp/
+
+# Launch video projects (HyperFrames scratch, huge .mov assets — not app source)
+humanink-launch/
+humanink-launch-square/
+humanink-launch-v2/
+humanink-launch-vertical/
+brandlogos/
+
+# Scratch screenshots
+edit.png
+fucked.png
