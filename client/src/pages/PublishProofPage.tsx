@@ -130,6 +130,240 @@ const fmtMs = (ms?: number) => {
   return s < 60 ? `${s}s` : `${Math.floor(s / 60)}m ${s % 60}s`;
 };
 
+/**
+ * Human Authorship Score — the one number a professor reads in five seconds.
+ *
+ * Built from the signals that matter most, in priority order: revision depth
+ * (the fingerprint of real effort — you cannot fake drafts), writing-vs-pasting,
+ * time invested, and editing-over-time. Each signal is normalized 0–100,
+ * weighted, and rolled into one score. (We deliberately do NOT score "leaving
+ * the doc" — tab-switching to research or cite is normal, not a red flag.)
+ * Signals with no data are dropped and the remaining weights re-normalized, so
+ * the score is always honest about what it actually saw.
+ *
+ * Every signal carries a one-liner written for a professor, not an engineer —
+ * the point is that nobody has to learn anything new to read this.
+ */
+type AuthorshipSignal = {
+  key: string;
+  label: string;
+  blurb: string;        // one-liner, from the professor's seat
+  score: number;        // 0–100
+  weight: number;
+  detail: string;       // human-readable value
+  has: boolean;         // did we actually capture this?
+};
+
+function computeAuthorshipScore(proof: ExtensionProof) {
+  const m = proof.metrics || {};
+  const rev = proof.revision || null;
+  const docs = proof.docsRevision || null;
+
+  // 1) REVISION DEPTH — highest weight. Saved Google Docs revisions are signed
+  //    by Google, not by us, so this is the one signal that can't be faked.
+  const savedRevisions = docs?.revisionCount || 0;
+  const editEvents = rev?.editCount || 0;
+  const revisionScore = Math.min(100, savedRevisions * 4 + editEvents * 3);
+
+  // 2) TIME INVESTED — real writing takes time. 30 active minutes tops it out.
+  const minutes = (m.elapsedMs || 0) / 60000;
+  const timeScore = Math.min(100, Math.round((minutes / 30) * 100));
+
+  // 3) WRITTEN, NOT PASTED — share of text typed keystroke-by-keystroke here.
+  const typedRatio = typeof m.humanTypedRatio === 'number'
+    ? m.humanTypedRatio
+    : (rev ? rev.humanTypedRatio : 1);
+  const typedScore = Math.round(Math.max(0, Math.min(1, typedRatio)) * 100);
+
+  // 4) EDITING OVER TIME — work spread across sittings beats one rushed dump.
+  const editDays = docs?.editDays || (minutes > 0 ? 1 : 0);
+  const spanDays = docs?.spanDays || editDays;
+  const overTimeScore = Math.min(100, Math.round((editDays / 4) * 100));
+
+  const signals: AuthorshipSignal[] = [
+    {
+      key: 'revision',
+      label: 'Revision depth',
+      blurb: 'Drafts, rewrites and edits — the fingerprint of real effort. You can’t fake a revision history.',
+      score: revisionScore,
+      weight: 0.33,
+      detail: savedRevisions
+        ? `${savedRevisions} saved revisions · ${editEvents} edits`
+        : `${editEvents} edit events`,
+      has: savedRevisions > 0 || editEvents > 0,
+    },
+    {
+      key: 'typed',
+      label: 'Written, not pasted',
+      blurb: 'How much was typed here, character by character, versus pasted in from somewhere else.',
+      score: typedScore,
+      weight: 0.28,
+      detail: `${typedScore}% typed`,
+      has: typeof m.humanTypedRatio === 'number' || !!rev,
+    },
+    {
+      key: 'time',
+      label: 'Time invested',
+      blurb: 'Genuine writing takes time, not minutes. This is how long they actually spent in the work.',
+      score: timeScore,
+      weight: 0.22,
+      detail: fmtMs(m.elapsedMs),
+      has: (m.elapsedMs || 0) > 0,
+    },
+    {
+      key: 'time-span',
+      label: 'Editing over time',
+      blurb: 'Work spread across days and sittings beats one rushed, single-session dump.',
+      score: overTimeScore,
+      weight: 0.17,
+      detail: editDays <= 1 ? '1 day' : `${editDays} days${spanDays > editDays ? ` (over ${spanDays})` : ''}`,
+      has: editDays > 0,
+    },
+  ];
+
+  const live = signals.filter((s) => s.has);
+  const totalWeight = live.reduce((sum, s) => sum + s.weight, 0) || 1;
+  const score = Math.round(live.reduce((sum, s) => sum + s.score * s.weight, 0) / totalWeight);
+
+  const verdict = score >= 75 ? 'Strong proof of human effort'
+    : score >= 50 ? 'Solid signs of human work'
+    : score >= 30 ? 'Limited evidence of effort'
+    : 'Little evidence of original work';
+  const color = score >= 75 ? '#6ee7b7' : score >= 50 ? '#a7f3d0' : score >= 30 ? '#fbbf24' : '#f87171';
+
+  return { score, verdict, color, signals };
+}
+
+/**
+ * Revision authenticity — the anti-gaming check. Real, not simulated: it runs
+ * entirely on signals we already captured. Genuine drafting leaves a messy
+ * texture (deletions, rewrites, work spread across sittings); manufactured
+ * revisions look the opposite — big pastes, monotonic growth, all in one go.
+ * Each flag is a plain-English observation a professor can sanity-check.
+ */
+type IntegrityFlag = { level: 'ok' | 'warn' | 'bad'; text: string };
+
+function computeIntegrity(proof: ExtensionProof) {
+  const m = proof.metrics || {};
+  const rev = proof.revision || null;
+  const docs = proof.docsRevision || null;
+  const flags: IntegrityFlag[] = [];
+
+  const typedRatio = typeof m.humanTypedRatio === 'number' ? m.humanTypedRatio : (rev ? rev.humanTypedRatio : 1);
+  const bigPastes = m.bigPastes || 0;
+  const editDays = docs?.editDays || 0;
+  const revisionCount = docs?.revisionCount || 0;
+  const editEvents = rev?.editCount || 0;
+  const keystrokes = m.keystrokeCount || proof.keystrokeCount || 0;
+  const backspaces = m.backspaceCount || 0;
+
+  let penalty = 0;
+
+  // Big pastes — whole blocks dropped in rather than written.
+  if (bigPastes > 0) {
+    flags.push({ level: 'bad', text: `${bigPastes} large paste${bigPastes > 1 ? 's' : ''} — big blocks of text dropped in rather than written.` });
+    penalty += Math.min(45, bigPastes * 20);
+  } else {
+    flags.push({ level: 'ok', text: 'No large pastes — the text was built up, not dropped in.' });
+  }
+
+  // How much was actually typed here.
+  if (typedRatio < 0.5) {
+    flags.push({ level: 'bad', text: `Only ${Math.round(typedRatio * 100)}% of the text was typed in the document.` });
+    penalty += 25;
+  } else if (typedRatio < 0.85) {
+    flags.push({ level: 'warn', text: `${Math.round(typedRatio * 100)}% typed — some of the content came from elsewhere.` });
+    penalty += 10;
+  }
+
+  // Many revisions, but all in one sitting — the manufactured-draft pattern.
+  if ((revisionCount >= 6 || editEvents >= 12) && editDays <= 1) {
+    flags.push({ level: 'warn', text: `${revisionCount || editEvents} revisions but all in one sitting — genuine drafting usually spreads across sessions.` });
+    penalty += 15;
+  }
+
+  // Real revising deletes and rewrites; text that only ever grew is suspect.
+  if (keystrokes > 200 && backspaces === 0) {
+    flags.push({ level: 'warn', text: 'Revisions only added text — no deletions or rewrites, unusual for genuine editing.' });
+    penalty += 15;
+  } else if (backspaces > 0) {
+    flags.push({ level: 'ok', text: 'Edits include deletions and rewrites — the texture of real revising.' });
+  }
+
+  // Sustained work over real days is the hardest thing to fake.
+  if (editDays >= 2) flags.push({ level: 'ok', text: `Worked across ${editDays} days — sustained effort is hard to fake.` });
+
+  const score = Math.max(0, 100 - penalty);
+  const verdict = score >= 75 ? 'Revisions look authentic' : score >= 45 ? 'Some signs of gaming' : 'Likely manufactured';
+  const color = score >= 75 ? '#6ee7b7' : score >= 45 ? '#fbbf24' : '#f87171';
+  return { score, verdict, color, flags };
+}
+
+/**
+ * Rubric-process alignment (OPTIONAL, professor-facing). Reads the rubric the
+ * professor pastes and reports how the observed writing *process* lines up with
+ * what each criterion rewards — a second opinion that points at evidence, never
+ * a grade. DEMO (current): per-criterion alignment + notes derived heuristically
+ * from the captured signals, fully client-side. The real Claude Agent SDK version
+ * (subscription-authed) is parked at future/rubric-analyze.ts — to go live, run it
+ * via Vercel Sandbox and POST { rubric, process } to it from runAlignment.
+ */
+type RubricRow = { criterion: string; note: string; alignment?: 'strong' | 'partial' | 'weak' | 'unclear' };
+
+function parseRubric(text: string): string[] {
+  return text
+    .split(/\n+/)
+    .map((l) => l.replace(/^\s*(\d+[.)]|[-*•])\s*/, '').trim())
+    .filter(Boolean)
+    .slice(0, 8);
+}
+
+function buildRubricAlignment(rubricText: string, proof: ExtensionProof) {
+  const criteria = parseRubric(rubricText);
+  const m = proof.metrics || {};
+  const rev = proof.revision || null;
+  const docs = proof.docsRevision || null;
+
+  const editEvents = rev?.editCount || 0;
+  const editDays = docs?.editDays || 0;
+  const revisions = docs?.revisionCount || 0;
+  const typedPct = Math.round((typeof m.humanTypedRatio === 'number' ? m.humanTypedRatio : (rev ? rev.humanTypedRatio : 1)) * 100);
+  const bigPastes = m.bigPastes || 0;
+  const backspaces = m.backspaceCount || 0;
+  const processSummary = `${revisions || editEvents} revisions · ${editDays <= 1 ? '1 day' : `${editDays} days`} · ${typedPct}% typed`;
+
+  const revDepth = (revisions || editEvents);
+  const rows: RubricRow[] = criteria.map((c) => {
+    const t = c.toLowerCase();
+    let note: string;
+    let alignment: NonNullable<RubricRow['alignment']>;
+    if (/revis|draft|edit|rewrit|process/.test(t)) {
+      note = `${revDepth} revisions over ${editDays <= 1 ? 'one session' : `${editDays} days`} — direct evidence of iterative work toward this.`;
+      alignment = revDepth >= 8 || editDays >= 2 ? 'strong' : revDepth >= 2 ? 'partial' : 'weak';
+    } else if (/evidence|research|source|cite|quote|reference/.test(t)) {
+      note = bigPastes > 0
+        ? `Pasted material present — could be quoted sources, but confirm it’s cited and not lifted whole.`
+        : `Little was pasted in, so any sources were re-expressed in the student’s own typing.`;
+      alignment = bigPastes > 0 ? 'partial' : 'strong';
+    } else if (/grammar|clarity|style|proofread|mechanic|polish/.test(t)) {
+      note = backspaces > 0
+        ? `Frequent deletions and rewrites suggest real proofreading and polishing.`
+        : `Few corrections captured — light evidence of a proofreading pass.`;
+      alignment = backspaces > 20 ? 'strong' : backspaces > 0 ? 'partial' : 'weak';
+    } else if (/thesis|argument|structure|organiz|coheren|flow/.test(t)) {
+      note = `Revision history shows the piece was reworked, not written in one pass — consistent with developing structure.`;
+      alignment = revDepth >= 5 ? 'strong' : revDepth >= 1 ? 'partial' : 'unclear';
+    } else {
+      note = `Process check: ${processSummary}. Use alongside your own read of the content.`;
+      alignment = 'unclear';
+    }
+    return { criterion: c, note, alignment };
+  });
+
+  const summary = `The writing process (${processSummary}) ${typedPct >= 85 && bigPastes === 0 ? 'is consistent with original, iterative work toward this rubric.' : 'shows some shortcuts — review the flagged criteria before relying on it.'}`;
+  return { rows, summary };
+}
+
 type SubmitState =
   | { phase: 'idle' }
   | { phase: 'submitting' }
@@ -152,6 +386,19 @@ export default function PublishProofPage() {
   });
 
   const ai = useMemo(() => (proof ? computeAiScore(proof.metrics || {}) : null), [proof]);
+  const authorship = useMemo(() => (proof ? computeAuthorshipScore(proof) : null), [proof]);
+  const integrity = useMemo(() => (proof ? computeIntegrity(proof) : null), [proof]);
+
+  // Optional professor flow: paste a rubric → process alignment.
+  // DEMO: runs entirely client-side on the captured signals. The real Claude
+  // Agent SDK version is parked at future/rubric-analyze.ts — swap runAlignment
+  // to POST the rubric + process facts there when we wire the LLM back in.
+  const [showRubric, setShowRubric] = useState(false);
+  const [rubric, setRubric] = useState('');
+  const [alignment, setAlignment] = useState<{ summary: string; rows: RubricRow[] } | null>(null);
+  const runAlignment = useCallback(() => {
+    if (proof && rubric.trim()) setAlignment(buildRubricAlignment(rubric, proof));
+  }, [proof, rubric]);
 
   useEffect(() => {
     if (proof && window.location.hash) {
@@ -242,7 +489,7 @@ export default function PublishProofPage() {
     }
   }, [identity, doPublish, initOAuth, simulatePublish]);
 
-  if (parseError || !proof || !ai) {
+  if (parseError || !proof || !ai || !authorship || !integrity) {
     return (
       <div style={styles.wrap}>
         <h1 style={styles.h1}>Publish proof</h1>
@@ -264,6 +511,51 @@ export default function PublishProofPage() {
         {proof.email ? ` · ${proof.email}` : ''}.{SIMULATE ? ' Demo — simulated on-chain write.' : ''}
       </p>
 
+      {/* Human Authorship Score — the hero: one number, read in five seconds */}
+      <div style={{ ...styles.heroCard, borderColor: authorship.color }}>
+        <div style={styles.heroHead}>
+          <span style={styles.heroLabel}>Human Authorship Score</span>
+          <span style={{ ...styles.heroNum, color: authorship.color }}>{authorship.score}</span>
+        </div>
+        <div style={styles.barWrap}>
+          <div style={{ ...styles.barFill, width: `${authorship.score}%`, background: authorship.color }} />
+        </div>
+        <div style={{ ...styles.verdict, color: authorship.color, marginTop: 8 }}>{authorship.verdict}</div>
+
+        <div style={styles.signalList}>
+          {authorship.signals.map((s) => (
+            <div key={s.key} style={{ ...styles.signal, opacity: s.has ? 1 : 0.45 }}>
+              <div style={styles.signalTop}>
+                <span style={styles.signalLabel}>{s.label}</span>
+                <span style={styles.signalDetail}>{s.has ? s.detail : 'no data'}</span>
+              </div>
+              <div style={styles.signalBarWrap}>
+                <div style={{ ...styles.signalBarFill, width: `${s.has ? s.score : 0}%` }} />
+              </div>
+              <p style={styles.signalBlurb}>{s.blurb}</p>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {/* Revision authenticity — the anti-gaming check (real, always on) */}
+      <div style={{ ...styles.card, borderColor: integrity.color }}>
+        <div style={styles.scoreHead}>
+          <span style={styles.muted}>Revision authenticity</span>
+          <span style={{ ...styles.verdict, color: integrity.color }}>{integrity.verdict}</span>
+        </div>
+        <div style={styles.flagList}>
+          {integrity.flags.map((f, i) => (
+            <div key={i} style={styles.flag}>
+              <span style={{ ...styles.flagDot, color: f.level === 'ok' ? '#6ee7b7' : f.level === 'warn' ? '#fbbf24' : '#f87171' }}>
+                {f.level === 'ok' ? '✓' : f.level === 'warn' ? '!' : '✕'}
+              </span>
+              <span style={styles.flagText}>{f.text}</span>
+            </div>
+          ))}
+        </div>
+      </div>
+
       {/* AI detection score (simulated) */}
       <div style={{ ...styles.card, borderColor: ai.color }}>
         <div style={styles.scoreHead}>
@@ -284,7 +576,7 @@ export default function PublishProofPage() {
         <Stat k={m.wpm ?? 0} l="WPM" />
         <Stat k={m.keystrokeCount ?? proof.keystrokeCount} l="keystrokes" />
         <Stat k={m.backspaceCount ?? 0} l="backspaces" />
-        <Stat k={m.pageExits ?? 0} l="page exits" />
+        <Stat k={proof.docsRevision?.revisionCount ?? proof.revision?.editCount ?? 0} l="revisions" />
         <Stat k={m.pasteCount ?? 0} l="pastes" />
         <Stat k={m.bigPastes ?? 0} l="big pastes" warn={(m.bigPastes ?? 0) > 0} />
       </div>
@@ -295,7 +587,6 @@ export default function PublishProofPage() {
         <Row k="Pasted chars" v={String(m.pastedChars ?? 0)} />
         <Row k="Largest paste" v={`${m.largestPaste ?? 0} chars`} />
         <Row k="Session length" v={fmtMs(m.elapsedMs)} />
-        <Row k="Hidden time" v={fmtMs(m.hiddenMs)} />
         <Row k="Content hash" v={short(proof.contentHash)} />
         <Row k="Human signature" v={short(proof.humanSignatureHash)} />
         {success && typeof submit.result.entryId === 'number' && <Row k="Ledger entry" v={`#${submit.result.entryId}`} />}
@@ -333,6 +624,9 @@ export default function PublishProofPage() {
         return (
           <div style={styles.card}>
             <div style={styles.sec}>Revision analysis</div>
+            {rev.timeline && rev.timeline.length > 0 && (
+              <WritingTimelineChart timeline={rev.timeline} docs={proof.docsRevision} />
+            )}
             <div style={styles.barWrap}><div style={{ ...styles.barFill, width: `${tp}%`, background: c }} /></div>
             <div style={styles.scoreRow}><span>Typed {tp}%</span><span>Pasted {100 - tp}%</span></div>
             <Row k="Edit events" v={String(rev.editCount)} />
@@ -350,6 +644,52 @@ export default function PublishProofPage() {
           </div>
         );
       })()}
+
+      {/* For professors — optional rubric → AI-assisted process alignment */}
+      <div style={styles.card}>
+        {!showRubric ? (
+          <button style={styles.ghostBtn} onClick={() => setShowRubric(true)}>
+            + For professors: check against a rubric <span style={styles.tag}>optional</span>
+          </button>
+        ) : (
+          <>
+            <div style={styles.sec}>
+              Rubric alignment <span style={styles.tag}>demo</span>
+            </div>
+            <p style={styles.muted}>Paste your existing rubric — one criterion per line. We report how the writing process lines up with each. It’s a second opinion, not a grade.</p>
+            <textarea
+              style={styles.textarea}
+              value={rubric}
+              onChange={(e) => setRubric(e.target.value)}
+              placeholder={'e.g.\n1. Develops a clear thesis\n2. Supports claims with cited evidence\n3. Shows revision and editing\n4. Grammar and clarity'}
+              rows={5}
+            />
+            <button
+              style={{ ...styles.primary, marginTop: 8, opacity: rubric.trim() ? 1 : 0.6 }}
+              disabled={!rubric.trim()}
+              onClick={runAlignment}
+            >
+              Analyze against rubric
+            </button>
+            {alignment && (
+              <div style={{ marginTop: 12 }}>
+                <p style={{ ...styles.muted, fontStyle: 'italic' }}>{alignment.summary}</p>
+                {alignment.rows.map((r, i) => (
+                  <div key={i} style={styles.rubricRow}>
+                    <div style={styles.rubricCrit}>
+                      {r.criterion}
+                      {r.alignment && (
+                        <span style={{ ...styles.alignTag, ...alignTagStyle(r.alignment) }}>{r.alignment}</span>
+                      )}
+                    </div>
+                    <div style={styles.rubricNote}>{r.note}</div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </>
+        )}
+      </div>
 
       {success ? (
         <>
@@ -373,6 +713,89 @@ export default function PublishProofPage() {
       )}
     </div>
   );
+}
+
+/**
+ * Document-growth chart: how the piece was written, in order. X spans the real
+ * editing date range (from Google Docs revision history when available); Y is the
+ * cumulative size of the document as each edit lands. Typed work rises in a gentle
+ * green slope; pasted blocks show as amber vertical cliffs — the visual signature
+ * of text dropped in rather than written. Pure inline SVG, no chart library.
+ */
+function WritingTimelineChart({
+  timeline,
+  docs,
+}: {
+  timeline: { type: 'type' | 'paste'; chars: number }[];
+  docs?: ExtensionProof['docsRevision'];
+}) {
+  const W = 320, H = 132, padL = 6, padR = 6, padT = 10, padB = 22;
+  const innerW = W - padL - padR, innerH = H - padT - padB;
+
+  // Cumulative document size, seeded with a 0 baseline so the curve starts at the floor.
+  const cum: number[] = [0];
+  for (const e of timeline) cum.push(cum[cum.length - 1] + Math.max(0, e.chars));
+  const total = cum[cum.length - 1] || 1;
+  const n = cum.length;
+  const x = (i: number) => padL + (n <= 1 ? 0 : (i / (n - 1)) * innerW);
+  const y = (v: number) => padT + innerH - (v / total) * innerH;
+
+  // One colored segment per edit; pastes are amber (cliffs), typing is green.
+  const segments = timeline.map((e, i) => ({
+    x1: x(i), y1: y(cum[i]), x2: x(i + 1), y2: y(cum[i + 1]),
+    paste: e.type === 'paste',
+  }));
+  const areaPts = cum.map((v, i) => `${x(i).toFixed(1)},${y(v).toFixed(1)}`).join(' ');
+  const baseY = y(0);
+  const areaPath = `${padL},${baseY} ${areaPts} ${x(n - 1).toFixed(1)},${baseY}`;
+
+  const fmtDate = (ms?: number | null) => (ms ? new Date(ms).toLocaleDateString(undefined, { month: 'short', day: 'numeric' }) : null);
+  const startLabel = fmtDate(docs?.firstModified) || 'start';
+  const endLabel = fmtDate(docs?.lastModified) || 'finish';
+
+  return (
+    <div style={{ margin: '4px 0 12px' }}>
+      <svg viewBox={`0 0 ${W} ${H}`} width="100%" style={{ display: 'block' }}>
+        <defs>
+          <linearGradient id="wtGrad" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0%" stopColor="rgba(110,231,183,0.28)" />
+            <stop offset="100%" stopColor="rgba(110,231,183,0.02)" />
+          </linearGradient>
+        </defs>
+        <polygon points={areaPath} fill="url(#wtGrad)" />
+        {segments.map((s, i) => (
+          <line
+            key={i}
+            x1={s.x1} y1={s.y1} x2={s.x2} y2={s.y2}
+            stroke={s.paste ? '#fbbf24' : '#6ee7b7'}
+            strokeWidth={s.paste ? 2.5 : 1.8}
+            strokeLinecap="round"
+          />
+        ))}
+        {segments.filter((s) => s.paste).map((s, i) => (
+          <circle key={`p${i}`} cx={s.x2} cy={s.y2} r={2.6} fill="#fbbf24" />
+        ))}
+        <line x1={padL} y1={baseY} x2={W - padR} y2={baseY} stroke="rgba(255,255,255,0.12)" strokeWidth={1} />
+        <text x={padL} y={H - 6} fill="rgba(255,255,255,0.55)" fontSize={9}>{startLabel}</text>
+        <text x={W - padR} y={H - 6} fill="rgba(255,255,255,0.55)" fontSize={9} textAnchor="end">{endLabel}</text>
+        <text x={padL} y={padT + 2} fill="rgba(255,255,255,0.45)" fontSize={9}>{total.toLocaleString()} chars</text>
+      </svg>
+      <div style={styles.scoreRow}>
+        <span><span style={{ color: '#6ee7b7' }}>●</span> typed</span>
+        <span><span style={{ color: '#fbbf24' }}>●</span> pasted (cliffs)</span>
+      </div>
+    </div>
+  );
+}
+
+function alignTagStyle(a: NonNullable<RubricRow['alignment']>): React.CSSProperties {
+  const map = {
+    strong: { color: '#6ee7b7', border: '1px solid rgba(110,231,183,0.5)' },
+    partial: { color: '#a7f3d0', border: '1px solid rgba(167,243,208,0.5)' },
+    weak: { color: '#fbbf24', border: '1px solid rgba(251,191,36,0.5)' },
+    unclear: { color: '#9ca3af', border: '1px solid rgba(156,163,175,0.5)' },
+  } as const;
+  return map[a];
 }
 
 function Row({ k, v }: { k: string; v: string }) {
@@ -399,6 +822,18 @@ const styles: Record<string, React.CSSProperties> = {
   error: { fontSize: 13, color: '#f87171', margin: '8px 0' },
   tag: { fontSize: 9, textTransform: 'uppercase', letterSpacing: 0.5, opacity: 0.6, border: '1px solid currentColor', borderRadius: 4, padding: '1px 4px', marginLeft: 4 },
   card: { border: '1px solid rgba(255,255,255,0.14)', borderRadius: 10, padding: 14, margin: '12px 0', background: 'rgba(255,255,255,0.03)' },
+  heroCard: { border: '1.5px solid', borderRadius: 14, padding: 18, margin: '16px 0', background: 'rgba(255,255,255,0.04)' },
+  heroHead: { display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 12 },
+  heroLabel: { fontSize: 13, fontWeight: 600, opacity: 0.85 },
+  heroNum: { fontSize: 42, fontWeight: 750, lineHeight: 1, fontVariantNumeric: 'tabular-nums' },
+  signalList: { marginTop: 16, display: 'flex', flexDirection: 'column', gap: 14 },
+  signal: { display: 'flex', flexDirection: 'column', gap: 5 },
+  signalTop: { display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: 10 },
+  signalLabel: { fontSize: 13, fontWeight: 600 },
+  signalDetail: { fontSize: 11, opacity: 0.6, fontFamily: 'ui-monospace, Menlo, monospace', textAlign: 'right' },
+  signalBarWrap: { height: 5, borderRadius: 999, background: 'rgba(255,255,255,0.1)', overflow: 'hidden' },
+  signalBarFill: { height: '100%', borderRadius: 999, background: 'rgba(255,255,255,0.55)', transition: 'width 0.5s' },
+  signalBlurb: { fontSize: 11.5, opacity: 0.62, margin: '1px 0 0', lineHeight: 1.4 },
   scoreHead: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 },
   verdict: { fontSize: 13, fontWeight: 650 },
   barWrap: { height: 8, borderRadius: 999, background: 'rgba(255,255,255,0.12)', overflow: 'hidden' },
@@ -418,4 +853,14 @@ const styles: Record<string, React.CSSProperties> = {
   chip: { fontSize: 10, padding: '2px 6px', borderRadius: 4, whiteSpace: 'nowrap', border: '1px solid rgba(255,255,255,0.12)' },
   chipType: { background: 'rgba(110,231,183,0.14)', color: '#6ee7b7' },
   chipPaste: { background: 'rgba(251,191,36,0.16)', color: '#fbbf24' },
+  flagList: { display: 'flex', flexDirection: 'column', gap: 8, marginTop: 4 },
+  flag: { display: 'flex', gap: 8, alignItems: 'flex-start', fontSize: 12.5, lineHeight: 1.4 },
+  flagDot: { fontWeight: 700, width: 14, flexShrink: 0, textAlign: 'center' },
+  flagText: { opacity: 0.85 },
+  ghostBtn: { width: '100%', padding: '4px 0', background: 'none', border: 'none', color: '#6ee7b7', fontSize: 13, fontWeight: 600, cursor: 'pointer', textAlign: 'left' },
+  textarea: { width: '100%', boxSizing: 'border-box', marginTop: 8, padding: 10, borderRadius: 8, border: '1px solid rgba(255,255,255,0.18)', background: 'rgba(0,0,0,0.25)', color: 'inherit', fontSize: 13, fontFamily: 'inherit', resize: 'vertical' },
+  rubricRow: { padding: '8px 0', borderTop: '1px solid rgba(255,255,255,0.08)' },
+  rubricCrit: { fontSize: 13, fontWeight: 600, marginBottom: 2, display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' },
+  alignTag: { fontSize: 9, textTransform: 'uppercase', letterSpacing: 0.5, borderRadius: 4, padding: '1px 5px' },
+  rubricNote: { fontSize: 12, opacity: 0.7, lineHeight: 1.4 },
 };
