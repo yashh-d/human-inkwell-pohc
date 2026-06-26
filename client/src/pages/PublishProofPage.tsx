@@ -1183,14 +1183,8 @@ function RevisionCharts({ proof }: { proof: ExtensionProof }) {
       </div>
 
       <div style={{ marginTop: 22 }}>
-        <div style={styles.chartTitle}>Size of each writing burst</div>
-        <p style={styles.chartCaption}>A “burst” is one unbroken run of typing — a pause longer than 2 seconds starts a new one. Tall amber bars are pasted blocks.</p>
-        <BurstChart timeline={rev.timeline} />
-      </div>
-
-      <div style={{ marginTop: 22 }}>
         <div style={styles.chartTitle}>When the bursts happened</div>
-        <p style={styles.chartCaption}>Each burst placed on a real time axis across every session — empty gaps are time away from the document.</p>
+        <p style={styles.chartCaption}>Each writing burst (one unbroken run of typing; a pause &gt; 2s starts a new one) on a real time axis across every session — empty gaps are time away from the document, tall amber bars are pasted blocks.</p>
         <BurstChart timeline={rev.timeline} byTime />
       </div>
 
