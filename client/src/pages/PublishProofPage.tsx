@@ -778,6 +778,8 @@ export default function PublishProofPage() {
               <>
                 <div style={{ ...styles.sec, marginTop: 4 }}>Burst sizes</div>
                 <BurstChart timeline={rev.timeline} />
+                <div style={{ ...styles.sec, marginTop: 4 }}>Bursts over time</div>
+                <BurstChart timeline={rev.timeline} byTime />
               </>
             )}
             <Row k="Edit events" v={String(rev.editCount)} />
@@ -959,10 +961,10 @@ function WritingTimelineChart({
         {segments.filter((s) => s.paste).map((s, i) => (
           <circle key={`p${i}`} cx={s.x2} cy={s.y2} r={2.6} fill={s.color} />
         ))}
-        <line x1={padL} y1={baseY} x2={W - padR} y2={baseY} stroke="rgba(255,255,255,0.12)" strokeWidth={1} />
-        <text x={padL} y={H - 6} fill="rgba(255,255,255,0.55)" fontSize={9}>{startLabel}</text>
-        <text x={W - padR} y={H - 6} fill="rgba(255,255,255,0.55)" fontSize={9} textAnchor="end">{endLabel}</text>
-        <text x={padL} y={padT + 2} fill="rgba(255,255,255,0.45)" fontSize={9}>{total.toLocaleString()} chars</text>
+        <line x1={padL} y1={baseY} x2={W - padR} y2={baseY} stroke="currentColor" strokeOpacity={0.12} strokeWidth={1} />
+        <text x={padL} y={H - 6} fill="currentColor" opacity={0.55} fontSize={9}>{startLabel}</text>
+        <text x={W - padR} y={H - 6} fill="currentColor" opacity={0.55} fontSize={9} textAnchor="end">{endLabel}</text>
+        <text x={padL} y={padT + 2} fill="currentColor" opacity={0.45} fontSize={9}>{total.toLocaleString()} chars</text>
       </svg>
       <div style={{ ...styles.scoreRow, flexWrap: 'wrap', gap: 8 }}>
         <span><span style={{ color: '#6ee7b7' }}>●</span> typed</span>
@@ -984,27 +986,31 @@ function WritingTimelineChart({
  */
 function BurstChart({
   timeline,
+  byTime = false,
 }: {
   timeline: { type: 'type' | 'paste'; chars: number; origin?: PasteOrigin; t?: number }[];
+  byTime?: boolean;
 }) {
   const W = 320, H = 96, padT = 8, padB = 16, padL = 6, padR = 6;
   const innerW = W - padL - padR, innerH = H - padT - padB;
   const n = timeline.length;
   const max = Math.max(1, ...timeline.map((e) => e.chars));
 
-  // Place each burst at its real wall-clock time (across all sessions) when stamped;
-  // gaps between days/sittings then show as empty stretches — the actual cadence of
-  // the work. Falls back to even index spacing for older, untimestamped payloads.
+  // Two modes from the same data: byTime=false → even bars in burst order (compare
+  // sizes); byTime=true → each burst at its real wall-clock time across all sessions,
+  // so gaps between days/sittings show as empty stretches (the cadence of the work).
+  // Time mode needs stamped bursts; older untimestamped payloads fall back to order.
   const hasTime = n > 0 && timeline.every((e) => typeof e.t === 'number');
+  const useTime = byTime && hasTime;
   const ts = timeline.map((e) => e.t as number);
-  const tMin = hasTime ? Math.min(...ts) : 0;
-  const tMax = hasTime ? Math.max(...ts) : 1;
+  const tMin = useTime ? Math.min(...ts) : 0;
+  const tMax = useTime ? Math.max(...ts) : 1;
   const tSpan = tMax - tMin || 1;
   const idxGap = n > 60 ? 0.5 : 2;
   const idxBw = n > 0 ? Math.max(1, (innerW - idxGap * (n - 1)) / n) : innerW;
-  const bw = hasTime ? Math.max(1.2, Math.min(idxBw, 4)) : idxBw;
+  const bw = useTime ? Math.max(1.2, Math.min(idxBw, 4)) : idxBw;
   const xAt = (i: number) =>
-    hasTime ? padL + ((ts[i] - tMin) / tSpan) * (innerW - bw)
+    useTime ? padL + ((ts[i] - tMin) / tSpan) * (innerW - bw)
             : padL + i * (idxBw + idxGap);
 
   const TYPE = '#6ee7b7', EXTERNAL = '#fbbf24', MOVE = '#60a5fa', CITED = '#a78bfa';
@@ -1024,15 +1030,15 @@ function BurstChart({
           const y = padT + innerH - h;
           return <rect key={i} x={x.toFixed(1)} y={y.toFixed(1)} width={bw.toFixed(1)} height={h.toFixed(1)} rx={1} fill={color(e)} />;
         })}
-        <line x1={padL} y1={padT + innerH} x2={W - padR} y2={padT + innerH} stroke="rgba(255,255,255,0.12)" strokeWidth={1} />
-        <text x={padL} y={padT + 2} fill="rgba(255,255,255,0.42)" fontSize={9}>{n} bursts · largest {max.toLocaleString()}</text>
-        {hasTime ? (
+        <line x1={padL} y1={padT + innerH} x2={W - padR} y2={padT + innerH} stroke="currentColor" strokeOpacity={0.12} strokeWidth={1} />
+        <text x={padL} y={padT + 2} fill="currentColor" opacity={0.42} fontSize={9}>{n} bursts · largest {max.toLocaleString()}</text>
+        {useTime ? (
           <>
-            <text x={padL} y={H - 4} fill="rgba(255,255,255,0.55)" fontSize={9}>{fmtDate(tMin)}</text>
-            <text x={W - padR} y={H - 4} fill="rgba(255,255,255,0.55)" fontSize={9} textAnchor="end">{fmtDate(tMax)}</text>
+            <text x={padL} y={H - 4} fill="currentColor" opacity={0.55} fontSize={9}>{fmtDate(tMin)}</text>
+            <text x={W - padR} y={H - 4} fill="currentColor" opacity={0.55} fontSize={9} textAnchor="end">{fmtDate(tMax)}</text>
           </>
         ) : (
-          <text x={W - padR} y={H - 4} fill="rgba(255,255,255,0.5)" fontSize={9} textAnchor="end">by sequence</text>
+          <text x={W - padR} y={H - 4} fill="currentColor" opacity={0.5} fontSize={9} textAnchor="end">{byTime ? 'timestamps after next capture' : 'by burst order'}</text>
         )}
       </svg>
     </div>
