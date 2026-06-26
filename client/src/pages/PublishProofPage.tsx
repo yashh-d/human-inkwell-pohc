@@ -1000,9 +1000,15 @@ function PublishVersionB({
     ? 'Limited writing history was captured for this document. That does not imply AI use, but more process evidence would raise confidence.'
     : 'This document shows evidence consistent with genuine human writing.';
 
-  const timeContext = (m.elapsedMs || 0) > 0 && (m.elapsedMs || 0) < 10 * 60000
-    ? 'Typical papers of this length take 10–30 minutes of active writing.'
-    : 'Active time spent writing in the document.';
+  // Rough active-writing estimate from the document's OWN word count (not a fixed
+  // string): ~25–45 effective WPM, since our "active time" already excludes idle
+  // gaps. Heuristic, framed as approximate, and only shown when we have a real size.
+  const words = Math.round((m.textLength || m.keystrokeCount || proof.keystrokeCount || 0) / 5);
+  const loMin = Math.max(1, Math.round(words / 45));
+  const hiMin = Math.max(loMin + 1, Math.round(words / 25));
+  const timeContext = words >= 40
+    ? `Active typing time (idle excluded). A ~${words.toLocaleString()}-word document is roughly ${loMin}–${hiMin} min of active writing.`
+    : 'Active typing time, with idle gaps excluded.';
 
   return (
     <div style={styles.wrap}>
