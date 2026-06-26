@@ -624,7 +624,21 @@ class BlockchainService {
 
           if (finalPayload.status === 'error') {
             const errPayload = finalPayload as any;
-            throw new Error(`MiniKit transaction failed: ${errPayload.error_code || 'Unknown error'} — Details: ${JSON.stringify(errPayload)}`);
+            const code = String(errPayload.error_code || errPayload.error || 'unknown');
+            const details = String(errPayload.details || errPayload.description || '');
+            console.error('[MiniKit] sendTransaction rejected by World App:', { code, details, errPayload });
+            // World App refused to sign. Surface the real reason now instead of
+            // falling into a 90s chain-poll "recovery" (a hard reject never lands).
+            // The most common cause is the contract not being allow-listed for this
+            // app in the World Developer Portal, or a chain/contract/ABI mismatch.
+            const cancelled = /reject|cancel|denied/i.test(code);
+            const hint = cancelled
+              ? 'Transaction cancelled in World App.'
+              : `World App would not sign this transaction (code: ${code}${details ? `, ${details}` : ''}). `
+                + `Most likely the contract ${CONTRACT_ADDRESS} is not allow-listed for this app in the World Developer Portal `
+                + `(Configuration → Advanced → contract entrypoints) on chain ${EXPECTED_CHAIN_ID}, or REACT_APP_CONTRACT_ADDRESS / `
+                + `REACT_APP_CHAIN_ID / the ABI do not match the deployed contract.`;
+            throw new Error(`MINIKIT_HARD_ERROR: ${hint}`);
           }
 
           const successPayload = finalPayload as MiniAppSendTransactionSuccessPayload;
@@ -754,12 +768,15 @@ class BlockchainService {
 
       await new Promise((r) => setTimeout(r, 400));
       
-      const isPreflightError = 
+      const isPreflightError =
         error?.message?.includes('Could not read EIP-712 nonce') ||
         error?.message?.includes('Failed to relay transaction') ||
         error?.message?.includes('User denied message signature') ||
         error?.message?.includes('user rejected') ||
-        error?.message?.includes('Wallet connection was rejected');
+        error?.message?.includes('Wallet connection was rejected') ||
+        // World App hard-rejected the sendTransaction — surface it immediately
+        // (no 90s recovery poll; the tx will never land).
+        error?.message?.includes('MINIKIT_HARD_ERROR');
 
       if (!isPreflightError) {
         onProgress?.('Confirming on World Chain (checking the ledger)…');
@@ -845,6 +862,10 @@ class BlockchainService {
         'Unknown blockchain error';
       const lower = String(raw).toLowerCase();
       let message = raw;
+      // Strip internal markers so the user sees just the actionable reason.
+      if (typeof message === 'string' && message.includes('MINIKIT_HARD_ERROR:')) {
+        message = message.slice(message.lastIndexOf('MINIKIT_HARD_ERROR:') + 'MINIKIT_HARD_ERROR:'.length).trim();
+      }
 
       // eth_call to nonces(address) reverted (selector 0x7ecebe00). Common cause: REACT_APP_CONTRACT_ADDRESS
       // points at an older / different bytecode than this app’s HumanContentLedger (on-chain ≠ repo artifact).
