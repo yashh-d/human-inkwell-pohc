@@ -8,7 +8,7 @@ import { useViewerAddress } from '../hooks/useViewerAddress';
 import { rememberMiniKitWallet } from '../utils/miniKitWallet';
 
 /**
- * /publish — entry point for the Human Ink Chrome extension.
+ * /publish, entry point for the Human Ink Chrome extension.
  *
  * DEMO MODE (SIMULATE = true): no wallet, no relayer, no real tx. We render the
  * full captured metrics + a simulated "GPT Zero"-style AI score (driven mainly
@@ -109,7 +109,7 @@ function loadProof(): { proof?: ExtensionProof; error?: string } {
   return { error: 'No proof to publish. Open this page from the Human Ink extension.' };
 }
 
-const short = (h?: string | null) => (h ? `${h.slice(0, 10)}…${h.slice(-8)}` : '—');
+const short = (h?: string | null) => (h ? `${h.slice(0, 10)}…${h.slice(-8)}` : '-');
 
 /**
  * Simulated AI-detection score (stand-in for GPT Zero / an AI-detector API).
@@ -137,7 +137,7 @@ const fmtMs = (ms?: number) => {
 };
 
 /**
- * F1 paste picture — the single source of truth for "what counts against you".
+ * F1 paste picture, the single source of truth for "what counts against you".
  * Only EXTERNAL pastes (came from outside the doc) count; cut-and-move of your own
  * text and quoted/cited material do not. A grace budget absorbs legitimate offline
  * drafting (a paragraph written on a phone, an imported outline) before any penalty.
@@ -173,17 +173,17 @@ function pasteBreakdown(proof: ExtensionProof) {
 }
 
 /**
- * Human Authorship Score — the one number a professor reads in five seconds.
+ * Human Authorship Score, the one number a professor reads in five seconds.
  *
  * Built from the signals that matter most, in priority order: revision depth
- * (the fingerprint of real effort — you cannot fake drafts), writing-vs-pasting,
+ * (the fingerprint of real effort, you cannot fake drafts), writing-vs-pasting,
  * time invested, and editing-over-time. Each signal is normalized 0–100,
  * weighted, and rolled into one score. (We deliberately do NOT score "leaving
- * the doc" — tab-switching to research or cite is normal, not a red flag.)
+ * the doc", tab-switching to research or cite is normal, not a red flag.)
  * Signals with no data are dropped and the remaining weights re-normalized, so
  * the score is always honest about what it actually saw.
  *
- * Every signal carries a one-liner written for a professor, not an engineer —
+ * Every signal carries a one-liner written for a professor, not an engineer -
  * the point is that nobody has to learn anything new to read this.
  */
 type AuthorshipSignal = {
@@ -201,17 +201,17 @@ function computeAuthorshipScore(proof: ExtensionProof) {
   const rev = proof.revision || null;
   const docs = proof.docsRevision || null;
 
-  // 1) REVISION DEPTH — highest weight. Saved Google Docs revisions are signed
+  // 1) REVISION DEPTH, highest weight. Saved Google Docs revisions are signed
   //    by Google, not by us, so this is the one signal that can't be faked.
   const savedRevisions = docs?.revisionCount || 0;
   const editEvents = rev?.editCount || 0;
   const revisionScore = Math.min(100, savedRevisions * 4 + editEvents * 3);
 
-  // 2) TIME INVESTED — real writing takes time. 30 active minutes tops it out.
+  // 2) TIME INVESTED, real writing takes time. 30 active minutes tops it out.
   const minutes = (m.elapsedMs || 0) / 60000;
   const timeScore = Math.min(100, Math.round((minutes / 30) * 100));
 
-  // 3) WRITTEN, NOT PASTED — own writing vs text pasted in from OUTSIDE the doc
+  // 3) WRITTEN, NOT PASTED, own writing vs text pasted in from OUTSIDE the doc
   //    (F1: moving your own text and quoting don't count; grace budget applies).
   const pb = pasteBreakdown(proof);
   const typedScore = Math.round(Math.max(0, Math.min(1, pb.writtenRatio)) * 100);
@@ -219,7 +219,7 @@ function computeAuthorshipScore(proof: ExtensionProof) {
     ? `${typedScore}% own · ${pb.externalChars} pasted in${pb.internalChars > 0 ? `, ${pb.internalChars} moved` : ''}`
     : `${typedScore}% typed`;
 
-  // 4) EDITING OVER TIME — work spread across sittings beats one rushed dump.
+  // 4) EDITING OVER TIME, work spread across sittings beats one rushed dump.
   const editDays = docs?.editDays || (minutes > 0 ? 1 : 0);
   const spanDays = docs?.spanDays || editDays;
   const overTimeScore = Math.min(100, Math.round((editDays / 4) * 100));
@@ -228,7 +228,7 @@ function computeAuthorshipScore(proof: ExtensionProof) {
     {
       key: 'revision',
       label: 'Revision depth',
-      blurb: 'Drafts, rewrites and edits — the fingerprint of real effort. You can’t fake a revision history.',
+      blurb: 'Drafts, rewrites and edits, the fingerprint of real effort. You can’t fake a revision history.',
       score: revisionScore,
       weight: 0.33,
       detail: savedRevisions
@@ -272,7 +272,7 @@ function computeAuthorshipScore(proof: ExtensionProof) {
   // ---- F3 protections (no caret data needed) ----
   // These guard honest writers. The fuller composition-vs-transcription signals
   // (per-region re-edit passes, mid-text vs tail deletions, caret edit-locality)
-  // need keystroke caret data the Docs canvas capture can't give us yet — deferred.
+  // need keystroke caret data the Docs canvas capture can't give us yet, deferred.
   const wpm = m.wpm || 0;
   const effortIndex = Math.round((revisionScore + timeScore + overTimeScore) / 3);
   const protections: string[] = [];
@@ -284,10 +284,10 @@ function computeAuthorshipScore(proof: ExtensionProof) {
     protections.push('Halo effect: deep editing and time elsewhere offset the pasted material.');
   }
   // Linear-Thinker override: a clean front-to-back typist at a human pace is not a
-  // cheater — ≥95% own text at normal speed clears straight to the green band.
+  // cheater, ≥95% own text at normal speed clears straight to the green band.
   if (pb.writtenRatio >= 0.95 && wpm >= 15 && wpm <= 120) {
     score = Math.max(score, DEFAULT_BANDS.green);
-    protections.push('Linear-thinker override: ≥95% typed at a normal pace — cleared.');
+    protections.push('Linear-thinker override: ≥95% typed at a normal pace, cleared.');
   }
 
   const verdict = score >= 75 ? 'Strong proof of human effort'
@@ -300,20 +300,20 @@ function computeAuthorshipScore(proof: ExtensionProof) {
 }
 
 /**
- * F2 — the traffic-light band for the Process Score. Thresholds are server-tunable
+ * F2, the traffic-light band for the Process Score. Thresholds are server-tunable
  * (see /api/scoring-config) with these defaults. Deliberately biased toward YELLOW:
- * a false green is a missed catch, but a false red is a wrongful accusation — so
+ * a false green is a missed catch, but a false red is a wrongful accusation, so
  * green requires a genuinely strong score and red is reserved for clearly-low ones.
  */
 type ScoreBands = { green: number; red: number };
 const DEFAULT_BANDS: ScoreBands = { green: 60, red: 30 };
 function processBand(score: number, bands: ScoreBands) {
-  if (score >= bands.green) return { label: 'Authentic — clear to move on', color: '#6ee7b7', tone: 'green' as const };
+  if (score >= bands.green) return { label: 'Authentic, clear to move on', color: '#6ee7b7', tone: 'green' as const };
   if (score >= bands.red) return { label: 'Worth a glance', color: '#fbbf24', tone: 'yellow' as const };
   return { label: 'Investigate', color: '#f87171', tone: 'red' as const };
 }
 
-/** One plain-English line under the Process Score — the "why" for a clean essay. */
+/** One plain-English line under the Process Score, the "why" for a clean essay. */
 function reasonLine(proof: ExtensionProof, score: number): string {
   const pb = pasteBreakdown(proof);
   const writtenPct = Math.round(pb.writtenRatio * 100);
@@ -326,17 +326,17 @@ function reasonLine(proof: ExtensionProof, score: number): string {
   }
   if (score >= DEFAULT_BANDS.green) {
     return editDays >= 2
-      ? `Typed and revised across ${editDays} days — consistent with original work.`
-      : `Typed here with genuine editing — consistent with original work.`;
+      ? `Typed and revised across ${editDays} days, consistent with original work.`
+      : `Typed here with genuine editing, consistent with original work.`;
   }
   return `Limited typing, revision, or time invested for a piece this size.`;
 }
 
 /**
- * Revision authenticity — the anti-gaming check. Real, not simulated: it runs
+ * Revision authenticity, the anti-gaming check. Real, not simulated: it runs
  * entirely on signals we already captured. Genuine drafting leaves a messy
  * texture (deletions, rewrites, work spread across sittings); manufactured
- * revisions look the opposite — big pastes, monotonic growth, all in one go.
+ * revisions look the opposite, big pastes, monotonic growth, all in one go.
  * Each flag is a plain-English observation a professor can sanity-check.
  */
 type IntegrityFlag = { level: 'ok' | 'warn' | 'bad'; text: string };
@@ -366,14 +366,14 @@ function computeIntegrity(proof: ExtensionProof) {
     flags.push({ level: 'warn', text: `${pb.externalChars} characters were pasted in from outside the document.` });
     penalty += 12;
   } else if (pb.externalChars > 0) {
-    flags.push({ level: 'ok', text: `Small amount pasted in (${pb.externalChars} chars) — within the normal allowance.` });
+    flags.push({ level: 'ok', text: `Small amount pasted in (${pb.externalChars} chars), within the normal allowance.` });
   } else {
-    flags.push({ level: 'ok', text: 'Nothing was pasted in from outside — the text was built up here.' });
+    flags.push({ level: 'ok', text: 'Nothing was pasted in from outside, the text was built up here.' });
   }
 
   // Credit within-doc moves so they're not mistaken for foreign pastes.
   if (pb.internalChars > 0) {
-    flags.push({ level: 'ok', text: `${pb.internalChars} chars were moved within the doc (your own text) — not counted against you.` });
+    flags.push({ level: 'ok', text: `${pb.internalChars} chars were moved within the doc (your own text), not counted against you.` });
   }
 
   // How much is the writer's own (typed + moved + quoted) vs external.
@@ -381,26 +381,26 @@ function computeIntegrity(proof: ExtensionProof) {
     flags.push({ level: 'bad', text: `Only ${writtenPct}% of the text is the writer’s own; most came from outside.` });
     penalty += 25;
   } else if (writtenPct < 85) {
-    flags.push({ level: 'warn', text: `${writtenPct}% is the writer’s own — some content came from outside.` });
+    flags.push({ level: 'warn', text: `${writtenPct}% is the writer’s own, some content came from outside.` });
     penalty += 10;
   }
 
-  // Many revisions, but all in one sitting — the manufactured-draft pattern.
+  // Many revisions, but all in one sitting, the manufactured-draft pattern.
   if ((revisionCount >= 6 || editEvents >= 12) && editDays <= 1) {
-    flags.push({ level: 'warn', text: `${revisionCount || editEvents} revisions but all in one sitting — genuine drafting usually spreads across sessions.` });
+    flags.push({ level: 'warn', text: `${revisionCount || editEvents} revisions but all in one sitting, genuine drafting usually spreads across sessions.` });
     penalty += 15;
   }
 
   // Real revising deletes and rewrites; text that only ever grew is suspect.
   if (keystrokes > 200 && backspaces === 0) {
-    flags.push({ level: 'warn', text: 'Revisions only added text — no deletions or rewrites, unusual for genuine editing.' });
+    flags.push({ level: 'warn', text: 'Revisions only added text, no deletions or rewrites, unusual for genuine editing.' });
     penalty += 15;
   } else if (backspaces > 0) {
-    flags.push({ level: 'ok', text: 'Edits include deletions and rewrites — the texture of real revising.' });
+    flags.push({ level: 'ok', text: 'Edits include deletions and rewrites, the texture of real revising.' });
   }
 
   // Sustained work over real days is the hardest thing to fake.
-  if (editDays >= 2) flags.push({ level: 'ok', text: `Worked across ${editDays} days — sustained effort is hard to fake.` });
+  if (editDays >= 2) flags.push({ level: 'ok', text: `Worked across ${editDays} days, sustained effort is hard to fake.` });
 
   const score = Math.max(0, 100 - penalty);
   const verdict = score >= 75 ? 'Revisions look authentic' : score >= 45 ? 'Some signs of gaming' : 'Likely manufactured';
@@ -411,10 +411,10 @@ function computeIntegrity(proof: ExtensionProof) {
 /**
  * Rubric-process alignment (OPTIONAL, professor-facing). Reads the rubric the
  * professor pastes and reports how the observed writing *process* lines up with
- * what each criterion rewards — a second opinion that points at evidence, never
+ * what each criterion rewards, a second opinion that points at evidence, never
  * a grade. DEMO (current): per-criterion alignment + notes derived heuristically
  * from the captured signals, fully client-side. The real Claude Agent SDK version
- * (subscription-authed) is parked at future/rubric-analyze.ts — to go live, run it
+ * (subscription-authed) is parked at future/rubric-analyze.ts, to go live, run it
  * via Vercel Sandbox and POST { rubric, process } to it from runAlignment.
  */
 type RubricRow = { criterion: string; note: string; alignment?: 'strong' | 'partial' | 'weak' | 'unclear' };
@@ -447,20 +447,20 @@ function buildRubricAlignment(rubricText: string, proof: ExtensionProof) {
     let note: string;
     let alignment: NonNullable<RubricRow['alignment']>;
     if (/revis|draft|edit|rewrit|process/.test(t)) {
-      note = `${revDepth} revisions over ${editDays <= 1 ? 'one session' : `${editDays} days`} — direct evidence of iterative work toward this.`;
+      note = `${revDepth} revisions over ${editDays <= 1 ? 'one session' : `${editDays} days`}, direct evidence of iterative work toward this.`;
       alignment = revDepth >= 8 || editDays >= 2 ? 'strong' : revDepth >= 2 ? 'partial' : 'weak';
     } else if (/evidence|research|source|cite|quote|reference/.test(t)) {
       note = bigPastes > 0
-        ? `Pasted material present — could be quoted sources, but confirm it’s cited and not lifted whole.`
+        ? `Pasted material present, could be quoted sources, but confirm it’s cited and not lifted whole.`
         : `Little was pasted in, so any sources were re-expressed in the student’s own typing.`;
       alignment = bigPastes > 0 ? 'partial' : 'strong';
     } else if (/grammar|clarity|style|proofread|mechanic|polish/.test(t)) {
       note = backspaces > 0
         ? `Frequent deletions and rewrites suggest real proofreading and polishing.`
-        : `Few corrections captured — light evidence of a proofreading pass.`;
+        : `Few corrections captured, light evidence of a proofreading pass.`;
       alignment = backspaces > 20 ? 'strong' : backspaces > 0 ? 'partial' : 'weak';
     } else if (/thesis|argument|structure|organiz|coheren|flow/.test(t)) {
-      note = `Revision history shows the piece was reworked, not written in one pass — consistent with developing structure.`;
+      note = `Revision history shows the piece was reworked, not written in one pass, consistent with developing structure.`;
       alignment = revDepth >= 5 ? 'strong' : revDepth >= 1 ? 'partial' : 'unclear';
     } else {
       note = `Process check: ${processSummary}. Use alongside your own read of the content.`;
@@ -469,7 +469,7 @@ function buildRubricAlignment(rubricText: string, proof: ExtensionProof) {
     return { criterion: c, note, alignment };
   });
 
-  const summary = `The writing process (${processSummary}) ${typedPct >= 85 && bigPastes === 0 ? 'is consistent with original, iterative work toward this rubric.' : 'shows some shortcuts — review the flagged criteria before relying on it.'}`;
+  const summary = `The writing process (${processSummary}) ${typedPct >= 85 && bigPastes === 0 ? 'is consistent with original, iterative work toward this rubric.' : 'shows some shortcuts, review the flagged criteria before relying on it.'}`;
   return { rows, summary };
 }
 
@@ -516,7 +516,7 @@ export default function PublishProofPage() {
 
   // Optional professor flow: paste a rubric → process alignment.
   // DEMO: runs entirely client-side on the captured signals. The real Claude
-  // Agent SDK version is parked at future/rubric-analyze.ts — swap runAlignment
+  // Agent SDK version is parked at future/rubric-analyze.ts, swap runAlignment
   // to POST the rubric + process facts there when we wire the LLM back in.
   const [showRubric, setShowRubric] = useState(false);
   const [rubric, setRubric] = useState('');
@@ -635,10 +635,10 @@ export default function PublishProofPage() {
       <h1 style={styles.h1}>{success ? '✓ Proof published' : 'Proof of human writing'}</h1>
       <p style={styles.muted}>
         Captured by the Human Ink extension{proof.context === 'google-docs' ? ' from Google Docs' : ''}
-        {proof.email ? ` · ${proof.email}` : ''}.{SIMULATE ? ' Demo — simulated on-chain write.' : ''}
+        {proof.email ? ` · ${proof.email}` : ''}.{SIMULATE ? ' Demo, simulated on-chain write.' : ''}
       </p>
 
-      {/* F2 — two DECOUPLED metrics side by side. The Process Score is our own
+      {/* F2, two DECOUPLED metrics side by side. The Process Score is our own
           integrity measure; the AI probability is a separate post-hoc reference.
           They are never blended (a detector false-positive can't move the score). */}
       <div style={styles.heroRow}>
@@ -661,7 +661,7 @@ export default function PublishProofPage() {
           <div style={styles.barWrap}>
             <div style={{ ...styles.barFill, width: `${ai.ai}%`, background: ai.color }} />
           </div>
-          <p style={styles.reasonLine}>Independent post-hoc detector — a parallel reference, not part of the Process Score.</p>
+          <p style={styles.reasonLine}>Independent post-hoc detector, a parallel reference, not part of the Process Score.</p>
         </div>
       </div>
 
@@ -671,9 +671,9 @@ export default function PublishProofPage() {
 
       {showEvidence && (
       <>
-      {/* What the Process Score is made of — the signal breakdown */}
+      {/* What the Process Score is made of, the signal breakdown */}
       <div style={styles.card}>
-        <div style={styles.sec}>What the Process Score is made of</div>
+        <div style={styles.signalHead}>What the Process Score is made of</div>
         <div style={styles.signalList}>
           {authorship.signals.map((s) => (
             <div key={s.key} style={{ ...styles.signal, opacity: s.has ? 1 : 0.45 }}>
@@ -703,7 +703,7 @@ export default function PublishProofPage() {
       {/* On desktop these informational cards flow into 2–3 columns; on mobile
           they stack. Auto-fit grid → responsive without media queries. */}
       <div style={styles.bodyGrid}>
-      {/* Revision authenticity — the anti-gaming check (real, always on) */}
+      {/* Revision authenticity, the anti-gaming check (real, always on) */}
       <div style={{ ...styles.card, borderColor: integrity.color }}>
         <div style={styles.scoreHead}>
           <span style={styles.muted}>Revision authenticity</span>
@@ -761,11 +761,11 @@ export default function PublishProofPage() {
               v={`${new Date(proof.docsRevision.firstModified).toLocaleDateString()} → ${new Date(proof.docsRevision.lastModified!).toLocaleDateString()}`}
             />
           )}
-          <Row k="Editors" v={proof.docsRevision.authors.length ? proof.docsRevision.authors.join(', ') : '—'} />
+          <Row k="Editors" v={proof.docsRevision.authors.length ? proof.docsRevision.authors.join(', ') : '-'} />
         </div>
       )}
 
-      {/* Revision analysis — edit timeline reconstructed from the capture */}
+      {/* Revision analysis, edit timeline reconstructed from the capture */}
       {proof.revision && proof.revision.editCount > 0 && (() => {
         const rev = proof.revision!;
         return (
@@ -805,7 +805,7 @@ export default function PublishProofPage() {
       })()}
       </div>{/* end bodyGrid */}
 
-      {/* For professors — optional rubric → AI-assisted process alignment */}
+      {/* For professors, optional rubric → AI-assisted process alignment */}
       <div style={styles.card}>
         {!showRubric ? (
           <button style={styles.ghostBtn} onClick={() => setShowRubric(true)}>
@@ -816,7 +816,7 @@ export default function PublishProofPage() {
             <div style={styles.sec}>
               Rubric alignment <span style={styles.tag}>demo</span>
             </div>
-            <p style={styles.muted}>Paste your existing rubric — one criterion per line. We report how the writing process lines up with each. It’s a second opinion, not a grade.</p>
+            <p style={styles.muted}>Paste your existing rubric, one criterion per line. We report how the writing process lines up with each. It’s a second opinion, not a grade.</p>
             <textarea
               style={styles.textarea}
               value={rubric}
@@ -882,7 +882,7 @@ export default function PublishProofPage() {
  * Document-growth chart: how the piece was written, in order. X spans the real
  * editing date range (from Google Docs revision history when available); Y is the
  * cumulative size of the document as each edit lands. Typed work rises in a gentle
- * green slope; pasted blocks show as amber vertical cliffs — the visual signature
+ * green slope; pasted blocks show as amber vertical cliffs, the visual signature
  * of text dropped in rather than written. Pure inline SVG, no chart library.
  */
 function WritingTimelineChart({
@@ -963,9 +963,9 @@ function WritingTimelineChart({
 }
 
 /**
- * Burst graph — one bar per edit in the writing timeline, height ∝ characters in
+ * Burst graph, one bar per edit in the writing timeline, height ∝ characters in
  * that burst. Typed bursts are green; pastes show in their provenance color (amber
- * = external — the signal). Where the cumulative chart shows *how much* was written
+ * = external, the signal). Where the cumulative chart shows *how much* was written
  * over time, this shows the *rhythm*: a wall of even green bars (steady typing) vs.
  * one lone amber tower (a block dropped in). Aggregated across all sessions. Pure
  * inline SVG, no chart library.
@@ -1036,7 +1036,7 @@ function Stat({ k, l, warn }: { k: number | string; l: string; warn?: boolean })
 const styles: Record<string, React.CSSProperties> = {
   wrap: { maxWidth: 'min(1040px, 94vw)', margin: '32px auto', padding: '0 20px', color: 'inherit' },
   // Informational cards flow into as many ~330px columns as fit (3 on desktop,
-  // 2 on a tablet, 1 on a phone) — responsive with no media queries.
+  // 2 on a tablet, 1 on a phone), responsive with no media queries.
   bodyGrid: { display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(330px, 1fr))', gap: 14, alignItems: 'start', margin: '12px 0' },
   h1: { fontSize: 20, marginBottom: 6 },
   muted: { fontSize: 13, opacity: 0.7, margin: '6px 0' },
@@ -1051,14 +1051,15 @@ const styles: Record<string, React.CSSProperties> = {
   heroHead: { display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 12 },
   heroLabel: { fontSize: 13, fontWeight: 600, opacity: 0.85 },
   heroNum: { fontSize: 42, fontWeight: 750, lineHeight: 1, fontVariantNumeric: 'tabular-nums' },
-  signalList: { marginTop: 16, display: 'flex', flexDirection: 'column', gap: 14 },
-  signal: { display: 'flex', flexDirection: 'column', gap: 5 },
+  signalHead: { fontSize: 12, textTransform: 'uppercase', letterSpacing: 0.7, fontWeight: 700, opacity: 0.88, marginBottom: 12 },
+  signalList: { marginTop: 16, display: 'flex', flexDirection: 'column', gap: 16 },
+  signal: { display: 'flex', flexDirection: 'column', gap: 6, borderLeft: '2px solid rgba(110,231,183,0.45)', paddingLeft: 11 },
   signalTop: { display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: 10 },
-  signalLabel: { fontSize: 13, fontWeight: 600 },
-  signalDetail: { fontSize: 11, opacity: 0.6, fontFamily: 'ui-monospace, Menlo, monospace', textAlign: 'right' },
+  signalLabel: { fontSize: 14, fontWeight: 700, letterSpacing: 0.15 },
+  signalDetail: { fontSize: 12.5, fontWeight: 700, opacity: 0.95, fontFamily: 'ui-monospace, Menlo, monospace', textAlign: 'right' },
   signalBarWrap: { height: 5, borderRadius: 999, background: 'rgba(255,255,255,0.1)', overflow: 'hidden' },
   signalBarFill: { height: '100%', borderRadius: 999, background: 'rgba(255,255,255,0.55)', transition: 'width 0.5s' },
-  signalBlurb: { fontSize: 11.5, opacity: 0.62, margin: '1px 0 0', lineHeight: 1.4 },
+  signalBlurb: { fontSize: 11.5, opacity: 0.7, margin: '2px 0 0', lineHeight: 1.45 },
   scoreHead: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 },
   verdict: { fontSize: 13, fontWeight: 650 },
   barWrap: { height: 8, borderRadius: 999, background: 'rgba(255,255,255,0.12)', overflow: 'hidden' },
