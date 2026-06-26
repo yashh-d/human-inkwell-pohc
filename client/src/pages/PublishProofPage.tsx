@@ -983,14 +983,14 @@ function PublishVersionB({
       <ScoreBreakdown authorship={authorship} />
       <EvidenceCards proof={proof} authorship={authorship} />
 
-      {/* AI DETECTOR, deliberately small and secondary. */}
+      {/* AI PROBABILITY, deliberately small and secondary (same framing as A). */}
       <div style={{ ...styles.card, padding: '10px 14px', opacity: 0.85 }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}>
-          <span style={{ fontSize: 12, opacity: 0.7 }}>Text pattern analysis <span style={styles.tag}>reference</span></span>
+          <span style={{ fontSize: 12, opacity: 0.7 }}>AI probability <span style={styles.tag}>simulated</span></span>
           <span style={{ fontSize: 18, fontWeight: 700, color: ai.color }}>{ai.ai}%</span>
         </div>
         <p style={{ ...styles.muted, margin: '4px 0 0' }}>
-          Independent text-only estimate. <strong>Not included</strong> in the Human Ink score, detectors read the final wording, Human Ink reads the writing process.
+          Independent post-hoc detector, a parallel reference, not part of the Process Score.
         </p>
       </div>
 
