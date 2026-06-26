@@ -486,6 +486,8 @@ export default function PublishProofPage() {
   const [submit, setSubmit] = useState<SubmitState>({ phase: 'idle' });
   const [authError, setAuthError] = useState<string | null>(null);
   const [pendingPublish, setPendingPublish] = useState(false);
+  // A/B design toggle: A is the current report; B is the evidence-first redesign.
+  const [view, setView] = useState<'a' | 'b'>('a');
 
   const { initOAuth } = useLoginWithOAuth({
     onError: (err) => {
@@ -630,8 +632,20 @@ export default function PublishProofPage() {
   const band = processBand(authorship.score, bands);
   const reason = reasonLine(proof, authorship.score);
 
+  if (view === 'b') {
+    return (
+      <PublishVersionB
+        proof={proof} ai={ai} authorship={authorship} integrity={integrity} bands={bands}
+        success={success} busy={busy} submit={submit} onPublish={handlePrimary}
+        authError={authError} identityAuthError={identity.authError}
+        view={view} setView={setView}
+      />
+    );
+  }
+
   return (
     <div style={styles.wrap}>
+      <ViewToggle view={view} setView={setView} />
       <h1 style={styles.h1}>{success ? '✓ Proof published' : 'Proof of human writing'}</h1>
       <p style={styles.muted}>
         Captured by the Human Ink extension{proof.context === 'google-docs' ? ' from Google Docs' : ''}
@@ -876,6 +890,283 @@ export default function PublishProofPage() {
           <Link to="/" style={{ ...styles.link, marginTop: 14, display: 'block' }}>Cancel</Link>
         </>
       )}
+    </div>
+  );
+}
+
+/** Small pill toggle to flip between the two report designs (A = current, B = new). */
+function ViewToggle({ view, setView }: { view: 'a' | 'b'; setView: (v: 'a' | 'b') => void }) {
+  const btn = (v: 'a' | 'b', label: string) => (
+    <button
+      onClick={() => setView(v)}
+      style={{
+        padding: '5px 12px', borderRadius: 999, fontSize: 12, fontWeight: 650, cursor: 'pointer',
+        border: '1px solid', borderColor: view === v ? '#6ee7b7' : 'rgba(127,127,127,0.4)',
+        background: view === v ? 'rgba(110,231,183,0.15)' : 'transparent',
+        color: view === v ? '#6ee7b7' : 'inherit',
+      }}
+    >{label}</button>
+  );
+  return (
+    <div style={{ display: 'flex', gap: 6, justifyContent: 'center', margin: '0 0 16px' }}>
+      {btn('a', 'Version A')}{btn('b', 'Version B · new')}
+    </div>
+  );
+}
+
+/** ■■■□□ strength bar for the evidence cards (words/visuals over arbitrary numbers). */
+function Blocks({ score, total = 8 }: { score: number; total?: number }) {
+  const filled = Math.max(0, Math.min(total, Math.round((score / 100) * total)));
+  return (
+    <span style={{ letterSpacing: 2, fontSize: 13, fontFamily: 'ui-monospace, Menlo, monospace' }}>
+      <span style={{ color: '#6ee7b7' }}>{'■'.repeat(filled)}</span>
+      <span style={{ opacity: 0.28 }}>{'□'.repeat(total - filled)}</span>
+    </span>
+  );
+}
+
+const PLAIN_LABEL: Record<string, string> = {
+  revision: 'Revision history',
+  typed: 'Original writing',
+  time: 'Time invested',
+  'time-span': 'Writing timeline',
+};
+
+/**
+ * Version B, the evidence-first redesign. Same scoring + telemetry as A; only the
+ * narrative order and copy change: lead with "Evidence of Human Authorship" + a
+ * plain-English verdict and assessment, keep the Process Score as the supporting
+ * number, surface authentic-revision near the top, explain how the score is built,
+ * and relegate the AI detector + technical hashes to small secondary/advanced areas.
+ */
+function PublishVersionB({
+  proof, ai, authorship, integrity, bands,
+  success, busy, submit, onPublish, authError, identityAuthError, view, setView,
+}: {
+  proof: ExtensionProof;
+  ai: ReturnType<typeof computeAiScore>;
+  authorship: ReturnType<typeof computeAuthorshipScore>;
+  integrity: ReturnType<typeof computeIntegrity>;
+  bands: ScoreBands;
+  success: boolean;
+  busy: boolean;
+  submit: SubmitState;
+  onPublish: () => void;
+  authError: string | null;
+  identityAuthError?: string | null;
+  view: 'a' | 'b';
+  setView: (v: 'a' | 'b') => void;
+}) {
+  const [adv, setAdv] = useState(false);
+  const m = proof.metrics || {};
+  // success is a prop here (not a local alias of submit.phase), so TS can't narrow
+  // submit.result, derive it explicitly from the discriminant.
+  const result: any = submit.phase === 'success' ? submit.result : null;
+  const band = processBand(authorship.score, bands);
+  const pb = pasteBreakdown(proof);
+  const docs = proof.docsRevision || null;
+  const rev = proof.revision || null;
+
+  const verdictWord = band.tone === 'green' ? 'Strong' : band.tone === 'yellow' ? 'Moderate' : 'Limited';
+  const confidence = band.tone === 'green' ? 'High' : band.tone === 'yellow' ? 'Moderate' : 'Low';
+  const typedPct = Math.round(pb.writtenRatio * 100);
+  const editEvents = rev?.editCount || 0;
+  const revisions = docs?.revisionCount || 0;
+  const passes = revisions || editEvents;
+  const editDays = docs?.editDays || 0;
+  const largeBulk = pb.penalizedExternal > 0 && pb.largestExternal >= 120;
+
+  // Per-signal contribution to the 0–100 score (transparent "how it's built").
+  const live = authorship.signals.filter((s) => s.has);
+  const totalWeight = live.reduce((s, x) => s + x.weight, 0) || 1;
+  const contributions = live.map((s) => ({
+    label: PLAIN_LABEL[s.key] || s.label,
+    pts: Math.round((s.score * s.weight) / totalWeight),
+    weak: s.score < 50,
+  }));
+  const sigScore = (key: string) => authorship.signals.find((s) => s.key === key)?.score ?? 0;
+
+  // Assessment bullets, the story a professor reads in 20 seconds.
+  const bullets: string[] = [];
+  bullets.push(`${typedPct}% of the text was typed directly`);
+  if (pb.externalChars === 0) bullets.push('No text pasted in from outside the document');
+  else if (largeBulk) bullets.push(`A large block (${pb.largestExternal} chars) was pasted in from outside`);
+  else bullets.push(`Small pasted section only (${pb.externalChars} characters)`);
+  if (passes) bullets.push(`${passes} editing ${passes === 1 ? 'event' : 'events'} captured`);
+  bullets.push(editDays >= 2 ? `Writing occurred across ${editDays} days` : 'Writing occurred in one session');
+  if (!largeBulk) bullets.push('No large bulk insertion detected');
+
+  const assessmentLead = band.tone === 'red'
+    ? 'Limited writing history was captured for this document. That does not imply AI use, but more process evidence would raise confidence.'
+    : 'This document shows evidence consistent with genuine human writing.';
+
+  const timeContext = (m.elapsedMs || 0) > 0 && (m.elapsedMs || 0) < 10 * 60000
+    ? 'Typical papers of this length take 10–30 minutes of active writing.'
+    : 'Active time spent writing in the document.';
+
+  return (
+    <div style={styles.wrap}>
+      <ViewToggle view={view} setView={setView} />
+      <h1 style={styles.h1}>{success ? '✓ Proof published' : 'Proof of Human Writing'}</h1>
+
+      {/* What Human Ink measures, framing up front to distinguish from AI detectors. */}
+      <p style={styles.muted}>
+        Human Ink evaluates how a document was created, its writing activity, revisions and editing
+        history, rather than judging the final wording. Captured from
+        {proof.context === 'google-docs' ? ' Google Docs' : ' the web'}{proof.email ? ` · ${proof.email}` : ''}.
+      </p>
+
+      {/* HERO, evidence of authorship is the headline; the score is supporting. */}
+      <div style={{ ...styles.heroCard, borderColor: band.color, margin: '14px 0' }}>
+        <div style={{ fontSize: 13, fontWeight: 650, opacity: 0.8 }}>Evidence of Human Authorship</div>
+        <div style={{ display: 'flex', alignItems: 'baseline', gap: 12, margin: '6px 0 2px' }}>
+          <span style={{ fontSize: 34, fontWeight: 800, color: band.color }}>{verdictWord}</span>
+          <span style={{ fontSize: 13, opacity: 0.7 }}>Confidence: {confidence}</span>
+        </div>
+        <div style={{ ...styles.barWrap, marginTop: 8 }}>
+          <div style={{ ...styles.barFill, width: `${authorship.score}%`, background: band.color }} />
+        </div>
+        <div style={{ fontSize: 12, opacity: 0.7, marginTop: 8 }}>
+          Process Score <strong style={{ color: band.color }}>{authorship.score}</strong> / 100, our measure of captured writing process.
+        </div>
+      </div>
+
+      {/* ASSESSMENT, the narrative a professor can read in 20 seconds. */}
+      <div style={styles.card}>
+        <div style={styles.signalHead}>Assessment</div>
+        <p style={{ fontSize: 13.5, lineHeight: 1.5, margin: '2px 0 10px' }}>{assessmentLead}</p>
+        <div style={styles.flagList}>
+          {bullets.map((b, i) => (
+            <div key={i} style={styles.flag}>
+              <span style={{ ...styles.flagDot, color: '#6ee7b7' }}>•</span>
+              <span style={styles.flagText}>{b}</span>
+            </div>
+          ))}
+        </div>
+        <p style={{ ...styles.muted, marginTop: 10, fontStyle: 'italic' }}>The evidence below supports this conclusion.</p>
+      </div>
+
+      {/* AUTHENTIC REVISION, one of the strongest trust signals, placed up high. */}
+      <div style={{ ...styles.card, borderColor: integrity.color }}>
+        <div style={{ fontSize: 14, fontWeight: 700, color: integrity.color, marginBottom: 8 }}>
+          {integrity.verdict === 'Revisions look authentic' ? '✓ Authentic revision history' : integrity.verdict}
+        </div>
+        <div style={styles.flagList}>
+          {integrity.flags.slice(0, 4).map((f, i) => (
+            <div key={i} style={styles.flag}>
+              <span style={{ ...styles.flagDot, color: f.level === 'ok' ? '#6ee7b7' : f.level === 'warn' ? '#fbbf24' : '#f87171' }}>
+                {f.level === 'ok' ? '✓' : f.level === 'warn' ? '!' : '✕'}
+              </span>
+              <span style={styles.flagText}>{f.text}</span>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {/* HOW THE SCORE IS BUILT, transparency builds trust in the number. */}
+      <div style={styles.card}>
+        <div style={styles.signalHead}>How the Process Score is built</div>
+        <div style={styles.flagList}>
+          {contributions.map((c, i) => (
+            <div key={i} style={{ ...styles.row, padding: '4px 0' }}>
+              <span style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                <span style={{ color: c.weak ? '#fbbf24' : '#6ee7b7', fontWeight: 700 }}>+{c.pts}</span>
+                <span style={{ fontSize: 13 }}>{c.label}</span>
+              </span>
+              <Blocks score={c.weak ? 30 : 80} total={5} />
+            </div>
+          ))}
+        </div>
+        {authorship.protections.map((p, i) => (
+          <div key={i} style={{ ...styles.flag, marginTop: 8 }}>
+            <span style={{ ...styles.flagDot, color: '#6ee7b7' }}>✓</span>
+            <span style={styles.flagText}>{p}</span>
+          </div>
+        ))}
+      </div>
+
+      {/* EVIDENCE CARDS, plain labels + a strength bar + context, not bare numbers. */}
+      <div style={styles.bodyGrid}>
+        <EvidenceCard label="Revision history" value={passes ? `${passes} editing ${passes === 1 ? 'pass' : 'passes'}` : 'none captured'} score={sigScore('revision')} note="Drafts and rewrites are the fingerprint of real effort." />
+        <EvidenceCard label="Original writing" value={`${typedPct}% typed`} score={sigScore('typed')} note={largeBulk ? `Largest pasted block: ${pb.largestExternal} chars.` : 'No large bulk insertions.'} />
+        <EvidenceCard label="Time invested" value={fmtMs(m.elapsedMs)} score={sigScore('time')} note={timeContext} />
+        <EvidenceCard label="Writing timeline" value={editDays <= 1 ? '1 day' : `${editDays} days`} score={sigScore('time-span')} note="Work spread across sittings is hard to fake." />
+      </div>
+
+      {/* SUPPORTING CHARTS, each captioned with the question it answers. */}
+      {rev && rev.editCount > 0 && rev.timeline && rev.timeline.length > 0 && (
+        <div style={styles.card}>
+          <div style={styles.signalHead}>How the writing unfolded</div>
+          <p style={styles.muted}>Did the document grow steadily, or appear in sudden blocks?</p>
+          <WritingTimelineChart timeline={rev.timeline} docs={proof.docsRevision} />
+          <p style={{ ...styles.muted, marginTop: 6 }}>When did the bursts of writing happen?</p>
+          <BurstChart timeline={rev.timeline} byTime />
+        </div>
+      )}
+
+      {/* AI DETECTOR, deliberately small and secondary. */}
+      <div style={{ ...styles.card, padding: '10px 14px', opacity: 0.85 }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}>
+          <span style={{ fontSize: 12, opacity: 0.7 }}>Text pattern analysis <span style={styles.tag}>reference</span></span>
+          <span style={{ fontSize: 18, fontWeight: 700, color: ai.color }}>{ai.ai}%</span>
+        </div>
+        <p style={{ ...styles.muted, margin: '4px 0 0' }}>
+          Independent text-only estimate. <strong>Not included</strong> in the Human Ink score, detectors read the final wording, Human Ink reads the writing process.
+        </p>
+      </div>
+
+      {/* ADVANCED, technical metadata tucked away for auditors. */}
+      <div style={styles.card}>
+        <button style={styles.ghostBtn} onClick={() => setAdv((v) => !v)}>
+          {adv ? 'Hide advanced verification ▲' : 'Advanced verification ▼'}
+        </button>
+        {adv && (
+          <div style={{ marginTop: 8 }}>
+            {proof.docTitle && <Row k="Document" v={proof.docTitle} />}
+            <Row k="Content hash" v={short(proof.contentHash)} />
+            <Row k="Human signature" v={short(proof.humanSignatureHash)} />
+            <Row k="WPM" v={String(m.wpm ?? 0)} />
+            <Row k="Keystrokes" v={String(m.keystrokeCount ?? proof.keystrokeCount)} />
+            <Row k="Backspaces" v={String(m.backspaceCount ?? 0)} />
+            <Row k="Pasted chars" v={String(m.pastedChars ?? 0)} />
+            {success && typeof result?.entryId === 'number' && <Row k="Ledger entry" v={`#${result.entryId}`} />}
+            {success && result?.transactionHash && <Row k="Tx" v={short(result.transactionHash)} />}
+          </div>
+        )}
+      </div>
+
+      {success ? (
+        <>
+          <p style={styles.muted}>{result?.simulated ? 'Simulated write · World Chain (demo)' : 'Recorded in HumanContentLedger.'}</p>
+          {result?.explorerContractUrl && (
+            <a style={styles.link} href={result.explorerContractUrl} target="_blank" rel="noreferrer">View contract ↗</a>
+          )}
+          <Link to="/" style={{ ...styles.link, display: 'block', marginTop: 12 }}>← Back to Human Ink</Link>
+        </>
+      ) : (
+        <>
+          <button style={{ ...styles.primary, opacity: busy ? 0.6 : 1 }} disabled={busy} onClick={onPublish}>
+            {busy ? 'Publishing…' : SIMULATE ? 'Publish proof on-chain' : 'Continue with Google & publish'}
+          </button>
+          {(authError || identityAuthError) && <p style={styles.error}>{authError || identityAuthError}</p>}
+          {submit.phase === 'error' && <p style={styles.error}>{submit.message}</p>}
+          <Link to="/" style={{ ...styles.link, marginTop: 14, display: 'block' }}>Cancel</Link>
+        </>
+      )}
+    </div>
+  );
+}
+
+/** Evidence card for Version B: plain label, strength bar, value, one-line context. */
+function EvidenceCard({ label, value, score, note }: { label: string; value: string; score: number; note: string }) {
+  return (
+    <div style={styles.card}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 8 }}>
+        <span style={{ fontSize: 14, fontWeight: 700 }}>{label}</span>
+        <span style={{ fontSize: 13, fontWeight: 700, fontFamily: 'ui-monospace, Menlo, monospace' }}>{value}</span>
+      </div>
+      <Blocks score={score} />
+      <p style={{ ...styles.muted, margin: '8px 0 0' }}>{note}</p>
     </div>
   );
 }
