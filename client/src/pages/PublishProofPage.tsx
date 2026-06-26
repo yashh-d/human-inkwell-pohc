@@ -1322,16 +1322,19 @@ function BurstChart({
           return <rect key={i} x={x.toFixed(1)} y={y.toFixed(1)} width={bw.toFixed(1)} height={h.toFixed(1)} rx={1} fill={color(e)} />;
         })}
         <line x1={padL} y1={padT + innerH} x2={W - padR} y2={padT + innerH} stroke="currentColor" strokeOpacity={0.12} strokeWidth={1} />
-        <text x={padL} y={padT + 2} fill="currentColor" opacity={0.42} fontSize={9}>{n} bursts · largest {max.toLocaleString()}</text>
-        {useTime ? (
+        {useTime && (
           <>
             <text x={padL} y={H - 4} fill="currentColor" opacity={0.55} fontSize={9}>{fmtDate(tMin)}</text>
             <text x={W - padR} y={H - 4} fill="currentColor" opacity={0.55} fontSize={9} textAnchor="end">{fmtDate(tMax)}</text>
           </>
-        ) : (
-          <text x={W - padR} y={H - 4} fill="currentColor" opacity={0.5} fontSize={9} textAnchor="end">{byTime ? 'timestamps after next capture' : 'by burst order'}</text>
         )}
       </svg>
+      {/* Captions live in normal HTML, not as SVG text (which scales with the chart
+          width and balloons). */}
+      <div style={{ ...styles.scoreRow, gap: 8 }}>
+        <span>{n} {n === 1 ? 'burst' : 'bursts'} · largest {max.toLocaleString()} chars</span>
+        {byTime && !hasTime && <span style={{ opacity: 0.75, textAlign: 'right' }}>real-time view fills in after your next capture</span>}
+      </div>
     </div>
   );
 }
