@@ -809,15 +809,7 @@ export default function PublishProofPage() {
       )}
 
       {success ? (
-        <>
-          <p style={styles.muted}>
-            {submit.result.simulated ? 'Simulated write · World Chain Sepolia (demo)' : 'Recorded in HumanContentLedger.'}
-          </p>
-          {submit.result.explorerContractUrl && (
-            <a style={styles.link} href={submit.result.explorerContractUrl} target="_blank" rel="noreferrer">View contract ↗</a>
-          )}
-          <Link to="/" style={{ ...styles.link, display: 'block', marginTop: 12 }}>← Back to Human Ink</Link>
-        </>
+        <Receipt result={submit.result} />
       ) : (
         <>
           <button style={{ ...styles.primary, opacity: busy ? 0.6 : 1 }} disabled={busy} onClick={handlePrimary}>
@@ -853,7 +845,7 @@ function ViewToggle({ view, setView }: { view: 'a' | 'b'; setView: (v: 'a' | 'b'
 }
 
 /** ■■■□□ strength bar for the evidence cards (words/visuals over arbitrary numbers). */
-function Blocks({ score, total = 8 }: { score: number; total?: number }) {
+function Blocks({ score, total = 5 }: { score: number; total?: number }) {
   const filled = Math.max(0, Math.min(total, Math.round((score / 100) * total)));
   return (
     <span style={{ letterSpacing: 2, fontSize: 13, fontFamily: 'ui-monospace, Menlo, monospace' }}>
@@ -1026,13 +1018,7 @@ function PublishVersionB({
       </div>
 
       {success ? (
-        <>
-          <p style={styles.muted}>{result?.simulated ? 'Simulated write · World Chain (demo)' : 'Recorded in HumanContentLedger.'}</p>
-          {result?.explorerContractUrl && (
-            <a style={styles.link} href={result.explorerContractUrl} target="_blank" rel="noreferrer">View contract ↗</a>
-          )}
-          <Link to="/" style={{ ...styles.link, display: 'block', marginTop: 12 }}>← Back to Human Ink</Link>
-        </>
+        <Receipt result={result} />
       ) : (
         <>
           <button style={{ ...styles.primary, opacity: busy ? 0.6 : 1 }} disabled={busy} onClick={onPublish}>
@@ -1048,27 +1034,97 @@ function PublishVersionB({
 }
 
 /** Shared: "How the Process Score is built", per-signal +points + strength bar. */
+/**
+ * On-chain receipt shown after a successful publish. The transaction is the proof,
+ * so the full tx hash is selectable + copyable with prominent links to the
+ * explorer (transaction AND contract), not buried as a truncated row.
+ */
+function Receipt({ result }: { result: any }) {
+  const [copied, setCopied] = useState(false);
+  const tx: string | undefined = result?.transactionHash;
+  const txUrl = tx ? `${EXPLORER_BASE}/tx/${tx}` : null;
+  const contractUrl: string = result?.explorerContractUrl || `${EXPLORER_BASE}/address/${CONTRACT_ADDRESS}`;
+  const copyTx = () => {
+    if (!tx) return;
+    try {
+      navigator.clipboard.writeText(tx);
+      setCopied(true);
+      window.setTimeout(() => setCopied(false), 1500);
+    } catch { /* clipboard unavailable */ }
+  };
+  return (
+    <div style={{ marginTop: 10 }}>
+      <p style={styles.muted}>{result?.simulated ? 'Simulated write · World Chain (demo)' : 'Recorded on-chain in HumanContentLedger.'}</p>
+
+      {typeof result?.entryId === 'number' && (
+        <div style={styles.row}><span style={styles.rowK}>Ledger entry</span><span style={styles.rowV}>#{result.entryId}</span></div>
+      )}
+
+      {tx && (
+        <div style={{ ...styles.card, marginTop: 10 }}>
+          <div style={styles.receiptLabel}>Transaction hash</div>
+          <div style={styles.receiptHash}>{tx}</div>
+          <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginTop: 10 }}>
+            {txUrl && <a style={styles.receiptBtn} href={txUrl} target="_blank" rel="noreferrer">View transaction ↗</a>}
+            <button style={styles.receiptBtn} onClick={copyTx}>{copied ? 'Copied ✓' : 'Copy hash'}</button>
+          </div>
+        </div>
+      )}
+
+      <div style={{ display: 'flex', gap: 18, flexWrap: 'wrap', marginTop: 14 }}>
+        <a style={styles.link} href={contractUrl} target="_blank" rel="noreferrer">View contract ↗</a>
+        <Link to="/" style={styles.link}>← Back to Human Ink</Link>
+      </div>
+    </div>
+  );
+}
+
 function ScoreBreakdown({ authorship }: { authorship: ReturnType<typeof computeAuthorshipScore> }) {
   const live = authorship.signals.filter((s) => s.has);
   const totalWeight = live.reduce((s, x) => s + x.weight, 0) || 1;
+  // Each signal's points = its normalized score × its share of the live weight,
+  // exactly how the raw score is computed. The strength bar shows that same
+  // normalized score (0–100% → 0–5 blocks), so the bar and the +points agree.
   const rows = live.map((s) => ({
     label: PLAIN_LABEL[s.key] || s.label,
+    detail: s.detail,
     pts: Math.round((s.score * s.weight) / totalWeight),
     score: s.score,
   }));
+  // Reconcile to the headline: any gap between the signal points and the final
+  // score is the F3 protection floor (e.g. linear-thinker) or rounding. Show it so
+  // the visible numbers always add up to the Process Score.
+  const sum = rows.reduce((a, r) => a + r.pts, 0);
+  const adjustment = authorship.score - sum;
+  const adjLabel = authorship.protections.length > 0 ? 'Protection floor' : 'Rounding';
   return (
     <div style={styles.card}>
       <div style={styles.signalHead}>How the Process Score is built</div>
       <div style={styles.flagList}>
         {rows.map((c, i) => (
-          <div key={i} style={{ ...styles.row, padding: '5px 0' }}>
-            <span style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-              <span style={{ color: c.score < 50 ? '#fbbf24' : '#6ee7b7', fontWeight: 700, minWidth: 30 }}>+{c.pts}</span>
-              <span style={{ fontSize: 13 }}>{c.label}</span>
+          <div key={i} style={{ ...styles.row, padding: '6px 0', alignItems: 'center' }}>
+            <span style={{ display: 'flex', alignItems: 'center', gap: 10, minWidth: 0 }}>
+              <span style={{ color: c.score < 50 ? '#fbbf24' : '#6ee7b7', fontWeight: 700, width: 34, flexShrink: 0 }}>+{c.pts}</span>
+              <span style={{ minWidth: 0 }}>
+                <span style={{ fontSize: 13, fontWeight: 600, display: 'block' }}>{c.label}</span>
+                <span style={{ fontSize: 11, opacity: 0.6 }}>{c.detail}</span>
+              </span>
             </span>
             <Blocks score={c.score} total={5} />
           </div>
         ))}
+        {adjustment !== 0 && (
+          <div style={{ ...styles.row, padding: '6px 0', alignItems: 'center' }}>
+            <span style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+              <span style={{ color: '#6ee7b7', fontWeight: 700, width: 34, flexShrink: 0 }}>{adjustment > 0 ? `+${adjustment}` : adjustment}</span>
+              <span style={{ fontSize: 13, fontWeight: 600 }}>{adjLabel}</span>
+            </span>
+          </div>
+        )}
+        <div style={{ ...styles.row, padding: '8px 0 0', marginTop: 4, borderTop: '1px solid rgba(127,127,127,0.25)', fontWeight: 700 }}>
+          <span>Process Score</span>
+          <span>{authorship.score} / 100</span>
+        </div>
       </div>
       {authorship.protections.map((p, i) => (
         <div key={i} style={{ ...styles.flag, marginTop: 8 }}>
@@ -1376,6 +1432,9 @@ const styles: Record<string, React.CSSProperties> = {
   signalHead: { fontSize: 12, textTransform: 'uppercase', letterSpacing: 0.7, fontWeight: 700, opacity: 0.88, marginBottom: 12 },
   chartTitle: { fontSize: 13.5, fontWeight: 700, marginBottom: 2 },
   chartCaption: { fontSize: 11.5, opacity: 0.65, margin: '0 0 6px', lineHeight: 1.4 },
+  receiptLabel: { fontSize: 11, textTransform: 'uppercase', letterSpacing: 0.5, opacity: 0.6, marginBottom: 4 },
+  receiptHash: { fontFamily: 'ui-monospace, Menlo, monospace', fontSize: 12.5, wordBreak: 'break-all', userSelect: 'all', lineHeight: 1.5 },
+  receiptBtn: { display: 'inline-block', padding: '8px 14px', borderRadius: 8, border: '1px solid #6ee7b7', background: 'rgba(110,231,183,0.12)', color: '#6ee7b7', fontSize: 13, fontWeight: 650, cursor: 'pointer', textDecoration: 'none' },
   signalList: { marginTop: 16, display: 'flex', flexDirection: 'column', gap: 16 },
   signal: { display: 'flex', flexDirection: 'column', gap: 6, borderLeft: '2px solid rgba(110,231,183,0.45)', paddingLeft: 11 },
   signalTop: { display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: 10 },
