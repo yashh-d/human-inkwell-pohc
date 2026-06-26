@@ -54,7 +54,7 @@ type RevisionAnalysis = {
   largestExternalPaste?: number;
   humanTypedRatio: number;
   largestPaste: number;
-  timeline?: { type: 'type' | 'paste'; chars: number; origin?: PasteOrigin }[];
+  timeline?: { type: 'type' | 'paste'; chars: number; origin?: PasteOrigin; t?: number }[];
 };
 
 type ExtensionProof = {
@@ -889,7 +889,7 @@ function WritingTimelineChart({
   timeline,
   docs,
 }: {
-  timeline: { type: 'type' | 'paste'; chars: number; origin?: PasteOrigin }[];
+  timeline: { type: 'type' | 'paste'; chars: number; origin?: PasteOrigin; t?: number }[];
   docs?: ExtensionProof['docsRevision'];
 }) {
   const W = 320, H = 132, padL = 6, padR = 6, padT = 10, padB = 22;
@@ -900,7 +900,19 @@ function WritingTimelineChart({
   for (const e of timeline) cum.push(cum[cum.length - 1] + Math.max(0, e.chars));
   const total = cum[cum.length - 1] || 1;
   const n = cum.length;
-  const x = (i: number) => padL + (n <= 1 ? 0 : (i / (n - 1)) * innerW);
+
+  // Real time axis: place each point at its wall-clock timestamp (stitched across
+  // all sessions) when bursts carry one; fall back to even index spacing otherwise.
+  const hasTime = timeline.length > 0 && timeline.every((e) => typeof e.t === 'number');
+  const ts = timeline.map((e) => e.t as number);
+  const tMin = hasTime ? Math.min(...ts) : 0;
+  const tMax = hasTime ? Math.max(...ts) : 1;
+  const tSpan = tMax - tMin || 1;
+  const x = (i: number) => {
+    if (!hasTime) return padL + (n <= 1 ? 0 : (i / (n - 1)) * innerW);
+    const tt = i === 0 ? tMin : ts[i - 1];
+    return padL + ((tt - tMin) / tSpan) * innerW;
+  };
   const y = (v: number) => padT + innerH - (v / total) * innerH;
 
   // Color by provenance: typed = green slope; EXTERNAL paste = amber cliff (the
@@ -922,8 +934,8 @@ function WritingTimelineChart({
   const areaPath = `${padL},${baseY} ${areaPts} ${x(n - 1).toFixed(1)},${baseY}`;
 
   const fmtDate = (ms?: number | null) => (ms ? new Date(ms).toLocaleDateString(undefined, { month: 'short', day: 'numeric' }) : null);
-  const startLabel = fmtDate(docs?.firstModified) || 'start';
-  const endLabel = fmtDate(docs?.lastModified) || 'finish';
+  const startLabel = (hasTime ? fmtDate(tMin) : fmtDate(docs?.firstModified)) || 'start';
+  const endLabel = (hasTime ? fmtDate(tMax) : fmtDate(docs?.lastModified)) || 'finish';
 
   return (
     <div style={{ margin: '4px 0 12px' }}>
@@ -973,14 +985,27 @@ function WritingTimelineChart({
 function BurstChart({
   timeline,
 }: {
-  timeline: { type: 'type' | 'paste'; chars: number; origin?: PasteOrigin }[];
+  timeline: { type: 'type' | 'paste'; chars: number; origin?: PasteOrigin; t?: number }[];
 }) {
   const W = 320, H = 96, padT = 8, padB = 16, padL = 6, padR = 6;
   const innerW = W - padL - padR, innerH = H - padT - padB;
   const n = timeline.length;
   const max = Math.max(1, ...timeline.map((e) => e.chars));
-  const gap = n > 60 ? 0.5 : 2;
-  const bw = n > 0 ? Math.max(1, (innerW - gap * (n - 1)) / n) : innerW;
+
+  // Place each burst at its real wall-clock time (across all sessions) when stamped;
+  // gaps between days/sittings then show as empty stretches — the actual cadence of
+  // the work. Falls back to even index spacing for older, untimestamped payloads.
+  const hasTime = n > 0 && timeline.every((e) => typeof e.t === 'number');
+  const ts = timeline.map((e) => e.t as number);
+  const tMin = hasTime ? Math.min(...ts) : 0;
+  const tMax = hasTime ? Math.max(...ts) : 1;
+  const tSpan = tMax - tMin || 1;
+  const idxGap = n > 60 ? 0.5 : 2;
+  const idxBw = n > 0 ? Math.max(1, (innerW - idxGap * (n - 1)) / n) : innerW;
+  const bw = hasTime ? Math.max(1.2, Math.min(idxBw, 4)) : idxBw;
+  const xAt = (i: number) =>
+    hasTime ? padL + ((ts[i] - tMin) / tSpan) * (innerW - bw)
+            : padL + i * (idxBw + idxGap);
 
   const TYPE = '#6ee7b7', EXTERNAL = '#fbbf24', MOVE = '#60a5fa', CITED = '#a78bfa';
   const color = (e: { type: string; origin?: PasteOrigin }) =>
@@ -988,19 +1013,27 @@ function BurstChart({
       : e.origin === 'internal_move' ? MOVE
       : e.origin === 'cited_source' ? CITED
       : EXTERNAL;
+  const fmtDate = (ms: number) => new Date(ms).toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
 
   return (
     <div style={{ margin: '4px 0 12px' }}>
       <svg viewBox={`0 0 ${W} ${H}`} width="100%" style={{ display: 'block' }}>
         {timeline.map((e, i) => {
           const h = Math.max(2, (e.chars / max) * innerH);
-          const x = padL + i * (bw + gap);
+          const x = xAt(i);
           const y = padT + innerH - h;
           return <rect key={i} x={x.toFixed(1)} y={y.toFixed(1)} width={bw.toFixed(1)} height={h.toFixed(1)} rx={1} fill={color(e)} />;
         })}
         <line x1={padL} y1={padT + innerH} x2={W - padR} y2={padT + innerH} stroke="rgba(255,255,255,0.12)" strokeWidth={1} />
-        <text x={padL} y={H - 4} fill="rgba(255,255,255,0.5)" fontSize={9}>{n} bursts</text>
-        <text x={W - padR} y={H - 4} fill="rgba(255,255,255,0.5)" fontSize={9} textAnchor="end">largest {max.toLocaleString()} chars</text>
+        <text x={padL} y={padT + 2} fill="rgba(255,255,255,0.42)" fontSize={9}>{n} bursts · largest {max.toLocaleString()}</text>
+        {hasTime ? (
+          <>
+            <text x={padL} y={H - 4} fill="rgba(255,255,255,0.55)" fontSize={9}>{fmtDate(tMin)}</text>
+            <text x={W - padR} y={H - 4} fill="rgba(255,255,255,0.55)" fontSize={9} textAnchor="end">{fmtDate(tMax)}</text>
+          </>
+        ) : (
+          <text x={W - padR} y={H - 4} fill="rgba(255,255,255,0.5)" fontSize={9} textAnchor="end">by sequence</text>
+        )}
       </svg>
     </div>
   );
