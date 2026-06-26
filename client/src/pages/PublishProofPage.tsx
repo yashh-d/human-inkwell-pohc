@@ -17,7 +17,7 @@ import { rememberMiniKitWallet } from '../utils/miniKitWallet';
  * EIP-712 → /api/relay → HumanContentLedger), and swap computeAiScore() for a
  * real AI-detector API call.
  */
-const SIMULATE = true;
+const SIMULATE = false;
 
 // Real deployed contract + explorer, from the app's env (falls back to the
 // known World Chain Sepolia deployment).
@@ -40,15 +40,21 @@ type ProofMetrics = {
   textLength?: number;
 };
 
+type PasteOrigin = 'internal_move' | 'cited_source' | 'external';
 type RevisionAnalysis = {
   editCount: number;
   typedEdits: number;
   pasteEdits: number;
   typedChars: number;
   pastedChars: number;
+  // F1 provenance breakdown (older payloads won't have these).
+  externalPastedChars?: number;
+  internalPastedChars?: number;
+  citedPastedChars?: number;
+  largestExternalPaste?: number;
   humanTypedRatio: number;
   largestPaste: number;
-  timeline?: { type: 'type' | 'paste'; chars: number }[];
+  timeline?: { type: 'type' | 'paste'; chars: number; origin?: PasteOrigin }[];
 };
 
 type ExtensionProof = {
@@ -131,6 +137,42 @@ const fmtMs = (ms?: number) => {
 };
 
 /**
+ * F1 paste picture — the single source of truth for "what counts against you".
+ * Only EXTERNAL pastes (came from outside the doc) count; cut-and-move of your own
+ * text and quoted/cited material do not. A grace budget absorbs legitimate offline
+ * drafting (a paragraph written on a phone, an imported outline) before any penalty.
+ * Falls back gracefully for older payloads that predate provenance (all pastes
+ * treated as external, no grace beyond the floor).
+ */
+function pasteBreakdown(proof: ExtensionProof) {
+  const m = proof.metrics || {};
+  const rev = proof.revision || null;
+  const hasF1 = !!rev && typeof rev.externalPastedChars === 'number';
+
+  const typedChars = rev ? rev.typedChars : (m.keystrokeCount ?? proof.keystrokeCount ?? 0);
+  const externalChars = hasF1 ? (rev!.externalPastedChars || 0) : (m.pastedChars ?? rev?.pastedChars ?? 0);
+  const internalChars = hasF1 ? (rev!.internalPastedChars || 0) : 0;
+  const citedChars = hasF1 ? (rev!.citedPastedChars || 0) : 0;
+  const totalChars = typedChars + externalChars + internalChars + citedChars;
+
+  // Grace budget: up to 10% of the doc, with a ~300-word (~1500 char) floor.
+  const graceChars = Math.max(0.10 * totalChars, 1500);
+  const penalizedExternal = Math.max(0, externalChars - graceChars);
+
+  // "Own" text = typed + within-doc moves + cited quotes. Only penalized external
+  // pasting erodes the written ratio.
+  const ownChars = typedChars + internalChars + citedChars;
+  const denom = ownChars + penalizedExternal;
+  const writtenRatio = denom > 0 ? ownChars / denom : 1;
+
+  const largestExternal = hasF1 ? (rev!.largestExternalPaste || 0) : (m.largestPaste ?? rev?.largestPaste ?? 0);
+  return {
+    hasF1, typedChars, externalChars, internalChars, citedChars, totalChars,
+    graceChars, penalizedExternal, writtenRatio, largestExternal,
+  };
+}
+
+/**
  * Human Authorship Score — the one number a professor reads in five seconds.
  *
  * Built from the signals that matter most, in priority order: revision depth
@@ -169,11 +211,13 @@ function computeAuthorshipScore(proof: ExtensionProof) {
   const minutes = (m.elapsedMs || 0) / 60000;
   const timeScore = Math.min(100, Math.round((minutes / 30) * 100));
 
-  // 3) WRITTEN, NOT PASTED — share of text typed keystroke-by-keystroke here.
-  const typedRatio = typeof m.humanTypedRatio === 'number'
-    ? m.humanTypedRatio
-    : (rev ? rev.humanTypedRatio : 1);
-  const typedScore = Math.round(Math.max(0, Math.min(1, typedRatio)) * 100);
+  // 3) WRITTEN, NOT PASTED — own writing vs text pasted in from OUTSIDE the doc
+  //    (F1: moving your own text and quoting don't count; grace budget applies).
+  const pb = pasteBreakdown(proof);
+  const typedScore = Math.round(Math.max(0, Math.min(1, pb.writtenRatio)) * 100);
+  const typedDetail = pb.internalChars > 0 || pb.citedChars > 0
+    ? `${typedScore}% own · ${pb.externalChars} pasted in${pb.internalChars > 0 ? `, ${pb.internalChars} moved` : ''}`
+    : `${typedScore}% typed`;
 
   // 4) EDITING OVER TIME — work spread across sittings beats one rushed dump.
   const editDays = docs?.editDays || (minutes > 0 ? 1 : 0);
@@ -195,10 +239,10 @@ function computeAuthorshipScore(proof: ExtensionProof) {
     {
       key: 'typed',
       label: 'Written, not pasted',
-      blurb: 'How much was typed here, character by character, versus pasted in from somewhere else.',
+      blurb: 'Your own writing versus text pasted in from outside the doc. Moving your own text around and quoting sources don’t count against you.',
       score: typedScore,
       weight: 0.28,
-      detail: `${typedScore}% typed`,
+      detail: typedDetail,
       has: typeof m.humanTypedRatio === 'number' || !!rev,
     },
     {
@@ -223,7 +267,28 @@ function computeAuthorshipScore(proof: ExtensionProof) {
 
   const live = signals.filter((s) => s.has);
   const totalWeight = live.reduce((sum, s) => sum + s.weight, 0) || 1;
-  const score = Math.round(live.reduce((sum, s) => sum + s.score * s.weight, 0) / totalWeight);
+  const raw = Math.round(live.reduce((sum, s) => sum + s.score * s.weight, 0) / totalWeight);
+
+  // ---- F3 protections (no caret data needed) ----
+  // These guard honest writers. The fuller composition-vs-transcription signals
+  // (per-region re-edit passes, mid-text vs tail deletions, caret edit-locality)
+  // need keystroke caret data the Docs canvas capture can't give us yet — deferred.
+  const wpm = m.wpm || 0;
+  const effortIndex = Math.round((revisionScore + timeScore + overTimeScore) / 3);
+  const protections: string[] = [];
+  let score = raw;
+
+  // Halo Effect: deep editing/effort elsewhere forgives isolated external pastes.
+  if (effortIndex >= 60 && typedScore < 60 && score < 70) {
+    score = Math.min(70, Math.round(score + (effortIndex - score) * 0.4));
+    protections.push('Halo effect: deep editing and time elsewhere offset the pasted material.');
+  }
+  // Linear-Thinker override: a clean front-to-back typist at a human pace is not a
+  // cheater — ≥95% own text at normal speed clears straight to the green band.
+  if (pb.writtenRatio >= 0.95 && wpm >= 15 && wpm <= 120) {
+    score = Math.max(score, DEFAULT_BANDS.green);
+    protections.push('Linear-thinker override: ≥95% typed at a normal pace — cleared.');
+  }
 
   const verdict = score >= 75 ? 'Strong proof of human effort'
     : score >= 50 ? 'Solid signs of human work'
@@ -231,7 +296,40 @@ function computeAuthorshipScore(proof: ExtensionProof) {
     : 'Little evidence of original work';
   const color = score >= 75 ? '#6ee7b7' : score >= 50 ? '#a7f3d0' : score >= 30 ? '#fbbf24' : '#f87171';
 
-  return { score, verdict, color, signals };
+  return { score, verdict, color, signals, protections, effortIndex };
+}
+
+/**
+ * F2 — the traffic-light band for the Process Score. Thresholds are server-tunable
+ * (see /api/scoring-config) with these defaults. Deliberately biased toward YELLOW:
+ * a false green is a missed catch, but a false red is a wrongful accusation — so
+ * green requires a genuinely strong score and red is reserved for clearly-low ones.
+ */
+type ScoreBands = { green: number; red: number };
+const DEFAULT_BANDS: ScoreBands = { green: 60, red: 30 };
+function processBand(score: number, bands: ScoreBands) {
+  if (score >= bands.green) return { label: 'Authentic — clear to move on', color: '#6ee7b7', tone: 'green' as const };
+  if (score >= bands.red) return { label: 'Worth a glance', color: '#fbbf24', tone: 'yellow' as const };
+  return { label: 'Investigate', color: '#f87171', tone: 'red' as const };
+}
+
+/** One plain-English line under the Process Score — the "why" for a clean essay. */
+function reasonLine(proof: ExtensionProof, score: number): string {
+  const pb = pasteBreakdown(proof);
+  const writtenPct = Math.round(pb.writtenRatio * 100);
+  const editDays = proof.docsRevision?.editDays || 0;
+  if (pb.penalizedExternal > 0 && writtenPct < 60) {
+    return `Most of the text was pasted in from outside the document; only ${writtenPct}% is the writer’s own.`;
+  }
+  if (pb.penalizedExternal > 0) {
+    return `Some text was pasted in from outside the document; the rest was written here.`;
+  }
+  if (score >= DEFAULT_BANDS.green) {
+    return editDays >= 2
+      ? `Typed and revised across ${editDays} days — consistent with original work.`
+      : `Typed here with genuine editing — consistent with original work.`;
+  }
+  return `Limited typing, revision, or time invested for a piece this size.`;
 }
 
 /**
@@ -249,8 +347,8 @@ function computeIntegrity(proof: ExtensionProof) {
   const docs = proof.docsRevision || null;
   const flags: IntegrityFlag[] = [];
 
-  const typedRatio = typeof m.humanTypedRatio === 'number' ? m.humanTypedRatio : (rev ? rev.humanTypedRatio : 1);
-  const bigPastes = m.bigPastes || 0;
+  const pb = pasteBreakdown(proof);
+  const writtenPct = Math.round(pb.writtenRatio * 100);
   const editDays = docs?.editDays || 0;
   const revisionCount = docs?.revisionCount || 0;
   const editEvents = rev?.editCount || 0;
@@ -259,20 +357,31 @@ function computeIntegrity(proof: ExtensionProof) {
 
   let penalty = 0;
 
-  // Big pastes — whole blocks dropped in rather than written.
-  if (bigPastes > 0) {
-    flags.push({ level: 'bad', text: `${bigPastes} large paste${bigPastes > 1 ? 's' : ''} — big blocks of text dropped in rather than written.` });
-    penalty += Math.min(45, bigPastes * 20);
+  // F1: only EXTERNAL pasting (beyond the grace budget) is a concern. A big block
+  // pasted from outside the doc is the tell; moving your own text is not.
+  if (pb.penalizedExternal > 0 && pb.largestExternal >= 120) {
+    flags.push({ level: 'bad', text: `A large block (${pb.largestExternal} chars) was pasted in from outside the document.` });
+    penalty += 25;
+  } else if (pb.penalizedExternal > 0) {
+    flags.push({ level: 'warn', text: `${pb.externalChars} characters were pasted in from outside the document.` });
+    penalty += 12;
+  } else if (pb.externalChars > 0) {
+    flags.push({ level: 'ok', text: `Small amount pasted in (${pb.externalChars} chars) — within the normal allowance.` });
   } else {
-    flags.push({ level: 'ok', text: 'No large pastes — the text was built up, not dropped in.' });
+    flags.push({ level: 'ok', text: 'Nothing was pasted in from outside — the text was built up here.' });
   }
 
-  // How much was actually typed here.
-  if (typedRatio < 0.5) {
-    flags.push({ level: 'bad', text: `Only ${Math.round(typedRatio * 100)}% of the text was typed in the document.` });
+  // Credit within-doc moves so they're not mistaken for foreign pastes.
+  if (pb.internalChars > 0) {
+    flags.push({ level: 'ok', text: `${pb.internalChars} chars were moved within the doc (your own text) — not counted against you.` });
+  }
+
+  // How much is the writer's own (typed + moved + quoted) vs external.
+  if (writtenPct < 50) {
+    flags.push({ level: 'bad', text: `Only ${writtenPct}% of the text is the writer’s own; most came from outside.` });
     penalty += 25;
-  } else if (typedRatio < 0.85) {
-    flags.push({ level: 'warn', text: `${Math.round(typedRatio * 100)}% typed — some of the content came from elsewhere.` });
+  } else if (writtenPct < 85) {
+    flags.push({ level: 'warn', text: `${writtenPct}% is the writer’s own — some content came from outside.` });
     penalty += 10;
   }
 
@@ -389,6 +498,22 @@ export default function PublishProofPage() {
   const authorship = useMemo(() => (proof ? computeAuthorshipScore(proof) : null), [proof]);
   const integrity = useMemo(() => (proof ? computeIntegrity(proof) : null), [proof]);
 
+  // F2: evidence collapsed by default; score-bands are server-tunable (no deploy).
+  const [showEvidence, setShowEvidence] = useState(false);
+  const [bands, setBands] = useState<ScoreBands>(DEFAULT_BANDS);
+  useEffect(() => {
+    let alive = true;
+    fetch('/api/scoring-config')
+      .then((r) => (r.ok ? r.json() : null))
+      .then((c) => {
+        if (alive && c && typeof c.green === 'number' && typeof c.red === 'number') {
+          setBands({ green: c.green, red: c.red });
+        }
+      })
+      .catch(() => { /* defaults stand */ });
+    return () => { alive = false; };
+  }, []);
+
   // Optional professor flow: paste a rubric → process alignment.
   // DEMO: runs entirely client-side on the captured signals. The real Claude
   // Agent SDK version is parked at future/rubric-analyze.ts — swap runAlignment
@@ -502,6 +627,8 @@ export default function PublishProofPage() {
   const m = proof.metrics || {};
   const success = submit.phase === 'success';
   const busy = submit.phase === 'submitting' || (!SIMULATE && pendingPublish);
+  const band = processBand(authorship.score, bands);
+  const reason = reasonLine(proof, authorship.score);
 
   return (
     <div style={styles.wrap}>
@@ -511,17 +638,42 @@ export default function PublishProofPage() {
         {proof.email ? ` · ${proof.email}` : ''}.{SIMULATE ? ' Demo — simulated on-chain write.' : ''}
       </p>
 
-      {/* Human Authorship Score — the hero: one number, read in five seconds */}
-      <div style={{ ...styles.heroCard, borderColor: authorship.color }}>
-        <div style={styles.heroHead}>
-          <span style={styles.heroLabel}>Human Authorship Score</span>
-          <span style={{ ...styles.heroNum, color: authorship.color }}>{authorship.score}</span>
+      {/* F2 — two DECOUPLED metrics side by side. The Process Score is our own
+          integrity measure; the AI probability is a separate post-hoc reference.
+          They are never blended (a detector false-positive can't move the score). */}
+      <div style={styles.heroRow}>
+        <div style={{ ...styles.heroCard, borderColor: band.color, margin: 0 }}>
+          <div style={styles.heroHead}>
+            <span style={styles.heroLabel}>Process Score</span>
+            <span style={{ ...styles.heroNum, color: band.color }}>{authorship.score}</span>
+          </div>
+          <div style={styles.barWrap}>
+            <div style={{ ...styles.barFill, width: `${authorship.score}%`, background: band.color }} />
+          </div>
+          <div style={{ ...styles.bandPill, color: band.color, borderColor: band.color }}>{band.label}</div>
+          <p style={styles.reasonLine}>{reason}</p>
         </div>
-        <div style={styles.barWrap}>
-          <div style={{ ...styles.barFill, width: `${authorship.score}%`, background: authorship.color }} />
+        <div style={{ ...styles.heroCard, borderColor: ai.color, margin: 0 }}>
+          <div style={styles.heroHead}>
+            <span style={styles.heroLabel}>AI probability <span style={styles.tag}>simulated</span></span>
+            <span style={{ ...styles.heroNum, color: ai.color }}>{ai.ai}%</span>
+          </div>
+          <div style={styles.barWrap}>
+            <div style={{ ...styles.barFill, width: `${ai.ai}%`, background: ai.color }} />
+          </div>
+          <p style={styles.reasonLine}>Independent post-hoc detector — a parallel reference, not part of the Process Score.</p>
         </div>
-        <div style={{ ...styles.verdict, color: authorship.color, marginTop: 8 }}>{authorship.verdict}</div>
+      </div>
 
+      <button style={styles.seeWhy} onClick={() => setShowEvidence((v) => !v)}>
+        {showEvidence ? 'Hide evidence ▲' : 'See why ▼'}
+      </button>
+
+      {showEvidence && (
+      <>
+      {/* What the Process Score is made of — the signal breakdown */}
+      <div style={styles.card}>
+        <div style={styles.sec}>What the Process Score is made of</div>
         <div style={styles.signalList}>
           {authorship.signals.map((s) => (
             <div key={s.key} style={{ ...styles.signal, opacity: s.has ? 1 : 0.45 }}>
@@ -536,8 +688,21 @@ export default function PublishProofPage() {
             </div>
           ))}
         </div>
+        {authorship.protections.length > 0 && (
+          <div style={{ ...styles.flagList, marginTop: 12 }}>
+            {authorship.protections.map((p, i) => (
+              <div key={i} style={styles.flag}>
+                <span style={{ ...styles.flagDot, color: '#6ee7b7' }}>✓</span>
+                <span style={styles.flagText}>{p}</span>
+              </div>
+            ))}
+          </div>
+        )}
       </div>
 
+      {/* On desktop these informational cards flow into 2–3 columns; on mobile
+          they stack. Auto-fit grid → responsive without media queries. */}
+      <div style={styles.bodyGrid}>
       {/* Revision authenticity — the anti-gaming check (real, always on) */}
       <div style={{ ...styles.card, borderColor: integrity.color }}>
         <div style={styles.scoreHead}>
@@ -556,21 +721,6 @@ export default function PublishProofPage() {
         </div>
       </div>
 
-      {/* AI detection score (simulated) */}
-      <div style={{ ...styles.card, borderColor: ai.color }}>
-        <div style={styles.scoreHead}>
-          <span style={styles.muted}>GPT Zero score <span style={styles.tag}>simulated</span></span>
-          <span style={{ ...styles.verdict, color: ai.color }}>{ai.verdict}</span>
-        </div>
-        <div style={styles.barWrap}>
-          <div style={{ ...styles.barFill, width: `${ai.human}%`, background: ai.color }} />
-        </div>
-        <div style={styles.scoreRow}>
-          <span>Human {ai.human}%</span>
-          <span>AI-assisted {ai.ai}%</span>
-        </div>
-      </div>
-
       {/* Captured behavioral metrics */}
       <div style={styles.grid}>
         <Stat k={m.wpm ?? 0} l="WPM" />
@@ -583,7 +733,6 @@ export default function PublishProofPage() {
 
       <div style={styles.card}>
         {proof.docTitle && <Row k="Document" v={proof.docTitle} />}
-        <Row k="Human-typed" v={`${Math.round((m.humanTypedRatio ?? 1) * 100)}%`} />
         <Row k="Pasted chars" v={String(m.pastedChars ?? 0)} />
         <Row k="Largest paste" v={`${m.largestPaste ?? 0} chars`} />
         <Row k="Session length" v={fmtMs(m.elapsedMs)} />
@@ -619,31 +768,36 @@ export default function PublishProofPage() {
       {/* Revision analysis — edit timeline reconstructed from the capture */}
       {proof.revision && proof.revision.editCount > 0 && (() => {
         const rev = proof.revision!;
-        const tp = Math.round(rev.humanTypedRatio * 100);
-        const c = tp >= 90 ? '#6ee7b7' : tp >= 60 ? '#fbbf24' : '#f87171';
         return (
           <div style={styles.card}>
             <div style={styles.sec}>Revision analysis</div>
             {rev.timeline && rev.timeline.length > 0 && (
               <WritingTimelineChart timeline={rev.timeline} docs={proof.docsRevision} />
             )}
-            <div style={styles.barWrap}><div style={{ ...styles.barFill, width: `${tp}%`, background: c }} /></div>
-            <div style={styles.scoreRow}><span>Typed {tp}%</span><span>Pasted {100 - tp}%</span></div>
             <Row k="Edit events" v={String(rev.editCount)} />
             <Row k="Typing bursts" v={String(rev.typedEdits)} />
             {rev.pasteEdits > 0 && <Row k="Paste insertions" v={String(rev.pasteEdits)} />}
             {rev.timeline && rev.timeline.length > 0 && (
               <div style={styles.timeline}>
-                {rev.timeline.map((e, i) => (
-                  <span key={i} style={{ ...styles.chip, ...(e.type === 'paste' ? styles.chipPaste : styles.chipType) }}>
-                    {e.type === 'paste' ? `📋 ${e.chars}` : `⌨ ${e.chars}`}
-                  </span>
-                ))}
+                {rev.timeline.map((e, i) => {
+                  const chipStyle = e.type !== 'paste' ? styles.chipType
+                    : e.origin === 'internal_move' ? styles.chipMove
+                    : e.origin === 'cited_source' ? styles.chipCited
+                    : styles.chipPaste;
+                  const icon = e.type !== 'paste' ? '⌨'
+                    : e.origin === 'internal_move' ? '↔'
+                    : e.origin === 'cited_source' ? '“”'
+                    : '📋';
+                  return (
+                    <span key={i} style={{ ...styles.chip, ...chipStyle }}>{`${icon} ${e.chars}`}</span>
+                  );
+                })}
               </div>
             )}
           </div>
         );
       })()}
+      </div>{/* end bodyGrid */}
 
       {/* For professors — optional rubric → AI-assisted process alignment */}
       <div style={styles.card}>
@@ -691,6 +845,9 @@ export default function PublishProofPage() {
         )}
       </div>
 
+      </>
+      )}
+
       {success ? (
         <>
           <p style={styles.muted}>
@@ -726,7 +883,7 @@ function WritingTimelineChart({
   timeline,
   docs,
 }: {
-  timeline: { type: 'type' | 'paste'; chars: number }[];
+  timeline: { type: 'type' | 'paste'; chars: number; origin?: PasteOrigin }[];
   docs?: ExtensionProof['docsRevision'];
 }) {
   const W = 320, H = 132, padL = 6, padR = 6, padT = 10, padB = 22;
@@ -740,10 +897,19 @@ function WritingTimelineChart({
   const x = (i: number) => padL + (n <= 1 ? 0 : (i / (n - 1)) * innerW);
   const y = (v: number) => padT + innerH - (v / total) * innerH;
 
-  // One colored segment per edit; pastes are amber (cliffs), typing is green.
+  // Color by provenance: typed = green slope; EXTERNAL paste = amber cliff (the
+  // signal); within-doc move = blue; cited quote = purple. Only amber is a concern.
+  const TYPE = '#6ee7b7', EXTERNAL = '#fbbf24', MOVE = '#60a5fa', CITED = '#a78bfa';
+  const segColor = (e: { type: string; origin?: PasteOrigin }) =>
+    e.type !== 'paste' ? TYPE
+      : e.origin === 'internal_move' ? MOVE
+      : e.origin === 'cited_source' ? CITED
+      : EXTERNAL;
   const segments = timeline.map((e, i) => ({
     x1: x(i), y1: y(cum[i]), x2: x(i + 1), y2: y(cum[i + 1]),
     paste: e.type === 'paste',
+    external: e.type === 'paste' && (e.origin === 'external' || e.origin == null),
+    color: segColor(e),
   }));
   const areaPts = cum.map((v, i) => `${x(i).toFixed(1)},${y(v).toFixed(1)}`).join(' ');
   const baseY = y(0);
@@ -767,22 +933,24 @@ function WritingTimelineChart({
           <line
             key={i}
             x1={s.x1} y1={s.y1} x2={s.x2} y2={s.y2}
-            stroke={s.paste ? '#fbbf24' : '#6ee7b7'}
+            stroke={s.color}
             strokeWidth={s.paste ? 2.5 : 1.8}
             strokeLinecap="round"
           />
         ))}
         {segments.filter((s) => s.paste).map((s, i) => (
-          <circle key={`p${i}`} cx={s.x2} cy={s.y2} r={2.6} fill="#fbbf24" />
+          <circle key={`p${i}`} cx={s.x2} cy={s.y2} r={2.6} fill={s.color} />
         ))}
         <line x1={padL} y1={baseY} x2={W - padR} y2={baseY} stroke="rgba(255,255,255,0.12)" strokeWidth={1} />
         <text x={padL} y={H - 6} fill="rgba(255,255,255,0.55)" fontSize={9}>{startLabel}</text>
         <text x={W - padR} y={H - 6} fill="rgba(255,255,255,0.55)" fontSize={9} textAnchor="end">{endLabel}</text>
         <text x={padL} y={padT + 2} fill="rgba(255,255,255,0.45)" fontSize={9}>{total.toLocaleString()} chars</text>
       </svg>
-      <div style={styles.scoreRow}>
+      <div style={{ ...styles.scoreRow, flexWrap: 'wrap', gap: 8 }}>
         <span><span style={{ color: '#6ee7b7' }}>●</span> typed</span>
-        <span><span style={{ color: '#fbbf24' }}>●</span> pasted (cliffs)</span>
+        <span><span style={{ color: '#fbbf24' }}>●</span> pasted in (cliffs)</span>
+        {segments.some((s) => s.color === '#60a5fa') && <span><span style={{ color: '#60a5fa' }}>●</span> moved</span>}
+        {segments.some((s) => s.color === '#a78bfa') && <span><span style={{ color: '#a78bfa' }}>●</span> quoted</span>}
       </div>
     </div>
   );
@@ -816,13 +984,20 @@ function Stat({ k, l, warn }: { k: number | string; l: string; warn?: boolean })
 }
 
 const styles: Record<string, React.CSSProperties> = {
-  wrap: { maxWidth: 460, margin: '32px auto', padding: '0 20px', color: 'inherit' },
+  wrap: { maxWidth: 'min(1040px, 94vw)', margin: '32px auto', padding: '0 20px', color: 'inherit' },
+  // Informational cards flow into as many ~330px columns as fit (3 on desktop,
+  // 2 on a tablet, 1 on a phone) — responsive with no media queries.
+  bodyGrid: { display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(330px, 1fr))', gap: 14, alignItems: 'start', margin: '12px 0' },
   h1: { fontSize: 20, marginBottom: 6 },
   muted: { fontSize: 13, opacity: 0.7, margin: '6px 0' },
   error: { fontSize: 13, color: '#f87171', margin: '8px 0' },
   tag: { fontSize: 9, textTransform: 'uppercase', letterSpacing: 0.5, opacity: 0.6, border: '1px solid currentColor', borderRadius: 4, padding: '1px 4px', marginLeft: 4 },
   card: { border: '1px solid rgba(255,255,255,0.14)', borderRadius: 10, padding: 14, margin: '12px 0', background: 'rgba(255,255,255,0.03)' },
   heroCard: { border: '1.5px solid', borderRadius: 14, padding: 18, margin: '16px 0', background: 'rgba(255,255,255,0.04)' },
+  heroRow: { display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: 14, margin: '16px 0' },
+  bandPill: { display: 'inline-block', marginTop: 10, fontSize: 12, fontWeight: 650, border: '1px solid', borderRadius: 999, padding: '2px 10px' },
+  reasonLine: { fontSize: 12.5, opacity: 0.78, margin: '10px 0 0', lineHeight: 1.45 },
+  seeWhy: { width: '100%', maxWidth: 240, margin: '2px auto 10px', display: 'block', padding: '8px 12px', borderRadius: 8, border: '1px solid rgba(255,255,255,0.18)', background: 'rgba(255,255,255,0.04)', color: 'inherit', fontSize: 13, fontWeight: 600, cursor: 'pointer' },
   heroHead: { display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 12 },
   heroLabel: { fontSize: 13, fontWeight: 600, opacity: 0.85 },
   heroNum: { fontSize: 42, fontWeight: 750, lineHeight: 1, fontVariantNumeric: 'tabular-nums' },
@@ -846,13 +1021,15 @@ const styles: Record<string, React.CSSProperties> = {
   row: { display: 'flex', justifyContent: 'space-between', gap: 12, padding: '5px 0', fontSize: 13 },
   rowK: { opacity: 0.6 },
   rowV: { fontFamily: 'ui-monospace, Menlo, monospace', wordBreak: 'break-all', textAlign: 'right' },
-  primary: { width: '100%', padding: '11px 14px', borderRadius: 8, border: 'none', background: '#6ee7b7', color: '#0b0d10', fontWeight: 650, fontSize: 14, cursor: 'pointer' },
+  primary: { width: '100%', maxWidth: 420, margin: '0 auto', display: 'block', padding: '11px 14px', borderRadius: 8, border: 'none', background: '#6ee7b7', color: '#0b0d10', fontWeight: 650, fontSize: 14, cursor: 'pointer' },
   link: { color: '#6ee7b7', fontSize: 13, textDecoration: 'none' },
   sec: { fontSize: 11, textTransform: 'uppercase', letterSpacing: 0.6, opacity: 0.6, marginBottom: 8 },
   timeline: { display: 'flex', flexWrap: 'wrap', gap: 3, marginTop: 10 },
   chip: { fontSize: 10, padding: '2px 6px', borderRadius: 4, whiteSpace: 'nowrap', border: '1px solid rgba(255,255,255,0.12)' },
   chipType: { background: 'rgba(110,231,183,0.14)', color: '#6ee7b7' },
   chipPaste: { background: 'rgba(251,191,36,0.16)', color: '#fbbf24' },
+  chipMove: { background: 'rgba(96,165,250,0.16)', color: '#60a5fa' },
+  chipCited: { background: 'rgba(167,139,250,0.16)', color: '#a78bfa' },
   flagList: { display: 'flex', flexDirection: 'column', gap: 8, marginTop: 4 },
   flag: { display: 'flex', gap: 8, alignItems: 'flex-start', fontSize: 12.5, lineHeight: 1.4 },
   flagDot: { fontWeight: 700, width: 14, flexShrink: 0, textAlign: 'center' },
