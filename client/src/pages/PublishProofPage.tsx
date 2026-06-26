@@ -685,34 +685,9 @@ export default function PublishProofPage() {
 
       {showEvidence && (
       <>
-      {/* What the Process Score is made of, the signal breakdown */}
-      <div style={styles.card}>
-        <div style={styles.signalHead}>What the Process Score is made of</div>
-        <div style={styles.signalList}>
-          {authorship.signals.map((s) => (
-            <div key={s.key} style={{ ...styles.signal, opacity: s.has ? 1 : 0.45 }}>
-              <div style={styles.signalTop}>
-                <span style={styles.signalLabel}>{s.label}</span>
-                <span style={styles.signalDetail}>{s.has ? s.detail : 'no data'}</span>
-              </div>
-              <div style={styles.signalBarWrap}>
-                <div style={{ ...styles.signalBarFill, width: `${s.has ? s.score : 0}%` }} />
-              </div>
-              <p style={styles.signalBlurb}>{s.blurb}</p>
-            </div>
-          ))}
-        </div>
-        {authorship.protections.length > 0 && (
-          <div style={{ ...styles.flagList, marginTop: 12 }}>
-            {authorship.protections.map((p, i) => (
-              <div key={i} style={styles.flag}>
-                <span style={{ ...styles.flagDot, color: '#6ee7b7' }}>✓</span>
-                <span style={styles.flagText}>{p}</span>
-              </div>
-            ))}
-          </div>
-        )}
-      </div>
+      {/* Process Score breakdown + evidence cards (shared with Version B). */}
+      <ScoreBreakdown authorship={authorship} />
+      <EvidenceCards proof={proof} authorship={authorship} />
 
       {/* On desktop these informational cards flow into 2–3 columns; on mobile
           they stack. Auto-fit grid → responsive without media queries. */}
@@ -779,46 +754,6 @@ export default function PublishProofPage() {
         </div>
       )}
 
-      {/* Revision analysis, edit timeline reconstructed from the capture */}
-      {proof.revision && proof.revision.editCount > 0 && (() => {
-        const rev = proof.revision!;
-        return (
-          <div style={styles.card}>
-            <div style={styles.sec}>Revision analysis</div>
-            {rev.timeline && rev.timeline.length > 0 && (
-              <WritingTimelineChart timeline={rev.timeline} docs={proof.docsRevision} />
-            )}
-            {rev.timeline && rev.timeline.length > 0 && (
-              <>
-                <div style={{ ...styles.sec, marginTop: 4 }}>Burst sizes</div>
-                <BurstChart timeline={rev.timeline} />
-                <div style={{ ...styles.sec, marginTop: 4 }}>Bursts over time</div>
-                <BurstChart timeline={rev.timeline} byTime />
-              </>
-            )}
-            <Row k="Edit events" v={String(rev.editCount)} />
-            <Row k="Typing bursts" v={String(rev.typedEdits)} />
-            {rev.pasteEdits > 0 && <Row k="Paste insertions" v={String(rev.pasteEdits)} />}
-            {rev.timeline && rev.timeline.length > 0 && (
-              <div style={styles.timeline}>
-                {rev.timeline.map((e, i) => {
-                  const chipStyle = e.type !== 'paste' ? styles.chipType
-                    : e.origin === 'internal_move' ? styles.chipMove
-                    : e.origin === 'cited_source' ? styles.chipCited
-                    : styles.chipPaste;
-                  const icon = e.type !== 'paste' ? '⌨'
-                    : e.origin === 'internal_move' ? '↔'
-                    : e.origin === 'cited_source' ? '“”'
-                    : '📋';
-                  return (
-                    <span key={i} style={{ ...styles.chip, ...chipStyle }}>{`${icon} ${e.chars}`}</span>
-                  );
-                })}
-              </div>
-            )}
-          </div>
-        );
-      })()}
       </div>{/* end bodyGrid */}
 
       {/* For professors, optional rubric → AI-assisted process alignment */}
@@ -866,6 +801,9 @@ export default function PublishProofPage() {
           </>
         )}
       </div>
+
+      {/* Revision-analysis charts, organized + enlarged, at the bottom. */}
+      <RevisionCharts proof={proof} />
 
       </>
       )}
@@ -976,16 +914,6 @@ function PublishVersionB({
   const editDays = docs?.editDays || 0;
   const largeBulk = pb.penalizedExternal > 0 && pb.largestExternal >= 120;
 
-  // Per-signal contribution to the 0–100 score (transparent "how it's built").
-  const live = authorship.signals.filter((s) => s.has);
-  const totalWeight = live.reduce((s, x) => s + x.weight, 0) || 1;
-  const contributions = live.map((s) => ({
-    label: PLAIN_LABEL[s.key] || s.label,
-    pts: Math.round((s.score * s.weight) / totalWeight),
-    weak: s.score < 50,
-  }));
-  const sigScore = (key: string) => authorship.signals.find((s) => s.key === key)?.score ?? 0;
-
   // Assessment bullets, the story a professor reads in 20 seconds.
   const bullets: string[] = [];
   bullets.push(`${typedPct}% of the text was typed directly`);
@@ -999,16 +927,6 @@ function PublishVersionB({
   const assessmentLead = band.tone === 'red'
     ? 'Limited writing history was captured for this document. That does not imply AI use, but more process evidence would raise confidence.'
     : 'This document shows evidence consistent with genuine human writing.';
-
-  // Rough active-writing estimate from the document's OWN word count (not a fixed
-  // string): ~25–45 effective WPM, since our "active time" already excludes idle
-  // gaps. Heuristic, framed as approximate, and only shown when we have a real size.
-  const words = Math.round((m.textLength || m.keystrokeCount || proof.keystrokeCount || 0) / 5);
-  const loMin = Math.max(1, Math.round(words / 45));
-  const hiMin = Math.max(loMin + 1, Math.round(words / 25));
-  const timeContext = words >= 40
-    ? `Active typing time (idle excluded). A ~${words.toLocaleString()}-word document is roughly ${loMin}–${hiMin} min of active writing.`
-    : 'Active typing time, with idle gaps excluded.';
 
   return (
     <div style={styles.wrap}>
@@ -1069,46 +987,9 @@ function PublishVersionB({
         </div>
       </div>
 
-      {/* HOW THE SCORE IS BUILT, transparency builds trust in the number. */}
-      <div style={styles.card}>
-        <div style={styles.signalHead}>How the Process Score is built</div>
-        <div style={styles.flagList}>
-          {contributions.map((c, i) => (
-            <div key={i} style={{ ...styles.row, padding: '4px 0' }}>
-              <span style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                <span style={{ color: c.weak ? '#fbbf24' : '#6ee7b7', fontWeight: 700 }}>+{c.pts}</span>
-                <span style={{ fontSize: 13 }}>{c.label}</span>
-              </span>
-              <Blocks score={c.weak ? 30 : 80} total={5} />
-            </div>
-          ))}
-        </div>
-        {authorship.protections.map((p, i) => (
-          <div key={i} style={{ ...styles.flag, marginTop: 8 }}>
-            <span style={{ ...styles.flagDot, color: '#6ee7b7' }}>✓</span>
-            <span style={styles.flagText}>{p}</span>
-          </div>
-        ))}
-      </div>
-
-      {/* EVIDENCE CARDS, plain labels + a strength bar + context, not bare numbers. */}
-      <div style={styles.bodyGrid}>
-        <EvidenceCard label="Revision history" value={passes ? `${passes} editing ${passes === 1 ? 'pass' : 'passes'}` : 'none captured'} score={sigScore('revision')} note="Drafts and rewrites are the fingerprint of real effort." />
-        <EvidenceCard label="Original writing" value={`${typedPct}% typed`} score={sigScore('typed')} note={largeBulk ? `Largest pasted block: ${pb.largestExternal} chars.` : 'No large bulk insertions.'} />
-        <EvidenceCard label="Time invested" value={fmtMs(m.elapsedMs)} score={sigScore('time')} note={timeContext} />
-        <EvidenceCard label="Writing timeline" value={editDays <= 1 ? '1 day' : `${editDays} days`} score={sigScore('time-span')} note="Work spread across sittings is hard to fake." />
-      </div>
-
-      {/* SUPPORTING CHARTS, each captioned with the question it answers. */}
-      {rev && rev.editCount > 0 && rev.timeline && rev.timeline.length > 0 && (
-        <div style={styles.card}>
-          <div style={styles.signalHead}>How the writing unfolded</div>
-          <p style={styles.muted}>Did the document grow steadily, or appear in sudden blocks?</p>
-          <WritingTimelineChart timeline={rev.timeline} docs={proof.docsRevision} />
-          <p style={{ ...styles.muted, marginTop: 6 }}>When did the bursts of writing happen?</p>
-          <BurstChart timeline={rev.timeline} byTime />
-        </div>
-      )}
+      {/* HOW THE SCORE IS BUILT + EVIDENCE CARDS, shared with Version A. */}
+      <ScoreBreakdown authorship={authorship} />
+      <EvidenceCards proof={proof} authorship={authorship} />
 
       {/* AI DETECTOR, deliberately small and secondary. */}
       <div style={{ ...styles.card, padding: '10px 14px', opacity: 0.85 }}>
@@ -1120,6 +1001,9 @@ function PublishVersionB({
           Independent text-only estimate. <strong>Not included</strong> in the Human Ink score, detectors read the final wording, Human Ink reads the writing process.
         </p>
       </div>
+
+      {/* REVISION CHARTS, organized + enlarged, at the bottom of the report. */}
+      <RevisionCharts proof={proof} />
 
       {/* ADVANCED, technical metadata tucked away for auditors. */}
       <div style={styles.card}>
@@ -1163,6 +1047,105 @@ function PublishVersionB({
   );
 }
 
+/** Shared: "How the Process Score is built", per-signal +points + strength bar. */
+function ScoreBreakdown({ authorship }: { authorship: ReturnType<typeof computeAuthorshipScore> }) {
+  const live = authorship.signals.filter((s) => s.has);
+  const totalWeight = live.reduce((s, x) => s + x.weight, 0) || 1;
+  const rows = live.map((s) => ({
+    label: PLAIN_LABEL[s.key] || s.label,
+    pts: Math.round((s.score * s.weight) / totalWeight),
+    score: s.score,
+  }));
+  return (
+    <div style={styles.card}>
+      <div style={styles.signalHead}>How the Process Score is built</div>
+      <div style={styles.flagList}>
+        {rows.map((c, i) => (
+          <div key={i} style={{ ...styles.row, padding: '5px 0' }}>
+            <span style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              <span style={{ color: c.score < 50 ? '#fbbf24' : '#6ee7b7', fontWeight: 700, minWidth: 30 }}>+{c.pts}</span>
+              <span style={{ fontSize: 13 }}>{c.label}</span>
+            </span>
+            <Blocks score={c.score} total={5} />
+          </div>
+        ))}
+      </div>
+      {authorship.protections.map((p, i) => (
+        <div key={i} style={{ ...styles.flag, marginTop: 8 }}>
+          <span style={{ ...styles.flagDot, color: '#6ee7b7' }}>✓</span>
+          <span style={styles.flagText}>{p}</span>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+/** Shared: the four evidence cards (plain label + strength bar + value + context). */
+function EvidenceCards({ proof, authorship }: { proof: ExtensionProof; authorship: ReturnType<typeof computeAuthorshipScore> }) {
+  const m = proof.metrics || {};
+  const pb = pasteBreakdown(proof);
+  const docs = proof.docsRevision || null;
+  const rev = proof.revision || null;
+  const typedPct = Math.round(pb.writtenRatio * 100);
+  const passes = (docs?.revisionCount || 0) || (rev?.editCount || 0);
+  const editDays = docs?.editDays || 0;
+  const largeBulk = pb.penalizedExternal > 0 && pb.largestExternal >= 120;
+  const sigScore = (key: string) => authorship.signals.find((s) => s.key === key)?.score ?? 0;
+  const words = Math.round((m.textLength || m.keystrokeCount || proof.keystrokeCount || 0) / 5);
+  const loMin = Math.max(1, Math.round(words / 45));
+  const hiMin = Math.max(loMin + 1, Math.round(words / 25));
+  const timeContext = words >= 40
+    ? `A ~${words.toLocaleString()}-word document is roughly ${loMin}–${hiMin} min of active writing.`
+    : 'Active typing time, with idle gaps excluded.';
+  return (
+    <div style={styles.bodyGrid}>
+      <EvidenceCard label="Revision history" value={passes ? `${passes} editing ${passes === 1 ? 'pass' : 'passes'}` : 'none captured'} score={sigScore('revision')} note="Drafts and rewrites are the fingerprint of real effort." />
+      <EvidenceCard label="Original writing" value={`${typedPct}% typed`} score={sigScore('typed')} note={largeBulk ? `Largest pasted block: ${pb.largestExternal} chars.` : 'No large bulk insertions.'} />
+      <EvidenceCard label="Time invested" value={fmtMs(m.elapsedMs)} score={sigScore('time')} note={timeContext} />
+      <EvidenceCard label="Writing timeline" value={editDays <= 1 ? '1 day' : `${editDays} days`} score={sigScore('time-span')} note="Work spread across sittings is hard to fake." />
+    </div>
+  );
+}
+
+/**
+ * Shared: revision-analysis charts, organized + enlarged, meant for the bottom of
+ * the report. Each chart gets a title + a plain caption that says what it answers,
+ * and the burst terminology is spelled out (a "burst" = one run of continuous typing)
+ * so "edit events" vs "typing bursts" is no longer a mystery.
+ */
+function RevisionCharts({ proof }: { proof: ExtensionProof }) {
+  const rev = proof.revision || null;
+  if (!rev || rev.editCount === 0 || !rev.timeline || rev.timeline.length === 0) return null;
+  return (
+    <div style={styles.card}>
+      <div style={styles.signalHead}>Revision analysis</div>
+
+      <div style={{ marginTop: 8 }}>
+        <div style={styles.chartTitle}>How the document grew</div>
+        <p style={styles.chartCaption}>Did it build up steadily, or appear in sudden blocks? Green = typed, amber = pasted in.</p>
+        <WritingTimelineChart timeline={rev.timeline} docs={proof.docsRevision} />
+      </div>
+
+      <div style={{ marginTop: 22 }}>
+        <div style={styles.chartTitle}>Size of each writing burst</div>
+        <p style={styles.chartCaption}>A “burst” is one unbroken run of typing — a pause longer than 2 seconds starts a new one. Tall amber bars are pasted blocks.</p>
+        <BurstChart timeline={rev.timeline} />
+      </div>
+
+      <div style={{ marginTop: 22 }}>
+        <div style={styles.chartTitle}>When the bursts happened</div>
+        <p style={styles.chartCaption}>Each burst placed on a real time axis across every session — empty gaps are time away from the document.</p>
+        <BurstChart timeline={rev.timeline} byTime />
+      </div>
+
+      <div style={{ marginTop: 16 }}>
+        <Row k="Typing bursts" v={`${rev.typedEdits} runs of continuous typing`} />
+        {rev.pasteEdits > 0 && <Row k="Paste insertions" v={`${rev.pasteEdits} pasted in from elsewhere`} />}
+      </div>
+    </div>
+  );
+}
+
 /** Evidence card for Version B: plain label, strength bar, value, one-line context. */
 function EvidenceCard({ label, value, score, note }: { label: string; value: string; score: number; note: string }) {
   return (
@@ -1191,7 +1174,7 @@ function WritingTimelineChart({
   timeline: { type: 'type' | 'paste'; chars: number; origin?: PasteOrigin; t?: number }[];
   docs?: ExtensionProof['docsRevision'];
 }) {
-  const W = 320, H = 132, padL = 6, padR = 6, padT = 10, padB = 22;
+  const W = 320, H = 176, padL = 6, padR = 6, padT = 12, padB = 24;
   const innerW = W - padL - padR, innerH = H - padT - padB;
 
   // Cumulative document size, seeded with a 0 baseline so the curve starts at the floor.
@@ -1288,7 +1271,7 @@ function BurstChart({
   timeline: { type: 'type' | 'paste'; chars: number; origin?: PasteOrigin; t?: number }[];
   byTime?: boolean;
 }) {
-  const W = 320, H = 96, padT = 8, padB = 16, padL = 6, padR = 6;
+  const W = 320, H = 132, padT = 10, padB = 18, padL = 6, padR = 6;
   const innerW = W - padL - padR, innerH = H - padT - padB;
   const n = timeline.length;
   const max = Math.max(1, ...timeline.map((e) => e.chars));
@@ -1391,6 +1374,8 @@ const styles: Record<string, React.CSSProperties> = {
   heroLabel: { fontSize: 13, fontWeight: 600, opacity: 0.85 },
   heroNum: { fontSize: 42, fontWeight: 750, lineHeight: 1, fontVariantNumeric: 'tabular-nums' },
   signalHead: { fontSize: 12, textTransform: 'uppercase', letterSpacing: 0.7, fontWeight: 700, opacity: 0.88, marginBottom: 12 },
+  chartTitle: { fontSize: 13.5, fontWeight: 700, marginBottom: 2 },
+  chartCaption: { fontSize: 11.5, opacity: 0.65, margin: '0 0 6px', lineHeight: 1.4 },
   signalList: { marginTop: 16, display: 'flex', flexDirection: 'column', gap: 16 },
   signal: { display: 'flex', flexDirection: 'column', gap: 6, borderLeft: '2px solid rgba(110,231,183,0.45)', paddingLeft: 11 },
   signalTop: { display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: 10 },
