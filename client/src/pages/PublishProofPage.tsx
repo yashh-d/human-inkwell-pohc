@@ -774,6 +774,12 @@ export default function PublishProofPage() {
             {rev.timeline && rev.timeline.length > 0 && (
               <WritingTimelineChart timeline={rev.timeline} docs={proof.docsRevision} />
             )}
+            {rev.timeline && rev.timeline.length > 0 && (
+              <>
+                <div style={{ ...styles.sec, marginTop: 4 }}>Burst sizes</div>
+                <BurstChart timeline={rev.timeline} />
+              </>
+            )}
             <Row k="Edit events" v={String(rev.editCount)} />
             <Row k="Typing bursts" v={String(rev.typedEdits)} />
             {rev.pasteEdits > 0 && <Row k="Paste insertions" v={String(rev.pasteEdits)} />}
@@ -952,6 +958,50 @@ function WritingTimelineChart({
         {segments.some((s) => s.color === '#60a5fa') && <span><span style={{ color: '#60a5fa' }}>●</span> moved</span>}
         {segments.some((s) => s.color === '#a78bfa') && <span><span style={{ color: '#a78bfa' }}>●</span> quoted</span>}
       </div>
+    </div>
+  );
+}
+
+/**
+ * Burst graph — one bar per edit in the writing timeline, height ∝ characters in
+ * that burst. Typed bursts are green; pastes show in their provenance color (amber
+ * = external — the signal). Where the cumulative chart shows *how much* was written
+ * over time, this shows the *rhythm*: a wall of even green bars (steady typing) vs.
+ * one lone amber tower (a block dropped in). Aggregated across all sessions. Pure
+ * inline SVG, no chart library.
+ */
+function BurstChart({
+  timeline,
+}: {
+  timeline: { type: 'type' | 'paste'; chars: number; origin?: PasteOrigin }[];
+}) {
+  const W = 320, H = 96, padT = 8, padB = 16, padL = 6, padR = 6;
+  const innerW = W - padL - padR, innerH = H - padT - padB;
+  const n = timeline.length;
+  const max = Math.max(1, ...timeline.map((e) => e.chars));
+  const gap = n > 60 ? 0.5 : 2;
+  const bw = n > 0 ? Math.max(1, (innerW - gap * (n - 1)) / n) : innerW;
+
+  const TYPE = '#6ee7b7', EXTERNAL = '#fbbf24', MOVE = '#60a5fa', CITED = '#a78bfa';
+  const color = (e: { type: string; origin?: PasteOrigin }) =>
+    e.type !== 'paste' ? TYPE
+      : e.origin === 'internal_move' ? MOVE
+      : e.origin === 'cited_source' ? CITED
+      : EXTERNAL;
+
+  return (
+    <div style={{ margin: '4px 0 12px' }}>
+      <svg viewBox={`0 0 ${W} ${H}`} width="100%" style={{ display: 'block' }}>
+        {timeline.map((e, i) => {
+          const h = Math.max(2, (e.chars / max) * innerH);
+          const x = padL + i * (bw + gap);
+          const y = padT + innerH - h;
+          return <rect key={i} x={x.toFixed(1)} y={y.toFixed(1)} width={bw.toFixed(1)} height={h.toFixed(1)} rx={1} fill={color(e)} />;
+        })}
+        <line x1={padL} y1={padT + innerH} x2={W - padR} y2={padT + innerH} stroke="rgba(255,255,255,0.12)" strokeWidth={1} />
+        <text x={padL} y={H - 4} fill="rgba(255,255,255,0.5)" fontSize={9}>{n} bursts</text>
+        <text x={W - padR} y={H - 4} fill="rgba(255,255,255,0.5)" fontSize={9} textAnchor="end">largest {max.toLocaleString()} chars</text>
+      </svg>
     </div>
   );
 }
