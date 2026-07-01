@@ -685,9 +685,9 @@ export default function PublishProofPage() {
 
       {showEvidence && (
       <>
-      {/* Process Score breakdown + evidence cards (shared with Version B). */}
-      <ScoreBreakdown authorship={authorship} />
+      {/* Evidence cards, then a drop-down with the per-signal breakdown (shared with B). */}
       <EvidenceCards proof={proof} authorship={authorship} />
+      <ScoreCalcDetails authorship={authorship} />
 
       {/* On desktop these informational cards flow into 2–3 columns; on mobile
           they stack. Auto-fit grid → responsive without media queries. */}
@@ -711,6 +711,7 @@ export default function PublishProofPage() {
       </div>
 
       {/* Captured behavioral metrics */}
+      <div style={{ ...styles.signalHead, marginTop: 4, marginBottom: 8 }}>Typing stats</div>
       <div style={styles.grid}>
         <Stat k={m.wpm ?? 0} l="WPM" />
         <Stat k={m.keystrokeCount ?? proof.keystrokeCount} l="keystrokes" />
@@ -979,9 +980,9 @@ function PublishVersionB({
         </div>
       </div>
 
-      {/* HOW THE SCORE IS BUILT + EVIDENCE CARDS, shared with Version A. */}
-      <ScoreBreakdown authorship={authorship} />
+      {/* EVIDENCE CARDS, then a drop-down with the per-signal breakdown (shared with A). */}
       <EvidenceCards proof={proof} authorship={authorship} />
+      <ScoreCalcDetails authorship={authorship} />
 
       {/* AI PROBABILITY, deliberately small and secondary (same framing as A). */}
       <div style={{ ...styles.card, padding: '10px 14px', opacity: 0.85 }}>
@@ -1136,6 +1137,37 @@ function ScoreBreakdown({ authorship }: { authorship: ReturnType<typeof computeA
   );
 }
 
+/**
+ * Collapsible "see how the score was calculated", the per-signal breakdown dropped
+ * down on demand below the evidence cards (replaces the always-open block).
+ */
+function ScoreCalcDetails({ authorship }: { authorship: ReturnType<typeof computeAuthorshipScore> }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <div style={{ margin: '2px 0 12px' }}>
+      <button style={styles.ghostBtn} onClick={() => setOpen((v) => !v)}>
+        {open ? 'Hide how the score was calculated ▲' : 'See how the score was calculated ▼'}
+      </button>
+      {open && <ScoreBreakdown authorship={authorship} />}
+    </div>
+  );
+}
+
+/** Small hover "ⓘ" that reveals a one-paragraph explanation of an evidence signal. */
+function InfoDot({ text }: { text: string }) {
+  const [show, setShow] = useState(false);
+  return (
+    <span
+      style={{ position: 'relative', display: 'inline-flex' }}
+      onMouseEnter={() => setShow(true)}
+      onMouseLeave={() => setShow(false)}
+    >
+      <span style={styles.infoDot} tabIndex={0} onFocus={() => setShow(true)} onBlur={() => setShow(false)} aria-label={text}>i</span>
+      {show && <span style={styles.infoTip}>{text}</span>}
+    </span>
+  );
+}
+
 /** Shared: the four evidence cards (plain label + strength bar + value + context). */
 function EvidenceCards({ proof, authorship }: { proof: ExtensionProof; authorship: ReturnType<typeof computeAuthorshipScore> }) {
   const m = proof.metrics || {};
@@ -1155,10 +1187,10 @@ function EvidenceCards({ proof, authorship }: { proof: ExtensionProof; authorshi
     : 'Active typing time, with idle gaps excluded.';
   return (
     <div style={styles.bodyGrid}>
-      <EvidenceCard label="Revision history" value={passes ? `${passes} editing ${passes === 1 ? 'pass' : 'passes'}` : 'none captured'} score={sigScore('revision')} note="Drafts and rewrites are the fingerprint of real effort." />
-      <EvidenceCard label="Original writing" value={`${typedPct}% typed`} score={sigScore('typed')} note={largeBulk ? `Largest pasted block: ${pb.largestExternal} chars.` : 'No large bulk insertions.'} />
-      <EvidenceCard label="Time invested" value={fmtMs(m.elapsedMs)} score={sigScore('time')} note={timeContext} />
-      <EvidenceCard label="Writing timeline" value={editDays <= 1 ? '1 day' : `${editDays} days`} score={sigScore('time-span')} note="Work spread across sittings is hard to fake." />
+      <EvidenceCard label="Revision history" value={passes ? `${passes} editing ${passes === 1 ? 'pass' : 'passes'}` : 'none captured'} score={sigScore('revision')} note="Drafts and rewrites are the fingerprint of real effort." info="Every draft, rewrite, and edit pass we captured while you worked. Saved revisions and edit events both count — more genuine passes lift this signal. A revision history is very hard to fabricate after the fact." />
+      <EvidenceCard label="Original writing" value={`${typedPct}% typed`} score={sigScore('typed')} note={largeBulk ? `Largest pasted block: ${pb.largestExternal} chars.` : 'No large bulk insertions.'} info="The share of your text that was typed rather than pasted in. Short quotes are fine; large bulk insertions from outside the document lower this signal." />
+      <EvidenceCard label="Time invested" value={fmtMs(m.elapsedMs)} score={sigScore('time')} note={timeContext} info="Active typing time only — long idle gaps are excluded, so leaving the tab open doesn't inflate it. It's weighed against your document's length to judge whether the pace is plausible." />
+      <EvidenceCard label="Writing timeline" value={editDays <= 1 ? '1 day' : `${editDays} days`} score={sigScore('time-span')} note="Work spread across sittings is hard to fake." info="How many distinct days the work spanned (from Google Docs revision history when available). Real writing tends to happen across multiple sittings, which is hard to fake in one go." />
     </div>
   );
 }
@@ -1197,11 +1229,14 @@ function RevisionCharts({ proof }: { proof: ExtensionProof }) {
 }
 
 /** Evidence card for Version B: plain label, strength bar, value, one-line context. */
-function EvidenceCard({ label, value, score, note }: { label: string; value: string; score: number; note: string }) {
+function EvidenceCard({ label, value, score, note, info }: { label: string; value: string; score: number; note: string; info?: string }) {
   return (
     <div style={styles.card}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 8 }}>
-        <span style={{ fontSize: 14, fontWeight: 700 }}>{label}</span>
+        <span style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 14, fontWeight: 700 }}>
+          {label}
+          {info && <InfoDot text={info} />}
+        </span>
         <span style={{ fontSize: 13, fontWeight: 700, fontFamily: 'ui-monospace, Menlo, monospace' }}>{value}</span>
       </div>
       <Blocks score={score} />
@@ -1424,6 +1459,8 @@ const styles: Record<string, React.CSSProperties> = {
   heroLabel: { fontSize: 13, fontWeight: 600, opacity: 0.85 },
   heroNum: { fontSize: 42, fontWeight: 750, lineHeight: 1, fontVariantNumeric: 'tabular-nums' },
   signalHead: { fontSize: 12, textTransform: 'uppercase', letterSpacing: 0.7, fontWeight: 700, opacity: 0.88, marginBottom: 12 },
+  infoDot: { display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: 15, height: 15, borderRadius: '50%', border: '1px solid rgba(255,255,255,0.4)', fontSize: 10, fontWeight: 700, fontStyle: 'italic', fontFamily: 'Georgia, serif', lineHeight: 1, opacity: 0.65, cursor: 'help', outline: 'none' },
+  infoTip: { position: 'absolute', bottom: 'calc(100% + 8px)', left: '50%', transform: 'translateX(-50%)', width: 220, padding: '9px 11px', borderRadius: 8, background: 'rgba(18,18,22,0.98)', border: '1px solid rgba(255,255,255,0.18)', color: '#fff', fontSize: 12, fontWeight: 400, fontStyle: 'normal', textTransform: 'none', letterSpacing: 0, lineHeight: 1.45, zIndex: 30, boxShadow: '0 8px 28px rgba(0,0,0,0.45)', pointerEvents: 'none' },
   chartTitle: { fontSize: 13.5, fontWeight: 700, marginBottom: 2 },
   chartCaption: { fontSize: 11.5, opacity: 0.65, margin: '0 0 6px', lineHeight: 1.4 },
   receiptLabel: { fontSize: 11, textTransform: 'uppercase', letterSpacing: 0.5, opacity: 0.6, marginBottom: 4 },
