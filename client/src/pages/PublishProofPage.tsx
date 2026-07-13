@@ -6,6 +6,16 @@ import { blockchainService } from '../blockchain';
 import { pushLedgerIndexAfterOnChainSuccess } from '../ledgerSupabase';
 import { useViewerAddress } from '../hooks/useViewerAddress';
 import { rememberMiniKitWallet } from '../utils/miniKitWallet';
+import {
+  ExtensionProof, PasteOrigin, ScoreBands, RubricRow,
+  DEFAULT_BANDS, PROOF_KEY, loadProof, short, fmtMs,
+  computeAiScore, pasteBreakdown, computeAuthorshipScore,
+  processBand, reasonLine, computeIntegrity, buildRubricAlignment,
+} from "../lib/authorship";
+import { publishCreatorPost } from '../creatorSupabase';
+
+const CHAIN_ID = Number(process.env.REACT_APP_CHAIN_ID || 4801);
+
 
 /**
  * /publish, entry point for the Human Ink Chrome extension.
@@ -17,6 +27,7 @@ import { rememberMiniKitWallet } from '../utils/miniKitWallet';
  * EIP-712 → /api/relay → HumanContentLedger), and swap computeAiScore() for a
  * real AI-detector API call.
  */
+// Real gasless flow everywhere (Privy → EIP-712 → /api/relay → HumanContentLedger).
 const SIMULATE = false;
 
 // Real deployed contract + explorer, from the app's env (falls back to the
@@ -24,463 +35,25 @@ const SIMULATE = false;
 const CONTRACT_ADDRESS = process.env.REACT_APP_CONTRACT_ADDRESS || '0x08A70Fed4d80893fC03Bd3E1D8cfb36E58a9E95d';
 const EXPLORER_BASE = (process.env.REACT_APP_BLOCKCHAIN_EXPLORER_URL || 'https://sepolia.worldscan.org').replace(/\/+$/, '');
 
-type ProofMetrics = {
-  wpm?: number;
-  typingSpeedCharsPerSec?: number;
-  keystrokeCount?: number;
-  backspaceCount?: number;
-  pasteCount?: number;
-  pastedChars?: number;
-  largestPaste?: number;
-  bigPastes?: number;
-  humanTypedRatio?: number;
-  pageExits?: number;
-  hiddenMs?: number;
-  elapsedMs?: number;
-  textLength?: number;
-};
-
-type PasteOrigin = 'internal_move' | 'cited_source' | 'external';
-type RevisionAnalysis = {
-  editCount: number;
-  typedEdits: number;
-  pasteEdits: number;
-  typedChars: number;
-  pastedChars: number;
-  // F1 provenance breakdown (older payloads won't have these).
-  externalPastedChars?: number;
-  internalPastedChars?: number;
-  citedPastedChars?: number;
-  largestExternalPaste?: number;
-  humanTypedRatio: number;
-  largestPaste: number;
-  timeline?: { type: 'type' | 'paste'; chars: number; origin?: PasteOrigin; t?: number }[];
-};
-
-type ExtensionProof = {
-  v: number;
-  source: string;
-  contentHash: string;
-  humanSignatureHash: string;
-  keystrokeCount: number;
-  typingSpeed: number;
-  context?: string;
-  docTitle?: string | null;
-  url?: string | null;
-  email?: string | null;
-  metrics?: ProofMetrics;
-  revision?: RevisionAnalysis | null;
-  docsRevision?: {
-    source: string;
-    revisionCount: number;
-    firstModified: number | null;
-    lastModified: number | null;
-    spanMs: number;
-    spanDays?: number;
-    editDays?: number;
-    authors: string[];
-  } | null;
-};
-
-const PROOF_KEY = 'humanink_pending_proof';
-
-function b64urlDecode(s: string): string {
-  const b64 = s.replace(/-/g, '+').replace(/_/g, '/');
-  const pad = b64.length % 4 ? '='.repeat(4 - (b64.length % 4)) : '';
-  return decodeURIComponent(escape(atob(b64 + pad)));
-}
-
-function loadProof(): { proof?: ExtensionProof; error?: string } {
-  const m = (window.location.hash || '').match(/proof=([^&]+)/);
-  if (m) {
-    try {
-      const obj = JSON.parse(b64urlDecode(m[1])) as ExtensionProof;
-      if (!obj.contentHash || !obj.humanSignatureHash) return { error: 'Proof payload is missing its hashes.' };
-      try { sessionStorage.setItem(PROOF_KEY, JSON.stringify(obj)); } catch { /* private mode */ }
-      return { proof: obj };
-    } catch (e) {
-      return { error: `Could not read the proof payload: ${e instanceof Error ? e.message : String(e)}` };
-    }
-  }
-  try {
-    const saved = sessionStorage.getItem(PROOF_KEY);
-    if (saved) return { proof: JSON.parse(saved) as ExtensionProof };
-  } catch { /* ignore */ }
-  return { error: 'No proof to publish. Open this page from the Human Ink extension.' };
-}
-
-const short = (h?: string | null) => (h ? `${h.slice(0, 10)}…${h.slice(-8)}` : '-');
-
-/**
- * Simulated AI-detection score (stand-in for GPT Zero / an AI-detector API).
- * For the demo this is driven mainly by the copy-paste signal: the more of the
- * text arrived as large pastes vs. typed keystrokes, the more "AI-assisted".
- */
-function computeAiScore(m: ProofMetrics) {
-  const humanRatio = typeof m.humanTypedRatio === 'number' ? m.humanTypedRatio : 1;
-  const pastedRatio = Math.max(0, Math.min(1, 1 - humanRatio));
-  let ai = pastedRatio * 100;
-  if ((m.bigPastes || 0) > 0) ai += Math.min(30, (m.bigPastes || 0) * 15);
-  // Natural editing (backspaces) at a human cadence nudges back toward human.
-  if ((m.backspaceCount || 0) > 0 && (m.wpm || 0) >= 15 && (m.wpm || 0) <= 110) ai -= 8;
-  ai = Math.max(1, Math.min(99, Math.round(ai)));
-  const human = 100 - ai;
-  const verdict = ai < 30 ? 'Likely human' : ai <= 70 ? 'Mixed signals' : 'Likely AI-assisted';
-  const color = ai < 30 ? '#6ee7b7' : ai <= 70 ? '#fbbf24' : '#f87171';
-  return { ai, human, verdict, color, pastedRatio };
-}
-
-const fmtMs = (ms?: number) => {
-  if (!ms) return '0s';
-  const s = Math.round(ms / 1000);
-  return s < 60 ? `${s}s` : `${Math.floor(s / 60)}m ${s % 60}s`;
-};
-
-/**
- * F1 paste picture, the single source of truth for "what counts against you".
- * Only EXTERNAL pastes (came from outside the doc) count; cut-and-move of your own
- * text and quoted/cited material do not. A grace budget absorbs legitimate offline
- * drafting (a paragraph written on a phone, an imported outline) before any penalty.
- * Falls back gracefully for older payloads that predate provenance (all pastes
- * treated as external, no grace beyond the floor).
- */
-function pasteBreakdown(proof: ExtensionProof) {
-  const m = proof.metrics || {};
-  const rev = proof.revision || null;
-  const hasF1 = !!rev && typeof rev.externalPastedChars === 'number';
-
-  const typedChars = rev ? rev.typedChars : (m.keystrokeCount ?? proof.keystrokeCount ?? 0);
-  const externalChars = hasF1 ? (rev!.externalPastedChars || 0) : (m.pastedChars ?? rev?.pastedChars ?? 0);
-  const internalChars = hasF1 ? (rev!.internalPastedChars || 0) : 0;
-  const citedChars = hasF1 ? (rev!.citedPastedChars || 0) : 0;
-  const totalChars = typedChars + externalChars + internalChars + citedChars;
-
-  // Grace budget: up to 10% of the doc, with a ~300-word (~1500 char) floor.
-  const graceChars = Math.max(0.10 * totalChars, 1500);
-  const penalizedExternal = Math.max(0, externalChars - graceChars);
-
-  // "Own" text = typed + within-doc moves + cited quotes. Only penalized external
-  // pasting erodes the written ratio.
-  const ownChars = typedChars + internalChars + citedChars;
-  const denom = ownChars + penalizedExternal;
-  const writtenRatio = denom > 0 ? ownChars / denom : 1;
-
-  const largestExternal = hasF1 ? (rev!.largestExternalPaste || 0) : (m.largestPaste ?? rev?.largestPaste ?? 0);
-  return {
-    hasF1, typedChars, externalChars, internalChars, citedChars, totalChars,
-    graceChars, penalizedExternal, writtenRatio, largestExternal,
-  };
-}
-
-/**
- * Human Authorship Score, the one number a professor reads in five seconds.
- *
- * Built from the signals that matter most, in priority order: revision depth
- * (the fingerprint of real effort, you cannot fake drafts), writing-vs-pasting,
- * time invested, and editing-over-time. Each signal is normalized 0–100,
- * weighted, and rolled into one score. (We deliberately do NOT score "leaving
- * the doc", tab-switching to research or cite is normal, not a red flag.)
- * Signals with no data are dropped and the remaining weights re-normalized, so
- * the score is always honest about what it actually saw.
- *
- * Every signal carries a one-liner written for a professor, not an engineer -
- * the point is that nobody has to learn anything new to read this.
- */
-type AuthorshipSignal = {
-  key: string;
-  label: string;
-  blurb: string;        // one-liner, from the professor's seat
-  score: number;        // 0–100
-  weight: number;
-  detail: string;       // human-readable value
-  has: boolean;         // did we actually capture this?
-};
-
-function computeAuthorshipScore(proof: ExtensionProof) {
-  const m = proof.metrics || {};
-  const rev = proof.revision || null;
-  const docs = proof.docsRevision || null;
-
-  // 1) REVISION DEPTH, highest weight. Saved Google Docs revisions are signed
-  //    by Google, not by us, so this is the one signal that can't be faked.
-  const savedRevisions = docs?.revisionCount || 0;
-  const editEvents = rev?.editCount || 0;
-  const revisionScore = Math.min(100, savedRevisions * 4 + editEvents * 3);
-
-  // 2) TIME INVESTED, real writing takes time. 30 active minutes tops it out.
-  const minutes = (m.elapsedMs || 0) / 60000;
-  const timeScore = Math.min(100, Math.round((minutes / 30) * 100));
-
-  // 3) WRITTEN, NOT PASTED, own writing vs text pasted in from OUTSIDE the doc
-  //    (F1: moving your own text and quoting don't count; grace budget applies).
-  const pb = pasteBreakdown(proof);
-  const typedScore = Math.round(Math.max(0, Math.min(1, pb.writtenRatio)) * 100);
-  const typedDetail = pb.internalChars > 0 || pb.citedChars > 0
-    ? `${typedScore}% own · ${pb.externalChars} pasted in${pb.internalChars > 0 ? `, ${pb.internalChars} moved` : ''}`
-    : `${typedScore}% typed`;
-
-  // 4) EDITING OVER TIME, work spread across sittings beats one rushed dump.
-  const editDays = docs?.editDays || (minutes > 0 ? 1 : 0);
-  const spanDays = docs?.spanDays || editDays;
-  const overTimeScore = Math.min(100, Math.round((editDays / 4) * 100));
-
-  const signals: AuthorshipSignal[] = [
-    {
-      key: 'revision',
-      label: 'Revision depth',
-      blurb: 'Drafts, rewrites and edits, the fingerprint of real effort. You can’t fake a revision history.',
-      score: revisionScore,
-      weight: 0.33,
-      detail: savedRevisions
-        ? `${savedRevisions} saved revisions · ${editEvents} edits`
-        : `${editEvents} edit events`,
-      has: savedRevisions > 0 || editEvents > 0,
-    },
-    {
-      key: 'typed',
-      label: 'Written, not pasted',
-      blurb: 'Your own writing versus text pasted in from outside the doc. Moving your own text around and quoting sources don’t count against you.',
-      score: typedScore,
-      weight: 0.28,
-      detail: typedDetail,
-      has: typeof m.humanTypedRatio === 'number' || !!rev,
-    },
-    {
-      key: 'time',
-      label: 'Time invested',
-      blurb: 'Genuine writing takes time, not minutes. This is how long they actually spent in the work.',
-      score: timeScore,
-      weight: 0.22,
-      detail: fmtMs(m.elapsedMs),
-      has: (m.elapsedMs || 0) > 0,
-    },
-    {
-      key: 'time-span',
-      label: 'Editing over time',
-      blurb: 'Work spread across days and sittings beats one rushed, single-session dump.',
-      score: overTimeScore,
-      weight: 0.17,
-      detail: editDays <= 1 ? '1 day' : `${editDays} days${spanDays > editDays ? ` (over ${spanDays})` : ''}`,
-      has: editDays > 0,
-    },
-  ];
-
-  const live = signals.filter((s) => s.has);
-  const totalWeight = live.reduce((sum, s) => sum + s.weight, 0) || 1;
-  const raw = Math.round(live.reduce((sum, s) => sum + s.score * s.weight, 0) / totalWeight);
-
-  // ---- F3 protections (no caret data needed) ----
-  // These guard honest writers. The fuller composition-vs-transcription signals
-  // (per-region re-edit passes, mid-text vs tail deletions, caret edit-locality)
-  // need keystroke caret data the Docs canvas capture can't give us yet, deferred.
-  const wpm = m.wpm || 0;
-  const effortIndex = Math.round((revisionScore + timeScore + overTimeScore) / 3);
-  const protections: string[] = [];
-  let score = raw;
-
-  // Halo Effect: deep editing/effort elsewhere forgives isolated external pastes.
-  if (effortIndex >= 60 && typedScore < 60 && score < 70) {
-    score = Math.min(70, Math.round(score + (effortIndex - score) * 0.4));
-    protections.push('Halo effect: deep editing and time elsewhere offset the pasted material.');
-  }
-  // Linear-Thinker override: a clean front-to-back typist at a human pace is not a
-  // cheater, ≥95% own text at normal speed clears straight to the green band.
-  if (pb.writtenRatio >= 0.95 && wpm >= 15 && wpm <= 120) {
-    score = Math.max(score, DEFAULT_BANDS.green);
-    protections.push('Linear-thinker override: ≥95% typed at a normal pace, cleared.');
-  }
-
-  const verdict = score >= 75 ? 'Strong proof of human effort'
-    : score >= 50 ? 'Solid signs of human work'
-    : score >= 30 ? 'Limited evidence of effort'
-    : 'Little evidence of original work';
-  const color = score >= 75 ? '#6ee7b7' : score >= 50 ? '#a7f3d0' : score >= 30 ? '#fbbf24' : '#f87171';
-
-  return { score, verdict, color, signals, protections, effortIndex };
-}
-
-/**
- * F2, the traffic-light band for the Process Score. Thresholds are server-tunable
- * (see /api/scoring-config) with these defaults. Deliberately biased toward YELLOW:
- * a false green is a missed catch, but a false red is a wrongful accusation, so
- * green requires a genuinely strong score and red is reserved for clearly-low ones.
- */
-type ScoreBands = { green: number; red: number };
-const DEFAULT_BANDS: ScoreBands = { green: 60, red: 30 };
-function processBand(score: number, bands: ScoreBands) {
-  if (score >= bands.green) return { label: 'Authentic, clear to move on', color: '#6ee7b7', tone: 'green' as const };
-  if (score >= bands.red) return { label: 'Worth a glance', color: '#fbbf24', tone: 'yellow' as const };
-  return { label: 'Investigate', color: '#f87171', tone: 'red' as const };
-}
-
-/** One plain-English line under the Process Score, the "why" for a clean essay. */
-function reasonLine(proof: ExtensionProof, score: number): string {
-  const pb = pasteBreakdown(proof);
-  const writtenPct = Math.round(pb.writtenRatio * 100);
-  const editDays = proof.docsRevision?.editDays || 0;
-  if (pb.penalizedExternal > 0 && writtenPct < 60) {
-    return `Most of the text was pasted in from outside the document; only ${writtenPct}% is the writer’s own.`;
-  }
-  if (pb.penalizedExternal > 0) {
-    return `Some text was pasted in from outside the document; the rest was written here.`;
-  }
-  if (score >= DEFAULT_BANDS.green) {
-    return editDays >= 2
-      ? `Typed and revised across ${editDays} days, consistent with original work.`
-      : `Typed here with genuine editing, consistent with original work.`;
-  }
-  return `Limited typing, revision, or time invested for a piece this size.`;
-}
-
-/**
- * Revision authenticity, the anti-gaming check. Real, not simulated: it runs
- * entirely on signals we already captured. Genuine drafting leaves a messy
- * texture (deletions, rewrites, work spread across sittings); manufactured
- * revisions look the opposite, big pastes, monotonic growth, all in one go.
- * Each flag is a plain-English observation a professor can sanity-check.
- */
-type IntegrityFlag = { level: 'ok' | 'warn' | 'bad'; text: string };
-
-function computeIntegrity(proof: ExtensionProof) {
-  const m = proof.metrics || {};
-  const rev = proof.revision || null;
-  const docs = proof.docsRevision || null;
-  const flags: IntegrityFlag[] = [];
-
-  const pb = pasteBreakdown(proof);
-  const writtenPct = Math.round(pb.writtenRatio * 100);
-  const editDays = docs?.editDays || 0;
-  const revisionCount = docs?.revisionCount || 0;
-  const editEvents = rev?.editCount || 0;
-  const keystrokes = m.keystrokeCount || proof.keystrokeCount || 0;
-  const backspaces = m.backspaceCount || 0;
-
-  let penalty = 0;
-
-  // F1: only EXTERNAL pasting (beyond the grace budget) is a concern. A big block
-  // pasted from outside the doc is the tell; moving your own text is not.
-  if (pb.penalizedExternal > 0 && pb.largestExternal >= 120) {
-    flags.push({ level: 'bad', text: `A large block (${pb.largestExternal} chars) was pasted in from outside the document.` });
-    penalty += 25;
-  } else if (pb.penalizedExternal > 0) {
-    flags.push({ level: 'warn', text: `${pb.externalChars} characters were pasted in from outside the document.` });
-    penalty += 12;
-  } else if (pb.externalChars > 0) {
-    flags.push({ level: 'ok', text: `Small amount pasted in (${pb.externalChars} chars), within the normal allowance.` });
-  } else {
-    flags.push({ level: 'ok', text: 'Nothing was pasted in from outside, the text was built up here.' });
-  }
-
-  // Credit within-doc moves so they're not mistaken for foreign pastes.
-  if (pb.internalChars > 0) {
-    flags.push({ level: 'ok', text: `${pb.internalChars} chars were moved within the doc (your own text), not counted against you.` });
-  }
-
-  // How much is the writer's own (typed + moved + quoted) vs external.
-  if (writtenPct < 50) {
-    flags.push({ level: 'bad', text: `Only ${writtenPct}% of the text is the writer’s own; most came from outside.` });
-    penalty += 25;
-  } else if (writtenPct < 85) {
-    flags.push({ level: 'warn', text: `${writtenPct}% is the writer’s own, some content came from outside.` });
-    penalty += 10;
-  }
-
-  // Many revisions, but all in one sitting, the manufactured-draft pattern.
-  if ((revisionCount >= 6 || editEvents >= 12) && editDays <= 1) {
-    flags.push({ level: 'warn', text: `${revisionCount || editEvents} revisions but all in one sitting, genuine drafting usually spreads across sessions.` });
-    penalty += 15;
-  }
-
-  // Real revising deletes and rewrites; text that only ever grew is suspect.
-  if (keystrokes > 200 && backspaces === 0) {
-    flags.push({ level: 'warn', text: 'Revisions only added text, no deletions or rewrites, unusual for genuine editing.' });
-    penalty += 15;
-  } else if (backspaces > 0) {
-    flags.push({ level: 'ok', text: 'Edits include deletions and rewrites, the texture of real revising.' });
-  }
-
-  // Sustained work over real days is the hardest thing to fake.
-  if (editDays >= 2) flags.push({ level: 'ok', text: `Worked across ${editDays} days, sustained effort is hard to fake.` });
-
-  const score = Math.max(0, 100 - penalty);
-  const verdict = score >= 75 ? 'Revisions look authentic' : score >= 45 ? 'Some signs of gaming' : 'Likely manufactured';
-  const color = score >= 75 ? '#6ee7b7' : score >= 45 ? '#fbbf24' : '#f87171';
-  return { score, verdict, color, flags };
-}
-
-/**
- * Rubric-process alignment (OPTIONAL, professor-facing). Reads the rubric the
- * professor pastes and reports how the observed writing *process* lines up with
- * what each criterion rewards, a second opinion that points at evidence, never
- * a grade. DEMO (current): per-criterion alignment + notes derived heuristically
- * from the captured signals, fully client-side. The real Claude Agent SDK version
- * (subscription-authed) is parked at future/rubric-analyze.ts, to go live, run it
- * via Vercel Sandbox and POST { rubric, process } to it from runAlignment.
- */
-type RubricRow = { criterion: string; note: string; alignment?: 'strong' | 'partial' | 'weak' | 'unclear' };
-
-function parseRubric(text: string): string[] {
-  return text
-    .split(/\n+/)
-    .map((l) => l.replace(/^\s*(\d+[.)]|[-*•])\s*/, '').trim())
-    .filter(Boolean)
-    .slice(0, 8);
-}
-
-function buildRubricAlignment(rubricText: string, proof: ExtensionProof) {
-  const criteria = parseRubric(rubricText);
-  const m = proof.metrics || {};
-  const rev = proof.revision || null;
-  const docs = proof.docsRevision || null;
-
-  const editEvents = rev?.editCount || 0;
-  const editDays = docs?.editDays || 0;
-  const revisions = docs?.revisionCount || 0;
-  const typedPct = Math.round((typeof m.humanTypedRatio === 'number' ? m.humanTypedRatio : (rev ? rev.humanTypedRatio : 1)) * 100);
-  const bigPastes = m.bigPastes || 0;
-  const backspaces = m.backspaceCount || 0;
-  const processSummary = `${revisions || editEvents} revisions · ${editDays <= 1 ? '1 day' : `${editDays} days`} · ${typedPct}% typed`;
-
-  const revDepth = (revisions || editEvents);
-  const rows: RubricRow[] = criteria.map((c) => {
-    const t = c.toLowerCase();
-    let note: string;
-    let alignment: NonNullable<RubricRow['alignment']>;
-    if (/revis|draft|edit|rewrit|process/.test(t)) {
-      note = `${revDepth} revisions over ${editDays <= 1 ? 'one session' : `${editDays} days`}, direct evidence of iterative work toward this.`;
-      alignment = revDepth >= 8 || editDays >= 2 ? 'strong' : revDepth >= 2 ? 'partial' : 'weak';
-    } else if (/evidence|research|source|cite|quote|reference/.test(t)) {
-      note = bigPastes > 0
-        ? `Pasted material present, could be quoted sources, but confirm it’s cited and not lifted whole.`
-        : `Little was pasted in, so any sources were re-expressed in the student’s own typing.`;
-      alignment = bigPastes > 0 ? 'partial' : 'strong';
-    } else if (/grammar|clarity|style|proofread|mechanic|polish/.test(t)) {
-      note = backspaces > 0
-        ? `Frequent deletions and rewrites suggest real proofreading and polishing.`
-        : `Few corrections captured, light evidence of a proofreading pass.`;
-      alignment = backspaces > 20 ? 'strong' : backspaces > 0 ? 'partial' : 'weak';
-    } else if (/thesis|argument|structure|organiz|coheren|flow/.test(t)) {
-      note = `Revision history shows the piece was reworked, not written in one pass, consistent with developing structure.`;
-      alignment = revDepth >= 5 ? 'strong' : revDepth >= 1 ? 'partial' : 'unclear';
-    } else {
-      note = `Process check: ${processSummary}. Use alongside your own read of the content.`;
-      alignment = 'unclear';
-    }
-    return { criterion: c, note, alignment };
-  });
-
-  const summary = `The writing process (${processSummary}) ${typedPct >= 85 && bigPastes === 0 ? 'is consistent with original, iterative work toward this rubric.' : 'shows some shortcuts, review the flagged criteria before relying on it.'}`;
-  return { rows, summary };
-}
-
 type SubmitState =
   | { phase: 'idle' }
   | { phase: 'submitting' }
   | { phase: 'success'; result: any }
   | { phase: 'error'; message: string };
 
-export default function PublishProofPage() {
-  const { proof, error: parseError } = useMemo(loadProof, []);
+export default function PublishProofPage(
+  { variant = 'student', injectedProof }: { variant?: 'student' | 'creator'; injectedProof?: ExtensionProof } = {},
+) {
+  const isCreator = variant === 'creator';
+  // Creator variant renames the two metric labels only (same scores + layout).
+  const scoreLabel = isCreator ? 'Grind Score' : 'Process Score';
+  const aiLabel = isCreator ? 'Slop Score' : 'AI probability';
+  // The creator flow hands its freshly-captured proof in memory (injectedProof)
+  // so it never touches sessionStorage — otherwise a prior session's proof would
+  // resurrect and skip the editor. The student flow still loads from the URL hash.
+  const loaded = useMemo(loadProof, []);
+  const proof = injectedProof ?? loaded.proof;
+  const parseError = injectedProof ? undefined : loaded.error;
   const identity = useViewerAddress();
   const { wallets } = useWallets();
   const [submit, setSubmit] = useState<SubmitState>({ phase: 'idle' });
@@ -631,6 +204,9 @@ export default function PublishProofPage() {
   const busy = submit.phase === 'submitting' || (!SIMULATE && pendingPublish);
   const band = processBand(authorship.score, bands);
   const reason = reasonLine(proof, authorship.score);
+  const authorAddress = submit.phase === 'success'
+    ? (submit.result?.walletAddress || (identity.status === 'ready' ? identity.address : ''))
+    : '';
 
   if (view === 'b') {
     return (
@@ -639,6 +215,7 @@ export default function PublishProofPage() {
         success={success} busy={busy} submit={submit} onPublish={handlePrimary}
         authError={authError} identityAuthError={identity.authError}
         view={view} setView={setView}
+        isCreator={isCreator} authorAddress={authorAddress}
       />
     );
   }
@@ -646,9 +223,12 @@ export default function PublishProofPage() {
   return (
     <div style={styles.wrap}>
       <ViewToggle view={view} setView={setView} />
+      {!isCreator && <BrandKicker />}
       <h1 style={styles.h1}>{success ? '✓ Proof published' : 'Proof of human writing'}</h1>
       <p style={styles.muted}>
-        Captured by the Human Ink extension{proof.context === 'google-docs' ? ' from Google Docs' : ''}
+        {isCreator
+          ? 'Written in the Human Ink editor'
+          : `Captured by the Human Ink extension${proof.context === 'google-docs' ? ' from Google Docs' : ''}`}
         {proof.email ? ` · ${proof.email}` : ''}.{SIMULATE ? ' Demo, simulated on-chain write.' : ''}
       </p>
 
@@ -658,7 +238,7 @@ export default function PublishProofPage() {
       <div style={styles.heroRow}>
         <div style={{ ...styles.heroCard, borderColor: band.color, margin: 0 }}>
           <div style={styles.heroHead}>
-            <span style={styles.heroLabel}>Process Score</span>
+            <span style={styles.heroLabel}>{scoreLabel}</span>
             <span style={{ ...styles.heroNum, color: band.color }}>{authorship.score}</span>
           </div>
           <div style={styles.barWrap}>
@@ -669,13 +249,13 @@ export default function PublishProofPage() {
         </div>
         <div style={{ ...styles.heroCard, borderColor: ai.color, margin: 0 }}>
           <div style={styles.heroHead}>
-            <span style={styles.heroLabel}>AI probability <span style={styles.tag}>simulated</span></span>
+            <span style={styles.heroLabel}>{aiLabel} <span style={styles.tag}>simulated</span></span>
             <span style={{ ...styles.heroNum, color: ai.color }}>{ai.ai}%</span>
           </div>
           <div style={styles.barWrap}>
             <div style={{ ...styles.barFill, width: `${ai.ai}%`, background: ai.color }} />
           </div>
-          <p style={styles.reasonLine}>Independent post-hoc detector, a parallel reference, not part of the Process Score.</p>
+          <p style={styles.reasonLine}>Independent post-hoc detector, a parallel reference, not part of the {scoreLabel}.</p>
         </div>
       </div>
 
@@ -687,7 +267,7 @@ export default function PublishProofPage() {
       <>
       {/* Evidence cards, then a drop-down with the per-signal breakdown (shared with B). */}
       <EvidenceCards proof={proof} authorship={authorship} />
-      <ScoreCalcDetails authorship={authorship} />
+      <ScoreCalcDetails authorship={authorship} scoreLabel={scoreLabel} />
 
       {/* On desktop these informational cards flow into 2–3 columns; on mobile
           they stack. Auto-fit grid → responsive without media queries. */}
@@ -710,15 +290,18 @@ export default function PublishProofPage() {
         </div>
       </div>
 
-      {/* Captured behavioral metrics */}
-      <div style={{ ...styles.signalHead, marginTop: 4, marginBottom: 8 }}>Typing stats</div>
-      <div style={styles.grid}>
-        <Stat k={m.wpm ?? 0} l="WPM" />
-        <Stat k={m.keystrokeCount ?? proof.keystrokeCount} l="keystrokes" />
-        <Stat k={m.backspaceCount ?? 0} l="backspaces" />
-        <Stat k={proof.docsRevision?.revisionCount ?? proof.revision?.editCount ?? 0} l="revisions" />
-        <Stat k={m.pasteCount ?? 0} l="pastes" />
-        <Stat k={m.bigPastes ?? 0} l="big pastes" warn={(m.bigPastes ?? 0) > 0} />
+      {/* Captured behavioral metrics — header + grid stay in one cell so the
+          heading always sits directly above its stats in the auto-fit layout. */}
+      <div>
+        <div style={{ ...styles.signalHead, marginTop: 4, marginBottom: 8 }}>Typing stats</div>
+        <div style={styles.grid}>
+          <Stat k={m.wpm ?? 0} l="WPM" />
+          <Stat k={m.keystrokeCount ?? proof.keystrokeCount} l="keystrokes" />
+          <Stat k={m.backspaceCount ?? 0} l="backspaces" />
+          <Stat k={proof.docsRevision?.revisionCount ?? proof.revision?.editCount ?? 0} l="revisions" />
+          <Stat k={m.pasteCount ?? 0} l="pastes" />
+          <Stat k={m.bigPastes ?? 0} l="big pastes" warn={(m.bigPastes ?? 0) > 0} />
+        </div>
       </div>
 
       <div style={styles.card}>
@@ -757,7 +340,9 @@ export default function PublishProofPage() {
 
       </div>{/* end bodyGrid */}
 
-      {/* For professors, optional rubric → AI-assisted process alignment */}
+      {/* For professors, optional rubric → AI-assisted process alignment.
+          Hidden for the creator variant (no grader in the loop). */}
+      {!isCreator && (
       <div style={styles.card}>
         {!showRubric ? (
           <button style={styles.ghostBtn} onClick={() => setShowRubric(true)}>
@@ -802,6 +387,7 @@ export default function PublishProofPage() {
           </>
         )}
       </div>
+      )}
 
       {/* Revision-analysis charts, organized + enlarged, at the bottom. */}
       <RevisionCharts proof={proof} />
@@ -810,7 +396,10 @@ export default function PublishProofPage() {
       )}
 
       {success ? (
-        <Receipt result={submit.result} />
+        <>
+          <Receipt result={submit.result} />
+          {isCreator && <HIFeedOptIn proof={proof} result={submit.result} authorship={authorship} ai={ai} authorAddress={authorAddress} />}
+        </>
       ) : (
         <>
           <button style={{ ...styles.primary, opacity: busy ? 0.6 : 1 }} disabled={busy} onClick={handlePrimary}>
@@ -821,6 +410,7 @@ export default function PublishProofPage() {
           <Link to="/" style={{ ...styles.link, marginTop: 14, display: 'block' }}>Cancel</Link>
         </>
       )}
+      <ProofSignoff />
     </div>
   );
 }
@@ -841,6 +431,46 @@ function ViewToggle({ view, setView }: { view: 'a' | 'b'; setView: (v: 'a' | 'b'
   return (
     <div style={{ display: 'flex', gap: 6, justifyContent: 'center', margin: '0 0 16px' }}>
       {btn('a', 'Version A')}{btn('b', 'Version B · new')}
+    </div>
+  );
+}
+
+/** Cyan ink-drop glyph — the recurring Human Ink brand mark (theme-independent SVG). */
+function InkDrop({ size = 15 }: { size?: number }) {
+  return (
+    <svg width={size} height={Math.round(size * 1.2)} viewBox="0 0 15 18" fill="none" aria-hidden
+      style={{ display: 'block', flex: '0 0 auto' }}>
+      <path d="M7.5 1.2C7.5 1.2 1 8.4 1 12A6.5 6.5 0 0 0 14 12C14 8.4 7.5 1.2 7.5 1.2Z" fill="var(--hi-cyan, #00b4d8)" />
+      <path d="M10.4 12.4a3 3 0 0 1-2.9 2.5" stroke="#fff" strokeWidth="1.2" strokeLinecap="round" opacity="0.6" />
+    </svg>
+  );
+}
+
+/** Brand eyebrow above the page title: ink-drop + HUMAN INK wordmark. Subtle, on-brand. */
+function BrandKicker() {
+  return (
+    <div style={styles.kicker}>
+      <InkDrop size={14} />
+      <span style={styles.kickerText}>Human Ink</span>
+    </div>
+  );
+}
+
+/** In-page proof sign-off: frames the report as sealed by Human Ink, powered by World. */
+function ProofSignoff() {
+  return (
+    <div style={styles.signoff}>
+      <span style={styles.signoffMark}>
+        <InkDrop size={13} />
+        <span style={styles.signoffBrand}>Sealed with Human Ink</span>
+      </span>
+      <span style={styles.signoffDot} aria-hidden>·</span>
+      <span style={styles.signoffPowered}>powered by</span>
+      <a href="https://world.org" target="_blank" rel="noopener noreferrer" style={styles.signoffWorld}
+        aria-label="World. Visit world.org">
+        <img src="/brand/world-icon.png" alt="" width={15} height={15} style={{ display: 'block', flex: '0 0 auto' }} />
+        <span style={styles.signoffWorldWord}>world</span>
+      </a>
     </div>
   );
 }
@@ -873,6 +503,7 @@ const PLAIN_LABEL: Record<string, string> = {
 function PublishVersionB({
   proof, ai, authorship, integrity, bands,
   success, busy, submit, onPublish, authError, identityAuthError, view, setView,
+  isCreator, authorAddress,
 }: {
   proof: ExtensionProof;
   ai: ReturnType<typeof computeAiScore>;
@@ -887,9 +518,13 @@ function PublishVersionB({
   identityAuthError?: string | null;
   view: 'a' | 'b';
   setView: (v: 'a' | 'b') => void;
+  isCreator?: boolean;
+  authorAddress?: string;
 }) {
   const [adv, setAdv] = useState(false);
   const m = proof.metrics || {};
+  const scoreLabel = isCreator ? 'Grind Score' : 'Process Score';
+  const aiLabel = isCreator ? 'Slop Score' : 'AI probability';
   // success is a prop here (not a local alias of submit.phase), so TS can't narrow
   // submit.result, derive it explicitly from the discriminant.
   const result: any = submit.phase === 'success' ? submit.result : null;
@@ -924,6 +559,7 @@ function PublishVersionB({
   return (
     <div style={styles.wrap}>
       <ViewToggle view={view} setView={setView} />
+      {!isCreator && <BrandKicker />}
       <h1 style={styles.h1}>{success ? '✓ Proof published' : 'Proof of Human Writing'}</h1>
 
       {/* What Human Ink measures, framing up front to distinguish from AI detectors. */}
@@ -944,7 +580,7 @@ function PublishVersionB({
           <div style={{ ...styles.barFill, width: `${authorship.score}%`, background: band.color }} />
         </div>
         <div style={{ fontSize: 12, opacity: 0.7, marginTop: 8 }}>
-          Process Score <strong style={{ color: band.color }}>{authorship.score}</strong> / 100, our measure of captured writing process.
+          {scoreLabel} <strong style={{ color: band.color }}>{authorship.score}</strong> / 100, our measure of captured writing process.
         </div>
       </div>
 
@@ -982,16 +618,16 @@ function PublishVersionB({
 
       {/* EVIDENCE CARDS, then a drop-down with the per-signal breakdown (shared with A). */}
       <EvidenceCards proof={proof} authorship={authorship} />
-      <ScoreCalcDetails authorship={authorship} />
+      <ScoreCalcDetails authorship={authorship} scoreLabel={scoreLabel} />
 
       {/* AI PROBABILITY, deliberately small and secondary (same framing as A). */}
       <div style={{ ...styles.card, padding: '10px 14px', opacity: 0.85 }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}>
-          <span style={{ fontSize: 12, opacity: 0.7 }}>AI probability <span style={styles.tag}>simulated</span></span>
+          <span style={{ fontSize: 12, opacity: 0.7 }}>{aiLabel} <span style={styles.tag}>simulated</span></span>
           <span style={{ fontSize: 18, fontWeight: 700, color: ai.color }}>{ai.ai}%</span>
         </div>
         <p style={{ ...styles.muted, margin: '4px 0 0' }}>
-          Independent post-hoc detector, a parallel reference, not part of the Process Score.
+          Independent post-hoc detector, a parallel reference, not part of the {scoreLabel}.
         </p>
       </div>
 
@@ -1019,7 +655,10 @@ function PublishVersionB({
       </div>
 
       {success ? (
-        <Receipt result={result} />
+        <>
+          <Receipt result={result} />
+          {isCreator && <HIFeedOptIn proof={proof} result={result} authorship={authorship} ai={ai} authorAddress={authorAddress || ''} />}
+        </>
       ) : (
         <>
           <button style={{ ...styles.primary, opacity: busy ? 0.6 : 1 }} disabled={busy} onClick={onPublish}>
@@ -1030,6 +669,7 @@ function PublishVersionB({
           <Link to="/" style={{ ...styles.link, marginTop: 14, display: 'block' }}>Cancel</Link>
         </>
       )}
+      <ProofSignoff />
     </div>
   );
 }
@@ -1040,6 +680,105 @@ function PublishVersionB({
  * so the full tx hash is selectable + copyable with prominent links to the
  * explorer (transaction AND contract), not buried as a truncated row.
  */
+/**
+ * HI Feed opt-in (creator variant only). After the on-chain write, a creator can
+ * choose to also publish the piece to HI Feed — the public feed of human-written
+ * work. Requires a real, verified on-chain entry (the API anchors the feed post
+ * to the ledger row). Uses the report's own styles — no new visual language.
+ */
+function HIFeedOptIn({
+  proof, result, authorship, ai, authorAddress,
+}: {
+  proof: ExtensionProof;
+  result: any;
+  authorship: ReturnType<typeof computeAuthorshipScore>;
+  ai: ReturnType<typeof computeAiScore>;
+  authorAddress: string;
+}) {
+  const [name, setName] = useState('');
+  const [handle, setHandle] = useState('');
+  const [excerpt, setExcerpt] = useState('');
+  const [state, setState] = useState<'idle' | 'saving' | 'done' | 'error'>('idle');
+  const [msg, setMsg] = useState('');
+
+  const entryId: number | undefined = typeof result?.entryId === 'number' ? result.entryId : undefined;
+  const tx: string | undefined = result?.transactionHash;
+  const simulated = !!result?.simulated;
+  const canPublish = typeof entryId === 'number' && !!tx && !!authorAddress && !simulated;
+
+  const m = proof.metrics || {};
+  const words = Math.round((m.textLength || m.keystrokeCount || proof.keystrokeCount || 0) / 5);
+  const revisions = proof.docsRevision?.revisionCount || proof.revision?.editCount || 0;
+  const editDays = proof.docsRevision?.editDays || ((m.elapsedMs || 0) > 0 ? 1 : 0);
+  const minutes = Math.round((m.elapsedMs || 0) / 60000);
+
+  const submitPost = async () => {
+    setState('saving'); setMsg('');
+    const res = await publishCreatorPost({
+      chain_id: CHAIN_ID,
+      contract_address: CONTRACT_ADDRESS,
+      entry_id: entryId!,
+      transaction_hash: tx!,
+      content_hash: proof.contentHash,
+      author_address: authorAddress,
+      title: proof.docTitle || undefined,
+      excerpt: excerpt.trim() || undefined,
+      grind_score: authorship.score,
+      ai_slop: ai.ai,
+      human_pct: ai.human,
+      word_count: words,
+      revisions,
+      edit_days: editDays,
+      minutes,
+      is_public: true,
+      display_name: name.trim() || undefined,
+      handle: handle.trim().replace(/^@/, '').toLowerCase() || undefined,
+    });
+    if (res.ok) { setState('done'); setMsg(res.deduped ? 'This piece is already on HI Feed.' : ''); }
+    else { setState('error'); setMsg(res.error || 'Could not publish to HI Feed.'); }
+  };
+
+  if (state === 'done') {
+    return (
+      <div style={styles.card}>
+        <div style={styles.sec}>HI Feed</div>
+        <p style={styles.muted}>{msg || 'Published to HI Feed.'}</p>
+        <Link to="/feed" style={styles.link}>View HI Feed →</Link>
+      </div>
+    );
+  }
+
+  return (
+    <div style={styles.card}>
+      <div style={styles.sec}>Publish to HI Feed <span style={styles.tag}>optional</span></div>
+      <p style={styles.muted}>
+        HI Feed is the public feed of human-written work. Opt in to share this piece there — your Grind Score and on-chain proof go with it.
+      </p>
+      {!canPublish ? (
+        <p style={styles.muted}>
+          {simulated
+            ? 'Publishing to HI Feed is available on real on-chain posts.'
+            : 'Available once the on-chain write confirms.'}
+        </p>
+      ) : (
+        <>
+          <input style={styles.input} placeholder="Display name" value={name} onChange={(e) => setName(e.target.value)} maxLength={80} />
+          <input style={styles.input} placeholder="@handle (optional)" value={handle} onChange={(e) => setHandle(e.target.value)} maxLength={40} />
+          <textarea style={styles.textarea} placeholder="Optional: a one-line teaser for the feed card" value={excerpt} onChange={(e) => setExcerpt(e.target.value)} rows={2} maxLength={280} />
+          <button
+            style={{ ...styles.primary, marginTop: 10, opacity: state === 'saving' ? 0.6 : 1 }}
+            disabled={state === 'saving'}
+            onClick={submitPost}
+          >
+            {state === 'saving' ? 'Publishing…' : 'Publish to HI Feed'}
+          </button>
+          {state === 'error' && <p style={styles.error}>{msg}</p>}
+        </>
+      )}
+    </div>
+  );
+}
+
 function Receipt({ result }: { result: any }) {
   const [copied, setCopied] = useState(false);
   const tx: string | undefined = result?.transactionHash;
@@ -1080,7 +819,7 @@ function Receipt({ result }: { result: any }) {
   );
 }
 
-function ScoreBreakdown({ authorship }: { authorship: ReturnType<typeof computeAuthorshipScore> }) {
+function ScoreBreakdown({ authorship, scoreLabel = 'Process Score' }: { authorship: ReturnType<typeof computeAuthorshipScore>; scoreLabel?: string }) {
   const live = authorship.signals.filter((s) => s.has);
   const totalWeight = live.reduce((s, x) => s + x.weight, 0) || 1;
   // Each signal's points = its normalized score × its share of the live weight,
@@ -1100,7 +839,7 @@ function ScoreBreakdown({ authorship }: { authorship: ReturnType<typeof computeA
   const adjLabel = authorship.protections.length > 0 ? 'Protection floor' : 'Rounding';
   return (
     <div style={styles.card}>
-      <div style={styles.signalHead}>How the Process Score is built</div>
+      <div style={styles.signalHead}>How the {scoreLabel} is built</div>
       <div style={styles.flagList}>
         {rows.map((c, i) => (
           <div key={i} style={{ ...styles.row, padding: '6px 0', alignItems: 'center' }}>
@@ -1123,7 +862,7 @@ function ScoreBreakdown({ authorship }: { authorship: ReturnType<typeof computeA
           </div>
         )}
         <div style={{ ...styles.row, padding: '8px 0 0', marginTop: 4, borderTop: '1px solid rgba(127,127,127,0.25)', fontWeight: 700 }}>
-          <span>Process Score</span>
+          <span>{scoreLabel}</span>
           <span>{authorship.score} / 100</span>
         </div>
       </div>
@@ -1141,14 +880,14 @@ function ScoreBreakdown({ authorship }: { authorship: ReturnType<typeof computeA
  * Collapsible "see how the score was calculated", the per-signal breakdown dropped
  * down on demand below the evidence cards (replaces the always-open block).
  */
-function ScoreCalcDetails({ authorship }: { authorship: ReturnType<typeof computeAuthorshipScore> }) {
+function ScoreCalcDetails({ authorship, scoreLabel = 'Process Score' }: { authorship: ReturnType<typeof computeAuthorshipScore>; scoreLabel?: string }) {
   const [open, setOpen] = useState(false);
   return (
     <div style={{ margin: '2px 0 12px' }}>
       <button style={styles.ghostBtn} onClick={() => setOpen((v) => !v)}>
         {open ? 'Hide how the score was calculated ▲' : 'See how the score was calculated ▼'}
       </button>
-      {open && <ScoreBreakdown authorship={authorship} />}
+      {open && <ScoreBreakdown authorship={authorship} scoreLabel={scoreLabel} />}
     </div>
   );
 }
@@ -1441,7 +1180,23 @@ function Stat({ k, l, warn }: { k: number | string; l: string; warn?: boolean })
 }
 
 const styles: Record<string, React.CSSProperties> = {
-  wrap: { maxWidth: 'min(1040px, 94vw)', margin: '32px auto', padding: '0 20px', color: 'inherit' },
+  // Faint cyan "ink in water" wash behind the top of the report — the brand motif
+  // as a pure background gradient (always paints behind content, no z-index games).
+  wrap: {
+    maxWidth: 'min(1040px, 94vw)', margin: '32px auto', padding: '0 20px', color: 'inherit',
+    backgroundImage: 'radial-gradient(ellipse 46% 30% at 82% 4%, rgba(0,180,216,0.10), rgba(0,200,230,0) 70%)',
+    backgroundRepeat: 'no-repeat',
+  },
+  // ── Branding: eyebrow kicker + proof sign-off ──
+  kicker: { display: 'inline-flex', alignItems: 'center', gap: 7, marginBottom: 7 },
+  kickerText: { fontSize: 11, fontWeight: 700, letterSpacing: '0.18em', textTransform: 'uppercase', color: 'var(--hi-cyan-ink, #075985)' },
+  signoff: { display: 'flex', flexWrap: 'wrap', alignItems: 'center', justifyContent: 'center', gap: '6px 9px', marginTop: 30, paddingTop: 18, borderTop: '1px solid rgba(15,23,42,0.08)', fontSize: 12 },
+  signoffMark: { display: 'inline-flex', alignItems: 'center', gap: 6 },
+  signoffBrand: { fontWeight: 700, letterSpacing: '0.02em', color: 'inherit', opacity: 0.85 },
+  signoffDot: { opacity: 0.35, userSelect: 'none' },
+  signoffPowered: { opacity: 0.6 },
+  signoffWorld: { display: 'inline-flex', alignItems: 'center', gap: 5, textDecoration: 'none', color: 'inherit', fontWeight: 600 },
+  signoffWorldWord: { textTransform: 'lowercase', letterSpacing: '-0.01em' },
   // Informational cards flow into as many ~330px columns as fit (3 on desktop,
   // 2 on a tablet, 1 on a phone), responsive with no media queries.
   bodyGrid: { display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(330px, 1fr))', gap: 14, alignItems: 'start', margin: '12px 0' },
@@ -1459,7 +1214,7 @@ const styles: Record<string, React.CSSProperties> = {
   heroLabel: { fontSize: 13, fontWeight: 600, opacity: 0.85 },
   heroNum: { fontSize: 42, fontWeight: 750, lineHeight: 1, fontVariantNumeric: 'tabular-nums' },
   signalHead: { fontSize: 12, textTransform: 'uppercase', letterSpacing: 0.7, fontWeight: 700, opacity: 0.88, marginBottom: 12 },
-  infoDot: { display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: 15, height: 15, borderRadius: '50%', border: '1px solid rgba(255,255,255,0.4)', fontSize: 10, fontWeight: 700, fontStyle: 'italic', fontFamily: 'Georgia, serif', lineHeight: 1, opacity: 0.65, cursor: 'help', outline: 'none' },
+  infoDot: { display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: 15, height: 15, borderRadius: '50%', border: '1px solid rgba(255,255,255,0.75)', background: 'rgba(255,255,255,0.08)', color: 'rgba(255,255,255,0.9)', fontSize: 10, fontWeight: 700, fontStyle: 'italic', fontFamily: 'Georgia, serif', lineHeight: 1, opacity: 0.9, cursor: 'help', outline: 'none' },
   infoTip: { position: 'absolute', bottom: 'calc(100% + 8px)', left: '50%', transform: 'translateX(-50%)', width: 220, padding: '9px 11px', borderRadius: 8, background: 'rgba(18,18,22,0.98)', border: '1px solid rgba(255,255,255,0.18)', color: '#fff', fontSize: 12, fontWeight: 400, fontStyle: 'normal', textTransform: 'none', letterSpacing: 0, lineHeight: 1.45, zIndex: 30, boxShadow: '0 8px 28px rgba(0,0,0,0.45)', pointerEvents: 'none' },
   chartTitle: { fontSize: 13.5, fontWeight: 700, marginBottom: 2 },
   chartCaption: { fontSize: 11.5, opacity: 0.65, margin: '0 0 6px', lineHeight: 1.4 },
@@ -1501,6 +1256,7 @@ const styles: Record<string, React.CSSProperties> = {
   flagText: { opacity: 0.85 },
   ghostBtn: { width: '100%', padding: '4px 0', background: 'none', border: 'none', color: '#6ee7b7', fontSize: 13, fontWeight: 600, cursor: 'pointer', textAlign: 'left' },
   textarea: { width: '100%', boxSizing: 'border-box', marginTop: 8, padding: 10, borderRadius: 8, border: '1px solid rgba(255,255,255,0.18)', background: 'rgba(0,0,0,0.25)', color: 'inherit', fontSize: 13, fontFamily: 'inherit', resize: 'vertical' },
+  input: { width: '100%', boxSizing: 'border-box', marginTop: 8, padding: 10, borderRadius: 8, border: '1px solid rgba(255,255,255,0.18)', background: 'rgba(0,0,0,0.25)', color: 'inherit', fontSize: 13, fontFamily: 'inherit' },
   rubricRow: { padding: '8px 0', borderTop: '1px solid rgba(255,255,255,0.08)' },
   rubricCrit: { fontSize: 13, fontWeight: 600, marginBottom: 2, display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' },
   alignTag: { fontSize: 9, textTransform: 'uppercase', letterSpacing: 0.5, borderRadius: 4, padding: '1px 5px' },

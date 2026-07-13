@@ -11,6 +11,9 @@ import AboutPage from './pages/AboutPage';
 import HomePage from './pages/HomePage';
 import WorkflowPage from './pages/WorkflowPage';
 import PublishProofPage from './pages/PublishProofPage';
+import CreatorProofPage from './pages/CreatorProofPage';
+import CreatorBadge from './pages/CreatorBadge';
+import CreatorFeedPage from './pages/CreatorFeedPage';
 
 /** Only mount when enabled so `/_vercel/insights/script.js` is not requested on hosts where it 404s as HTML. */
 function VercelAnalyticsGate() {
@@ -76,10 +79,16 @@ function App() {
         <Routes>
           <Route path="/" element={<LandingPage />} />
           <Route path="/about" element={<AboutPage />} />
+          {/* The badge must render bare (no app chrome) so it embeds cleanly in
+              an <iframe>; it stays outside the app layout. */}
+          <Route path="/badge" element={<CreatorBadge />} />
           <Route element={onboardingOpen ? onboardingEl : <AppLayout />}>
             <Route path="/write" element={writeEl} />
             <Route path="/workflow" element={<WorkflowPage />} />
             <Route path="/publish" element={<PublishProofPage />} />
+            {/* Creator surfaces share the same chrome + report as /publish. */}
+            <Route path="/creator" element={<CreatorProofPage />} />
+            <Route path="/feed" element={<CreatorFeedPage />} />
           </Route>
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
