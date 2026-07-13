@@ -4,7 +4,16 @@
  * client wallet signature).
  */
 const { createClient } = require('@supabase/supabase-js');
-const { JsonRpcProvider, Contract, getAddress } = require('ethers');
+const { JsonRpcProvider, Contract, getAddress, Wallet } = require('ethers');
+
+// The gasless relayer sends the tx on the author's behalf, so a valid on-chain
+// write has `receipt.from` = the relayer, not the author. Derive the relayer
+// address so we can accept it as a legitimate sender.
+function relayerAddress() {
+  const key = process.env.RELAYER_PRIVATE_KEY && String(process.env.RELAYER_PRIVATE_KEY).trim();
+  if (!key) return null;
+  try { return new Wallet(key).address.toLowerCase(); } catch { return null; }
+}
 const { getSupabaseCreds } = require('./_supabaseEnv');
 const { parsePublicText } = require('./_contentHash');
 const humanContentArtifact = require('../src/HumanContentLedger.json');
@@ -225,8 +234,15 @@ module.exports = async (req, res) => {
   if (!contentStoredInReceipt(contract, bodyContract, receipt, entry_id)) {
     return send(res, 401, { error: 'No ContentStored for this entry in transaction logs' });
   }
-  if (addrLo(receipt.from) !== getAddress(author_address).toLowerCase()) {
-    return send(res, 401, { error: 'transaction from does not match author' });
+  // Accept the tx if it was sent by the author directly OR by the gasless
+  // relayer on their behalf. The on-chain `author` field was already verified to
+  // equal author_address above, so authorship is established regardless of who
+  // paid for/sent the transaction.
+  const fromLo = addrLo(receipt.from);
+  const authorLo = getAddress(author_address).toLowerCase();
+  const relayerLo = relayerAddress();
+  if (fromLo !== authorLo && (!relayerLo || fromLo !== relayerLo)) {
+    return send(res, 401, { error: 'transaction from is neither the author nor the relayer' });
   }
 
   const chNorm = String(content_hash).trim().toLowerCase().replace(/^0x/, '');

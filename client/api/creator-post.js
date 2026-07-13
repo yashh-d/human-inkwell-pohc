@@ -72,15 +72,18 @@ module.exports = async (req, res) => {
   const supabase = createClient(url, key, { auth: { persistSession: false } });
 
   // Anchor to the verified on-chain index: the ledger row must already exist.
-  const { data: ledgerRow, error: lookupErr } = await supabase
+  // Use limit(1) + array (not maybeSingle) so a 0-row result is a clean 409, and
+  // surface the real DB error text on failure instead of a generic 500.
+  const { data: rows, error: lookupErr } = await supabase
     .from('ledger_submissions')
     .select('content_hash, author_address')
     .match({ chain_id: Number(chain_id), contract_address: contractLo, entry_id: Number(entry_id) })
-    .maybeSingle();
+    .limit(1);
   if (lookupErr) {
     console.error('creator-post: ledger lookup', lookupErr);
-    return send(res, 500, { error: 'Feed lookup failed' });
+    return send(res, 500, { error: `Feed lookup failed: ${lookupErr.message || lookupErr.code || 'unknown'}` });
   }
+  const ledgerRow = rows && rows[0];
   if (!ledgerRow) {
     return send(res, 409, { error: 'No verified on-chain entry for this proof yet. Publish on-chain first.' });
   }
