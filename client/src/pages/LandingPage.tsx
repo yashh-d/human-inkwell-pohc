@@ -113,10 +113,17 @@ const LandingPage: React.FC = () => {
 
       {/* Nav */}
       <header className="lp-nav">
-        <img src={HUMANINK_LOGO} alt="Humanink" className="lp-nav__logo" />
+        <div className="lp-nav__brand">
+          <Link to="/" className="lp-nav__wordmark" aria-label="Human Ink home">Human Ink</Link>
+          <span className="lp-nav__brand-sep" aria-hidden />
+          <PoweredByWorld className="lp-nav__world" />
+        </div>
         <div className="lp-nav__right">
           <Link to="/about" className="lp-nav__link">
             About
+          </Link>
+          <Link to="/creator" className="lp-nav__link">
+            Creator
           </Link>
           <a
             href={CHROME_STORE_URL}
