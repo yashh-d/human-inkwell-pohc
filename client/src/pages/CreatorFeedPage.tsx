@@ -101,7 +101,7 @@ const S: Record<string, React.CSSProperties> = {
   muted: { fontSize: 13, color: 'var(--hi-text-muted, #64748b)', margin: '6px 0', lineHeight: 1.5 },
   error: { fontSize: 13, color: '#b91c1c', margin: '10px 0' },
   link: { color: '#0096b4', fontSize: 13, textDecoration: 'none', fontWeight: 600 },
-  newBtn: { color: '#0b0d10', background: '#6ee7b7', fontSize: 13, fontWeight: 650, textDecoration: 'none', padding: '9px 14px', borderRadius: 8, whiteSpace: 'nowrap' },
+  newBtn: { color: '#fff', background: 'var(--hi-cyan, #00b4d8)', fontSize: 13, fontWeight: 650, textDecoration: 'none', padding: '9px 14px', borderRadius: 8, whiteSpace: 'nowrap' },
   empty: { textAlign: 'center', padding: '40px 0', display: 'flex', flexDirection: 'column', gap: 6, alignItems: 'center' },
   list: { display: 'flex', flexDirection: 'column', gap: 12 },
 
