@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { usePrivy } from '@privy-io/react-auth';
 import { useViewerAddress } from '../hooks/useViewerAddress';
-import { fetchCreatorProfile, CreatorFeedPost, CreatorProfileResult } from '../creatorSupabase';
+import { fetchCreatorProfile, updateCreatorProfile, CreatorFeedPost, CreatorProfileResult } from '../creatorSupabase';
 import { EXPLORER_BASE } from '../lib/chain';
 
 /**
@@ -17,6 +17,10 @@ export default function CreatorMePage() {
   const { user } = usePrivy();
   const [data, setData] = useState<CreatorProfileResult | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [editing, setEditing] = useState(false);
+  const [nameInput, setNameInput] = useState('');
+  const [saving, setSaving] = useState(false);
+  const [saveMsg, setSaveMsg] = useState('');
 
   const address = identity.status === 'ready' ? identity.address : '';
   const email = (user?.email?.address as string) || ((user as any)?.google?.email as string) || '';
@@ -35,6 +39,20 @@ export default function CreatorMePage() {
   const displayName = data?.profile?.display_name || username || 'Your work';
   const onFeed = useMemo(() => (data?.posts || []).filter((p) => p.is_public).length, [data]);
 
+  const startEdit = () => { setNameInput(data?.profile?.display_name || username || ''); setSaveMsg(''); setEditing(true); };
+  const saveName = async () => {
+    if (!address || !nameInput.trim()) return;
+    setSaving(true); setSaveMsg('');
+    const name = nameInput.trim();
+    const res = await updateCreatorProfile({ author_address: address, display_name: name, handle: name });
+    setSaving(false);
+    if (res.ok) {
+      setData((d) => (d ? { ...d, profile: { ...(d.profile || {}), display_name: name } as any } : d));
+      setEditing(false);
+      if (res.handleTaken) setSaveMsg('Saved — that handle was taken, so only your display name changed.');
+    } else { setSaveMsg(res.error || 'Could not save.'); }
+  };
+
   if (identity.status !== 'ready') {
     return (
       <div style={S.wrap}>
@@ -52,15 +70,31 @@ export default function CreatorMePage() {
     <div style={S.wrap}>
       <div style={S.header}>
         <span style={S.avatar}>{(displayName[0] || 'W').toUpperCase()}</span>
-        <div style={{ minWidth: 0 }}>
-          <h1 style={S.name}>{displayName}</h1>
+        <div style={{ minWidth: 0, flex: 1 }}>
+          {editing ? (
+            <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+              <input
+                style={S.input} value={nameInput} maxLength={80} placeholder="Username" autoFocus
+                onChange={(e) => setNameInput(e.target.value)}
+                onKeyDown={(e) => { if (e.key === 'Enter') saveName(); if (e.key === 'Escape') setEditing(false); }}
+              />
+              <button style={S.newBtn} disabled={saving || !nameInput.trim()} onClick={saveName}>{saving ? 'Saving…' : 'Save'}</button>
+              <button style={S.ghostBtn} onClick={() => setEditing(false)}>Cancel</button>
+            </div>
+          ) : (
+            <h1 style={S.name}>
+              {displayName}
+              <button style={S.editBtn} onClick={startEdit} title="Edit username">Edit</button>
+            </h1>
+          )}
           <div style={S.sub}>
             {email && <span>{email}</span>}
             {email && <span style={S.dot}>·</span>}
             <span style={S.mono}>{address.slice(0, 6)}…{address.slice(-4)}</span>
           </div>
+          {saveMsg && <p style={{ ...S.muted, margin: '4px 0 0' }}>{saveMsg}</p>}
         </div>
-        <Link to="/creator" style={S.newBtn}>Write a piece</Link>
+        {!editing && <Link to="/creator" style={S.newBtn}>Write a piece</Link>}
       </div>
 
       {data && (
@@ -138,7 +172,10 @@ const S: Record<string, React.CSSProperties> = {
   sub: { display: 'flex', alignItems: 'center', gap: 8, fontSize: 12, color: 'var(--hi-text-muted, #64748b)', marginTop: 2, flexWrap: 'wrap' },
   dot: { opacity: 0.5 },
   mono: { fontFamily: 'ui-monospace, Menlo, monospace' },
-  newBtn: { color: '#fff', background: 'var(--hi-cyan, #00b4d8)', fontSize: 13, fontWeight: 650, textDecoration: 'none', padding: '9px 14px', borderRadius: 8, whiteSpace: 'nowrap', border: 'none', cursor: 'pointer', marginLeft: 'auto' },
+  newBtn: { color: '#fff', background: 'var(--hi-cyan, #00b4d8)', fontSize: 13, fontWeight: 650, textDecoration: 'none', padding: '9px 14px', borderRadius: 8, whiteSpace: 'nowrap', border: 'none', cursor: 'pointer' },
+  editBtn: { marginLeft: 10, fontSize: 12, fontWeight: 600, color: '#0096b4', background: 'none', border: 'none', cursor: 'pointer', padding: 0, verticalAlign: 'middle' },
+  ghostBtn: { fontSize: 13, fontWeight: 600, color: 'var(--hi-text-muted, #64748b)', background: 'none', border: 'none', cursor: 'pointer', padding: '9px 6px' },
+  input: { flex: '1 1 160px', minWidth: 0, padding: '9px 12px', borderRadius: 8, border: '1px solid var(--hi-border, #e6e9ee)', background: 'var(--hi-surface, #fff)', color: 'inherit', fontSize: 16, fontWeight: 700, fontFamily: 'inherit', outline: 'none' },
   muted: { fontSize: 13, color: 'var(--hi-text-muted, #64748b)', margin: '10px 0', lineHeight: 1.5 },
   error: { fontSize: 13, color: '#b91c1c', margin: '10px 0' },
   link: { color: '#0096b4', fontSize: 13, textDecoration: 'none', fontWeight: 600 },

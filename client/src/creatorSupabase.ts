@@ -95,6 +95,24 @@ export async function fetchCreatorFeed(opts: { limit?: number; author?: string }
   return Array.isArray(json.posts) ? json.posts : [];
 }
 
+/** Update the signed-in creator's editable profile (username / handle). */
+export async function updateCreatorProfile(input: {
+  author_address: string; display_name?: string; handle?: string; bio?: string;
+}): Promise<{ ok: boolean; error?: string; handleTaken?: boolean }> {
+  try {
+    const res = await fetch(apiPath('/api/creator-profile-update'), {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(input),
+    });
+    const json = await res.json().catch(() => ({}));
+    if (!res.ok) return { ok: false, error: json.error || `Update failed (${res.status})` };
+    return { ok: true, handleTaken: !!json.handleTaken };
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : 'Network error' };
+  }
+}
+
 /** A creator's full body of work (public HI Feed posts + their other publishes). */
 export async function fetchCreatorProfile(author: string): Promise<CreatorProfileResult> {
   const res = await fetch(apiPath(`/api/creator-profile?author=${encodeURIComponent(author.toLowerCase())}`));

@@ -78,9 +78,11 @@ module.exports = async (req, res) => {
       bio: trimStr(bio, 400),
       links: links && typeof links === 'object' ? links : {},
     };
+    // insert-only (ignoreDuplicates): seed the profile on the first publish, but
+    // NEVER overwrite a profile the creator has since edited on /me.
     const { error: profErr } = await supabase
       .from('creator_profiles')
-      .upsert(profile, { onConflict: 'wallet_address' });
+      .upsert(profile, { onConflict: 'wallet_address', ignoreDuplicates: true });
     if (profErr && !/duplicate|unique/i.test(String(profErr.message))) {
       // A handle clash (unique) shouldn't block the post; log and continue.
       console.warn('creator-post: profile upsert', profErr.message);
