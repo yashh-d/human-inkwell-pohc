@@ -1,12 +1,11 @@
 /**
  * Vercel serverless: publish a piece to the public Human Ink creator feed.
  *
- * A creator post is the display/summary layer over a proof that is ALREADY on
- * chain. So this route does not re-run the RPC verification (api/ledger-onchain
- * did that) — it requires a matching, already-inserted `ledger_submissions` row
- * (same chain/contract/entry + content_hash + author) before writing the post.
- * That anchors every feed item to a verified attestation. Scores are the
- * client-computed Grind/AI-slop summary (not on-chain), persisted for the feed.
+ * The post carries the on-chain identity (chain/contract/entry/tx + content hash)
+ * and the client-computed score summary. Each feed card links to the transaction,
+ * which anyone can verify on-chain — that link IS the proof, so we don't re-verify
+ * against a Supabase mirror here (that coupling made the feed fail whenever the
+ * off-chain indexing lagged). Basic shape validation + dedupe only.
  */
 const { createClient } = require('@supabase/supabase-js');
 const { getAddress } = require('ethers');
@@ -65,34 +64,10 @@ module.exports = async (req, res) => {
   } catch {
     return send(res, 400, { error: 'Invalid address' });
   }
-  const contentHash = String(content_hash).trim();
 
   const { url, key, error: supaErr } = getSupabaseCreds();
   if (supaErr) return send(res, 500, { error: supaErr });
   const supabase = createClient(url, key, { auth: { persistSession: false } });
-
-  // Anchor to the verified on-chain index: the ledger row must already exist.
-  // Use limit(1) + array (not maybeSingle) so a 0-row result is a clean 409, and
-  // surface the real DB error text on failure instead of a generic 500.
-  const { data: rows, error: lookupErr } = await supabase
-    .from('ledger_submissions')
-    .select('content_hash, author_address')
-    .match({ chain_id: Number(chain_id), contract_address: contractLo, entry_id: Number(entry_id) })
-    .limit(1);
-  if (lookupErr) {
-    console.error('creator-post: ledger lookup', lookupErr);
-    return send(res, 500, { error: `Feed lookup failed: ${lookupErr.message || lookupErr.code || 'unknown'}` });
-  }
-  const ledgerRow = rows && rows[0];
-  if (!ledgerRow) {
-    return send(res, 409, { error: 'No verified on-chain entry for this proof yet. Publish on-chain first.' });
-  }
-  if (String(ledgerRow.content_hash).trim() !== contentHash) {
-    return send(res, 401, { error: 'content_hash does not match the on-chain entry' });
-  }
-  if (String(ledgerRow.author_address).toLowerCase() !== authorLo) {
-    return send(res, 401, { error: 'author_address does not match the on-chain entry' });
-  }
 
   // Best-effort profile upsert (handle/name/bio/socials), keyed by wallet.
   if (handle || display_name || bio || links) {
@@ -117,7 +92,7 @@ module.exports = async (req, res) => {
     contract_address: contractLo,
     entry_id: Number(entry_id),
     transaction_hash: String(transaction_hash).toLowerCase(),
-    content_hash: contentHash,
+    content_hash: String(content_hash).trim(),
     author_address: authorLo,
     title: trimStr(title, 200),
     excerpt: trimStr(excerpt, 600),

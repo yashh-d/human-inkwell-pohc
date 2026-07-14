@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { useLoginWithOAuth, useWallets } from '@privy-io/react-auth';
+import { useLoginWithOAuth, useWallets, usePrivy } from '@privy-io/react-auth';
 import { ethers } from 'ethers';
 import { blockchainService } from '../blockchain';
 import { pushLedgerIndexAfterOnChainSuccess } from '../ledgerSupabase';
@@ -12,6 +12,7 @@ import {
   computeAiScore, pasteBreakdown, computeAuthorshipScore,
   processBand, reasonLine, computeIntegrity, buildRubricAlignment,
 } from "../lib/authorship";
+import { detectAi, AiResult } from '../lib/aiDetector';
 import { publishCreatorPost } from '../creatorSupabase';
 
 const CHAIN_ID = Number(process.env.REACT_APP_CHAIN_ID || 4801);
@@ -63,11 +64,10 @@ export default function PublishProofPage(
   const [view, setView] = useState<'a' | 'b'>('a');
   // Creator variant: opt into HI Feed BEFORE publishing, so the on-chain write
   // and the feed post happen from one action (the feed post fires automatically
-  // once the tx confirms, since it needs the entry id + tx hash).
+  // once the tx confirms). Identity comes from the signed-in Google account — no
+  // username to type.
+  const { user } = usePrivy();
   const [feedOptIn, setFeedOptIn] = useState(true);
-  const [feedName, setFeedName] = useState('');
-  const [feedHandle, setFeedHandle] = useState('');
-  const [feedExcerpt, setFeedExcerpt] = useState('');
   const [feedState, setFeedState] = useState<'idle' | 'saving' | 'done' | 'error'>('idle');
   const [feedMsg, setFeedMsg] = useState('');
 
@@ -78,7 +78,27 @@ export default function PublishProofPage(
     },
   });
 
-  const ai = useMemo(() => (proof ? computeAiScore(proof.metrics || {}) : null), [proof]);
+  // AI probability. Starts from the instant heuristic so the card never blocks,
+  // then upgrades in place to the real detector's result (source: 'model') once
+  // the worker responds. Falls back to the heuristic if the detector is down.
+  const baseAi = useMemo<AiResult | null>(
+    () => (proof ? { ...computeAiScore(proof.metrics || {}), source: 'simulated' } : null),
+    [proof],
+  );
+  const [ai, setAi] = useState<AiResult | null>(baseAi);
+  const [aiPending, setAiPending] = useState(false);
+  useEffect(() => { setAi(baseAi); }, [baseAi]);
+  useEffect(() => {
+    if (!proof) return;
+    const hasText = !!(proof.text && proof.text.trim());
+    if (!hasText) return; // no text to score (Docs / old payload) → keep heuristic
+    let alive = true;
+    setAiPending(true);
+    detectAi({ text: proof.text, contentHash: proof.contentHash, metrics: proof.metrics || {} })
+      .then((r) => { if (alive) setAi(r); })
+      .finally(() => { if (alive) setAiPending(false); });
+    return () => { alive = false; };
+  }, [proof]);
   const authorship = useMemo(() => (proof ? computeAuthorshipScore(proof) : null), [proof]);
   const integrity = useMemo(() => (proof ? computeIntegrity(proof) : null), [proof]);
 
@@ -198,6 +218,13 @@ export default function PublishProofPage(
     }
   }, [identity, doPublish, initOAuth, simulatePublish]);
 
+  // Identity for the feed, from the signed-in Google account (Privy) → the proof.
+  const feedEmail: string = (user?.email?.address as string)
+    || ((user as any)?.google?.email as string)
+    || proof?.email
+    || '';
+  const feedUsername = feedEmail ? feedEmail.split('@')[0] : '';
+
   // Auto-post to HI Feed once the on-chain write confirms (creator + opted in).
   // Fires exactly once (guarded by feedState === 'idle'); skips simulated writes.
   useEffect(() => {
@@ -219,7 +246,6 @@ export default function PublishProofPage(
       content_hash: proof.contentHash,
       author_address: author,
       title: proof.docTitle || undefined,
-      excerpt: feedExcerpt.trim() || undefined,
       grind_score: authorship.score,
       ai_slop: ai.ai,
       human_pct: ai.human,
@@ -228,13 +254,13 @@ export default function PublishProofPage(
       edit_days: proof.docsRevision?.editDays || ((mm.elapsedMs || 0) > 0 ? 1 : 0),
       minutes: Math.round((mm.elapsedMs || 0) / 60000),
       is_public: true,
-      display_name: feedName.trim() || undefined,
-      handle: feedHandle.trim().replace(/^@/, '').toLowerCase() || undefined,
+      display_name: feedUsername || undefined,
+      handle: feedUsername ? feedUsername.toLowerCase().replace(/[^a-z0-9_]/g, '') : undefined,
     }).then((res) => {
       if (res.ok) { setFeedState('done'); setFeedMsg(res.deduped ? 'This piece is already on HI Feed.' : ''); }
       else { setFeedState('error'); setFeedMsg(res.error || 'Could not publish to HI Feed.'); }
     });
-  }, [isCreator, feedOptIn, feedState, submit, proof, authorship, ai, identity, feedName, feedHandle, feedExcerpt]);
+  }, [isCreator, feedOptIn, feedState, submit, proof, authorship, ai, identity, feedUsername]);
 
   if (parseError || !proof || !ai || !authorship || !integrity) {
     return (
@@ -296,7 +322,7 @@ export default function PublishProofPage(
         </div>
         <div style={{ ...styles.heroCard, borderColor: ai.color, margin: 0 }}>
           <div style={styles.heroHead}>
-            <span style={styles.heroLabel}>{aiLabel} <span style={styles.tag}>simulated</span></span>
+            <span style={styles.heroLabel}>{aiLabel} <span style={styles.tag}>{aiPending ? 'analyzing…' : ai.source === 'model' ? 'open model' : 'estimated'}</span></span>
             <span style={{ ...styles.heroNum, color: ai.color }}>{ai.ai}%</span>
           </div>
           <div style={styles.barWrap}>
@@ -446,18 +472,10 @@ export default function PublishProofPage(
         <>
           <Receipt result={submit.result} />
           {isCreator && feedOptIn && <HIFeedStatus state={feedState} msg={feedMsg} />}
-          {isCreator && !feedOptIn && <HIFeedOptIn proof={proof} result={submit.result} authorship={authorship} ai={ai} authorAddress={authorAddress} />}
         </>
       ) : (
         <>
-          {isCreator && (
-            <HIFeedToggle
-              optIn={feedOptIn} setOptIn={setFeedOptIn}
-              name={feedName} setName={setFeedName}
-              handle={feedHandle} setHandle={setFeedHandle}
-              excerpt={feedExcerpt} setExcerpt={setFeedExcerpt}
-            />
-          )}
+          {isCreator && <HIFeedToggle optIn={feedOptIn} setOptIn={setFeedOptIn} username={feedUsername} />}
           <button style={{ ...styles.primary, opacity: busy ? 0.6 : 1 }} disabled={busy} onClick={handlePrimary}>
             {busy ? 'Publishing…' : SIMULATE ? 'Publish proof on-chain' : isCreator && feedOptIn ? 'Continue with Google & publish to HI Feed' : 'Continue with Google & publish'}
           </button>
@@ -562,7 +580,7 @@ function PublishVersionB({
   isCreator, authorAddress,
 }: {
   proof: ExtensionProof;
-  ai: ReturnType<typeof computeAiScore>;
+  ai: AiResult;
   authorship: ReturnType<typeof computeAuthorshipScore>;
   integrity: ReturnType<typeof computeIntegrity>;
   bands: ScoreBands;
@@ -679,7 +697,7 @@ function PublishVersionB({
       {/* AI PROBABILITY, deliberately small and secondary (same framing as A). */}
       <div style={{ ...styles.card, padding: '10px 14px', opacity: 0.85 }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}>
-          <span style={{ fontSize: 12, opacity: 0.7 }}>{aiLabel} <span style={styles.tag}>simulated</span></span>
+          <span style={{ fontSize: 12, opacity: 0.7 }}>{aiLabel} <span style={styles.tag}>{ai.source === 'model' ? 'open model' : 'estimated'}</span></span>
           <span style={{ fontSize: 18, fontWeight: 700, color: ai.color }}>{ai.ai}%</span>
         </div>
         <p style={{ ...styles.muted, margin: '4px 0 0' }}>
@@ -741,14 +759,7 @@ function PublishVersionB({
  * the on-chain publish and the feed post one action — the feed post fires
  * automatically once the tx confirms (see the auto-post effect).
  */
-function HIFeedToggle({
-  optIn, setOptIn, name, setName, handle, setHandle, excerpt, setExcerpt,
-}: {
-  optIn: boolean; setOptIn: (v: boolean) => void;
-  name: string; setName: (v: string) => void;
-  handle: string; setHandle: (v: string) => void;
-  excerpt: string; setExcerpt: (v: string) => void;
-}) {
+function HIFeedToggle({ optIn, setOptIn, username }: { optIn: boolean; setOptIn: (v: boolean) => void; username: string }) {
   return (
     <div style={styles.card}>
       <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer', fontSize: 14, fontWeight: 600 }}>
@@ -756,15 +767,9 @@ function HIFeedToggle({
         Also publish to HI Feed
       </label>
       <p style={{ ...styles.muted, margin: '6px 0 0' }}>
-        Share this piece on the public feed of human-written work. It’s posted together with the on-chain write.
+        Share this piece on the public feed of human-written work — posted together with the on-chain write
+        {optIn && username ? <> as <strong>{username}</strong></> : null}.
       </p>
-      {optIn && (
-        <>
-          <input style={styles.input} placeholder="Display name" value={name} onChange={(e) => setName(e.target.value)} maxLength={80} />
-          <input style={styles.input} placeholder="@handle (optional)" value={handle} onChange={(e) => setHandle(e.target.value)} maxLength={40} />
-          <textarea style={styles.textarea} placeholder="Optional: a one-line teaser for the feed card" value={excerpt} onChange={(e) => setExcerpt(e.target.value)} rows={2} maxLength={280} />
-        </>
-      )}
     </div>
   );
 }
@@ -798,7 +803,7 @@ function HIFeedOptIn({
   proof: ExtensionProof;
   result: any;
   authorship: ReturnType<typeof computeAuthorshipScore>;
-  ai: ReturnType<typeof computeAiScore>;
+  ai: AiResult;
   authorAddress: string;
 }) {
   const [name, setName] = useState('');

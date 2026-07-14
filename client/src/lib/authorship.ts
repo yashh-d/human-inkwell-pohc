@@ -47,6 +47,10 @@ export type ExtensionProof = {
   v: number;
   source: string;
   contentHash: string;
+  // Raw written text (web capture only), carried so /publish can run a real
+  // AI-text detector on the same text contentHash attests. Absent for Docs and
+  // for older/privacy hand-offs — the detector falls back to the metrics score.
+  text?: string;
   humanSignatureHash: string;
   keystrokeCount: number;
   typingSpeed: number;
