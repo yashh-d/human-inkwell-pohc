@@ -57,8 +57,14 @@ export type CreatorFeedPost = {
   revisions?: number | null;
   edit_days?: number | null;
   minutes?: number | null;
+  is_public?: boolean | null;
   published_at: string;
   creator_profiles?: CreatorFeedProfile | null;
+};
+
+export type CreatorProfileResult = {
+  profile: (CreatorFeedProfile & { wallet_address?: string; bio?: string | null }) | null;
+  posts: CreatorFeedPost[];
 };
 
 /** Publish an already-on-chain proof to the public creator feed. */
@@ -87,4 +93,12 @@ export async function fetchCreatorFeed(opts: { limit?: number; author?: string }
   if (!res.ok) throw new Error(`Feed read failed (${res.status})`);
   const json = await res.json().catch(() => ({ posts: [] }));
   return Array.isArray(json.posts) ? json.posts : [];
+}
+
+/** A creator's full body of work (public HI Feed posts + their other publishes). */
+export async function fetchCreatorProfile(author: string): Promise<CreatorProfileResult> {
+  const res = await fetch(apiPath(`/api/creator-profile?author=${encodeURIComponent(author.toLowerCase())}`));
+  if (!res.ok) throw new Error(`Profile read failed (${res.status})`);
+  const json = await res.json().catch(() => ({ profile: null, posts: [] }));
+  return { profile: json.profile || null, posts: Array.isArray(json.posts) ? json.posts : [] };
 }

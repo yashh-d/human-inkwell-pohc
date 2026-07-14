@@ -225,10 +225,11 @@ export default function PublishProofPage(
     || '';
   const feedUsername = feedEmail ? feedEmail.split('@')[0] : '';
 
-  // Auto-post to HI Feed once the on-chain write confirms (creator + opted in).
-  // Fires exactly once (guarded by feedState === 'idle'); skips simulated writes.
+  // Record the piece to the creator's profile once the on-chain write confirms.
+  // Always runs for creators (their body of work); the feedOptIn checkbox only
+  // sets is_public (whether it also shows on the public HI Feed). Fires once.
   useEffect(() => {
-    if (!isCreator || !feedOptIn || feedState !== 'idle') return;
+    if (!isCreator || feedState !== 'idle') return;
     if (submit.phase !== 'success') return;
     const result: any = submit.result;
     if (!result || result.simulated || !proof || !authorship || !ai) return;
@@ -253,12 +254,12 @@ export default function PublishProofPage(
       revisions: proof.docsRevision?.revisionCount || proof.revision?.editCount || 0,
       edit_days: proof.docsRevision?.editDays || ((mm.elapsedMs || 0) > 0 ? 1 : 0),
       minutes: Math.round((mm.elapsedMs || 0) / 60000),
-      is_public: true,
+      is_public: feedOptIn,
       display_name: feedUsername || undefined,
       handle: feedUsername ? feedUsername.toLowerCase().replace(/[^a-z0-9_]/g, '') : undefined,
     }).then((res) => {
-      if (res.ok) { setFeedState('done'); setFeedMsg(res.deduped ? 'This piece is already on HI Feed.' : ''); }
-      else { setFeedState('error'); setFeedMsg(res.error || 'Could not publish to HI Feed.'); }
+      if (res.ok) { setFeedState('done'); setFeedMsg(''); }
+      else { setFeedState('error'); setFeedMsg(res.error || 'Could not save this piece.'); }
     });
   }, [isCreator, feedOptIn, feedState, submit, proof, authorship, ai, identity, feedUsername]);
 
@@ -471,7 +472,7 @@ export default function PublishProofPage(
       {success ? (
         <>
           <Receipt result={submit.result} />
-          {isCreator && feedOptIn && <HIFeedStatus state={feedState} msg={feedMsg} />}
+          {isCreator && <HIFeedStatus state={feedState} msg={feedMsg} isPublic={feedOptIn} />}
         </>
       ) : (
         <>
@@ -764,27 +765,29 @@ function HIFeedToggle({ optIn, setOptIn, username }: { optIn: boolean; setOptIn:
     <div style={styles.card}>
       <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer', fontSize: 14, fontWeight: 600 }}>
         <input type="checkbox" checked={optIn} onChange={(e) => setOptIn(e.target.checked)} style={{ width: 16, height: 16 }} />
-        Also publish to HI Feed
+        Feature on the public HI Feed
       </label>
       <p style={{ ...styles.muted, margin: '6px 0 0' }}>
-        Share this piece on the public feed of human-written work — posted together with the on-chain write
-        {optIn && username ? <> as <strong>{username}</strong></> : null}.
+        This piece is saved to your creator profile{username ? <> as <strong>{username}</strong></> : null} either way. Check this to also show it on the public HI Feed.
       </p>
     </div>
   );
 }
 
-/** Post-publish status for the pre-opted-in HI Feed post (creator variant). */
-function HIFeedStatus({ state, msg }: { state: 'idle' | 'saving' | 'done' | 'error'; msg: string }) {
+/** Post-publish status: saved to the creator's profile, and to HI Feed if public. */
+function HIFeedStatus({ state, msg, isPublic }: { state: 'idle' | 'saving' | 'done' | 'error'; msg: string; isPublic: boolean }) {
   if (state === 'idle') return null;
   return (
     <div style={styles.card}>
-      <div style={styles.sec}>HI Feed</div>
-      {state === 'saving' && <p style={styles.muted}>Publishing to HI Feed…</p>}
+      <div style={styles.sec}>{isPublic ? 'HI Feed' : 'Your work'}</div>
+      {state === 'saving' && <p style={styles.muted}>{isPublic ? 'Publishing to HI Feed…' : 'Saving to your profile…'}</p>}
       {state === 'done' && (
         <>
-          <p style={styles.muted}>{msg || 'Published to HI Feed.'}</p>
-          <Link to="/feed" style={styles.link}>View HI Feed →</Link>
+          <p style={styles.muted}>{msg || (isPublic ? 'Published to HI Feed and saved to your profile.' : 'Saved to your profile.')}</p>
+          <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap' }}>
+            <Link to="/me" style={styles.link}>View your profile →</Link>
+            {isPublic && <Link to="/feed" style={styles.link}>View HI Feed →</Link>}
+          </div>
         </>
       )}
       {state === 'error' && <p style={styles.error}>{msg}</p>}

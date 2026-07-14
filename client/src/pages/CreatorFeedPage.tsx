@@ -30,7 +30,10 @@ export default function CreatorFeedPage() {
           <h1 style={S.h1}>HI Feed</h1>
           <p style={S.muted}>The public feed of human-written work — every piece has proof, verified on-chain.</p>
         </div>
-        <Link to="/creator" style={S.newBtn}>Write a piece</Link>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
+          <Link to="/me" style={S.link}>My work</Link>
+          <Link to="/creator" style={S.newBtn}>Write a piece</Link>
+        </div>
       </div>
 
       {error && <p style={S.error}>{error}</p>}

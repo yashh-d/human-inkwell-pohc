@@ -118,7 +118,11 @@ function CreatorEditor({ onComplete }: { onComplete: (p: ExtensionProof) => void
       <button style={{ ...styles.primary, opacity: canSubmit ? 1 : 0.6 }} disabled={!canSubmit} onClick={submit}>
         {building ? 'Building your proof…' : 'Generate proof of human writing'}
       </button>
-      <Link to="/" style={{ ...styles.link, marginTop: 14, display: 'block' }}>← Back to Human Ink</Link>
+      <div style={{ display: 'flex', gap: 18, flexWrap: 'wrap', marginTop: 14 }}>
+        <Link to="/me" style={styles.link}>My work</Link>
+        <Link to="/feed" style={styles.link}>HI Feed</Link>
+        <Link to="/" style={styles.link}>← Back to Human Ink</Link>
+      </div>
     </div>
   );
 }

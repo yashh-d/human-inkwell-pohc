@@ -14,6 +14,7 @@ import PublishProofPage from './pages/PublishProofPage';
 import CreatorProofPage from './pages/CreatorProofPage';
 import CreatorBadge from './pages/CreatorBadge';
 import CreatorFeedPage from './pages/CreatorFeedPage';
+import CreatorMePage from './pages/CreatorMePage';
 
 /** Only mount when enabled so `/_vercel/insights/script.js` is not requested on hosts where it 404s as HTML. */
 function VercelAnalyticsGate() {
@@ -89,6 +90,7 @@ function App() {
             {/* Creator surfaces share the same chrome + report as /publish. */}
             <Route path="/creator" element={<CreatorProofPage />} />
             <Route path="/feed" element={<CreatorFeedPage />} />
+            <Route path="/me" element={<CreatorMePage />} />
           </Route>
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
