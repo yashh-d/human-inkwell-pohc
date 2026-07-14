@@ -61,6 +61,15 @@ export default function PublishProofPage(
   const [pendingPublish, setPendingPublish] = useState(false);
   // A/B design toggle: A is the current report; B is the evidence-first redesign.
   const [view, setView] = useState<'a' | 'b'>('a');
+  // Creator variant: opt into HI Feed BEFORE publishing, so the on-chain write
+  // and the feed post happen from one action (the feed post fires automatically
+  // once the tx confirms, since it needs the entry id + tx hash).
+  const [feedOptIn, setFeedOptIn] = useState(true);
+  const [feedName, setFeedName] = useState('');
+  const [feedHandle, setFeedHandle] = useState('');
+  const [feedExcerpt, setFeedExcerpt] = useState('');
+  const [feedState, setFeedState] = useState<'idle' | 'saving' | 'done' | 'error'>('idle');
+  const [feedMsg, setFeedMsg] = useState('');
 
   const { initOAuth } = useLoginWithOAuth({
     onError: (err) => {
@@ -189,6 +198,44 @@ export default function PublishProofPage(
     }
   }, [identity, doPublish, initOAuth, simulatePublish]);
 
+  // Auto-post to HI Feed once the on-chain write confirms (creator + opted in).
+  // Fires exactly once (guarded by feedState === 'idle'); skips simulated writes.
+  useEffect(() => {
+    if (!isCreator || !feedOptIn || feedState !== 'idle') return;
+    if (submit.phase !== 'success') return;
+    const result: any = submit.result;
+    if (!result || result.simulated || !proof || !authorship || !ai) return;
+    const entryId = typeof result.entryId === 'number' ? result.entryId : undefined;
+    const tx: string | undefined = result.transactionHash;
+    const author = result.walletAddress || (identity.status === 'ready' ? identity.address : '');
+    if (typeof entryId !== 'number' || !tx || !author) return;
+    setFeedState('saving');
+    const mm = proof.metrics || {};
+    publishCreatorPost({
+      chain_id: CHAIN_ID,
+      contract_address: CONTRACT_ADDRESS,
+      entry_id: entryId,
+      transaction_hash: tx,
+      content_hash: proof.contentHash,
+      author_address: author,
+      title: proof.docTitle || undefined,
+      excerpt: feedExcerpt.trim() || undefined,
+      grind_score: authorship.score,
+      ai_slop: ai.ai,
+      human_pct: ai.human,
+      word_count: Math.round((mm.textLength || mm.keystrokeCount || proof.keystrokeCount || 0) / 5),
+      revisions: proof.docsRevision?.revisionCount || proof.revision?.editCount || 0,
+      edit_days: proof.docsRevision?.editDays || ((mm.elapsedMs || 0) > 0 ? 1 : 0),
+      minutes: Math.round((mm.elapsedMs || 0) / 60000),
+      is_public: true,
+      display_name: feedName.trim() || undefined,
+      handle: feedHandle.trim().replace(/^@/, '').toLowerCase() || undefined,
+    }).then((res) => {
+      if (res.ok) { setFeedState('done'); setFeedMsg(res.deduped ? 'This piece is already on HI Feed.' : ''); }
+      else { setFeedState('error'); setFeedMsg(res.error || 'Could not publish to HI Feed.'); }
+    });
+  }, [isCreator, feedOptIn, feedState, submit, proof, authorship, ai, identity, feedName, feedHandle, feedExcerpt]);
+
   if (parseError || !proof || !ai || !authorship || !integrity) {
     return (
       <div style={styles.wrap}>
@@ -222,7 +269,7 @@ export default function PublishProofPage(
 
   return (
     <div style={styles.wrap}>
-      <ViewToggle view={view} setView={setView} />
+      {!isCreator && <ViewToggle view={view} setView={setView} />}
       {!isCreator && <BrandKicker />}
       <h1 style={styles.h1}>{success ? '✓ Proof published' : 'Proof of human writing'}</h1>
       <p style={styles.muted}>
@@ -398,12 +445,21 @@ export default function PublishProofPage(
       {success ? (
         <>
           <Receipt result={submit.result} />
-          {isCreator && <HIFeedOptIn proof={proof} result={submit.result} authorship={authorship} ai={ai} authorAddress={authorAddress} />}
+          {isCreator && feedOptIn && <HIFeedStatus state={feedState} msg={feedMsg} />}
+          {isCreator && !feedOptIn && <HIFeedOptIn proof={proof} result={submit.result} authorship={authorship} ai={ai} authorAddress={authorAddress} />}
         </>
       ) : (
         <>
+          {isCreator && (
+            <HIFeedToggle
+              optIn={feedOptIn} setOptIn={setFeedOptIn}
+              name={feedName} setName={setFeedName}
+              handle={feedHandle} setHandle={setFeedHandle}
+              excerpt={feedExcerpt} setExcerpt={setFeedExcerpt}
+            />
+          )}
           <button style={{ ...styles.primary, opacity: busy ? 0.6 : 1 }} disabled={busy} onClick={handlePrimary}>
-            {busy ? 'Publishing…' : SIMULATE ? 'Publish proof on-chain' : 'Continue with Google & publish'}
+            {busy ? 'Publishing…' : SIMULATE ? 'Publish proof on-chain' : isCreator && feedOptIn ? 'Continue with Google & publish to HI Feed' : 'Continue with Google & publish'}
           </button>
           {(authError || identity.authError) && <p style={styles.error}>{authError || identity.authError}</p>}
           {submit.phase === 'error' && <p style={styles.error}>{submit.message}</p>}
@@ -558,7 +614,7 @@ function PublishVersionB({
 
   return (
     <div style={styles.wrap}>
-      <ViewToggle view={view} setView={setView} />
+      {!isCreator && <ViewToggle view={view} setView={setView} />}
       {!isCreator && <BrandKicker />}
       <h1 style={styles.h1}>{success ? '✓ Proof published' : 'Proof of Human Writing'}</h1>
 
@@ -681,10 +737,60 @@ function PublishVersionB({
  * explorer (transaction AND contract), not buried as a truncated row.
  */
 /**
- * HI Feed opt-in (creator variant only). After the on-chain write, a creator can
- * choose to also publish the piece to HI Feed — the public feed of human-written
- * work. Requires a real, verified on-chain entry (the API anchors the feed post
- * to the ledger row). Uses the report's own styles — no new visual language.
+ * HI Feed opt-in shown BEFORE publishing (creator variant). Ticking this makes
+ * the on-chain publish and the feed post one action — the feed post fires
+ * automatically once the tx confirms (see the auto-post effect).
+ */
+function HIFeedToggle({
+  optIn, setOptIn, name, setName, handle, setHandle, excerpt, setExcerpt,
+}: {
+  optIn: boolean; setOptIn: (v: boolean) => void;
+  name: string; setName: (v: string) => void;
+  handle: string; setHandle: (v: string) => void;
+  excerpt: string; setExcerpt: (v: string) => void;
+}) {
+  return (
+    <div style={styles.card}>
+      <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer', fontSize: 14, fontWeight: 600 }}>
+        <input type="checkbox" checked={optIn} onChange={(e) => setOptIn(e.target.checked)} style={{ width: 16, height: 16 }} />
+        Also publish to HI Feed
+      </label>
+      <p style={{ ...styles.muted, margin: '6px 0 0' }}>
+        Share this piece on the public feed of human-written work. It’s posted together with the on-chain write.
+      </p>
+      {optIn && (
+        <>
+          <input style={styles.input} placeholder="Display name" value={name} onChange={(e) => setName(e.target.value)} maxLength={80} />
+          <input style={styles.input} placeholder="@handle (optional)" value={handle} onChange={(e) => setHandle(e.target.value)} maxLength={40} />
+          <textarea style={styles.textarea} placeholder="Optional: a one-line teaser for the feed card" value={excerpt} onChange={(e) => setExcerpt(e.target.value)} rows={2} maxLength={280} />
+        </>
+      )}
+    </div>
+  );
+}
+
+/** Post-publish status for the pre-opted-in HI Feed post (creator variant). */
+function HIFeedStatus({ state, msg }: { state: 'idle' | 'saving' | 'done' | 'error'; msg: string }) {
+  if (state === 'idle') return null;
+  return (
+    <div style={styles.card}>
+      <div style={styles.sec}>HI Feed</div>
+      {state === 'saving' && <p style={styles.muted}>Publishing to HI Feed…</p>}
+      {state === 'done' && (
+        <>
+          <p style={styles.muted}>{msg || 'Published to HI Feed.'}</p>
+          <Link to="/feed" style={styles.link}>View HI Feed →</Link>
+        </>
+      )}
+      {state === 'error' && <p style={styles.error}>{msg}</p>}
+    </div>
+  );
+}
+
+/**
+ * HI Feed opt-in shown AFTER publishing (creator variant, fallback for when the
+ * pre-publish box was unticked). Requires a real, verified on-chain entry — the
+ * API anchors the feed post to the ledger row. Uses the report's own styles.
  */
 function HIFeedOptIn({
   proof, result, authorship, ai, authorAddress,
