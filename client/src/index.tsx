@@ -38,6 +38,11 @@ root.render(
           ethereum: {
             createOnLogin: 'users-without-wallets',
           },
+          // Sign + publish silently: no Privy confirmation modal before the
+          // embedded wallet signs the EIP-712 / sends the tx. The gasless relayer
+          // still submits it on-chain. (First-time Google sign-in still happens
+          // once to create the wallet; only the per-publish signing popup is gone.)
+          showWalletUIs: false,
         },
         externalWallets: {
           coinbaseWallet: {
