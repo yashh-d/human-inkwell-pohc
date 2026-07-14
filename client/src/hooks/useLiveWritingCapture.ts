@@ -120,6 +120,7 @@ export function useLiveWritingCapture() {
       humanSignatureHash,
       keystrokeCount,
       typingSpeed,
+      text: content,
       docTitle: title.trim() || 'Untitled',
       metrics: {
         wpm,

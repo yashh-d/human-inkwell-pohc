@@ -247,6 +247,7 @@ export default function PublishProofPage(
       content_hash: proof.contentHash,
       author_address: author,
       title: proof.docTitle || undefined,
+      content: proof.text || undefined,
       grind_score: authorship.score,
       ai_slop: ai.ai,
       human_pct: ai.human,

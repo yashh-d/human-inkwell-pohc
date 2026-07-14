@@ -48,7 +48,7 @@ module.exports = async (req, res) => {
 
   const {
     chain_id, contract_address, entry_id, transaction_hash, content_hash, author_address,
-    title, excerpt, grind_score, ai_slop, human_pct, tier,
+    title, excerpt, content, grind_score, ai_slop, human_pct, tier,
     word_count, revisions, edit_days, minutes, is_public,
     handle, display_name, bio, links,
   } = body;
@@ -98,6 +98,7 @@ module.exports = async (req, res) => {
     author_address: authorLo,
     title: trimStr(title, 200),
     excerpt: trimStr(excerpt, 600),
+    content: trimStr(content, 100000),
     grind_score: clampScore(grind_score),
     ai_slop: clampScore(ai_slop),
     human_pct: clampScore(human_pct),

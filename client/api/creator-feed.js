@@ -29,25 +29,29 @@ module.exports = async (req, res) => {
   const q = req.query || {};
   const limit = Math.max(1, Math.min(100, Number(q.limit) || 30));
   const author = q.author ? String(q.author).toLowerCase() : null;
+  const entry = q.entry != null && q.entry !== '' ? Number(q.entry) : null;
 
   let query = supabase
     .from('creator_posts')
-    .select('entry_id, chain_id, contract_address, transaction_hash, content_hash, author_address, title, excerpt, grind_score, ai_slop, human_pct, tier, word_count, revisions, edit_days, minutes, published_at, creator_profiles(handle, display_name, avatar_url, links)')
+    .select('entry_id, chain_id, contract_address, transaction_hash, content_hash, author_address, title, excerpt, content, grind_score, ai_slop, human_pct, tier, word_count, revisions, edit_days, minutes, published_at, creator_profiles(handle, display_name, avatar_url, links)')
     .eq('is_public', true)
     .order('published_at', { ascending: false })
-    .limit(limit);
+    .limit(entry != null ? 1 : limit);
   if (author) query = query.eq('author_address', author);
+  if (entry != null && Number.isFinite(entry)) query = query.eq('entry_id', entry);
 
   const { data, error } = await query;
   if (error) {
     // The embedded join needs a FK PostgREST can see; fall back to a flat select.
-    const flat = supabase
+    let flat = supabase
       .from('creator_posts')
-      .select('entry_id, chain_id, contract_address, transaction_hash, content_hash, author_address, title, excerpt, grind_score, ai_slop, human_pct, tier, word_count, revisions, edit_days, minutes, published_at')
+      .select('entry_id, chain_id, contract_address, transaction_hash, content_hash, author_address, title, excerpt, content, grind_score, ai_slop, human_pct, tier, word_count, revisions, edit_days, minutes, published_at')
       .eq('is_public', true)
       .order('published_at', { ascending: false })
-      .limit(limit);
-    const { data: flatData, error: flatErr } = author ? await flat.eq('author_address', author) : await flat;
+      .limit(entry != null ? 1 : limit);
+    if (author) flat = flat.eq('author_address', author);
+    if (entry != null && Number.isFinite(entry)) flat = flat.eq('entry_id', entry);
+    const { data: flatData, error: flatErr } = await flat;
     if (flatErr) {
       console.error('creator-feed:', error, flatErr);
       return send(res, 500, { error: flatErr.message || 'Feed read failed' });

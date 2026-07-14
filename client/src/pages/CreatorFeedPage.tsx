@@ -61,6 +61,11 @@ function FeedCard({ post }: { post: CreatorFeedPost }) {
   const author = prof?.display_name || (prof?.handle ? `@${prof.handle}` : shortAddr(post.author_address));
   const txUrl = post.transaction_hash ? `${EXPLORER_BASE}/tx/${post.transaction_hash}` : EXPLORER_BASE;
   const when = post.published_at ? new Date(post.published_at).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' }) : '';
+  const detailUrl = `/feed/${post.entry_id}`;
+  const PREVIEW = 320;
+  const body = post.content || post.excerpt || '';
+  const truncated = body.length > PREVIEW;
+  const preview = truncated ? `${body.slice(0, PREVIEW).trimEnd()}…` : body;
 
   return (
     <article style={S.card}>
@@ -75,8 +80,9 @@ function FeedCard({ post }: { post: CreatorFeedPost }) {
         </div>
       </div>
 
-      {post.title && <h3 style={S.title}>{post.title}</h3>}
-      {post.excerpt && <p style={S.excerpt}>{post.excerpt}</p>}
+      {post.title && <Link to={detailUrl} style={S.titleLink}><h3 style={S.title}>{post.title}</h3></Link>}
+      {preview && <p style={S.body}>{preview}</p>}
+      {truncated && <Link to={detailUrl} style={S.readMore}>Read more &rarr;</Link>}
 
       <div style={S.stats}>
         {post.human_pct != null && <span>{post.human_pct}% human</span>}
@@ -115,8 +121,11 @@ const S: Record<string, React.CSSProperties> = {
   scoreBox: { textAlign: 'center', flexShrink: 0 },
   scoreNum: { fontSize: 28, fontWeight: 800, lineHeight: 1, fontVariantNumeric: 'tabular-nums' },
   scoreLabel: { fontSize: 8.5, textTransform: 'uppercase', letterSpacing: 0.6, color: 'var(--hi-text-muted, #64748b)', marginTop: 1 },
+  titleLink: { textDecoration: 'none', color: 'inherit' },
   title: { fontSize: 17, fontWeight: 700, margin: '14px 0 4px', lineHeight: 1.3 },
   excerpt: { fontSize: 13.5, color: 'var(--hi-text-dim, #334155)', margin: '4px 0 0', lineHeight: 1.55 },
+  body: { fontSize: 14, color: 'var(--hi-text-dim, #334155)', margin: '6px 0 0', lineHeight: 1.6, whiteSpace: 'pre-wrap' },
+  readMore: { display: 'inline-block', marginTop: 8, color: '#0096b4', fontSize: 13, fontWeight: 700, textDecoration: 'none' },
   stats: { display: 'flex', gap: 14, flexWrap: 'wrap', fontSize: 12, color: 'var(--hi-text-muted, #64748b)', margin: '14px 0 0', fontWeight: 600 },
   cardFoot: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 14, paddingTop: 12, borderTop: '1px solid var(--hi-border, #e6e9ee)' },
   verify: { color: '#0096b4', fontSize: 12.5, fontWeight: 700, textDecoration: 'none' },

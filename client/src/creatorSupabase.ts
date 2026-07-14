@@ -18,6 +18,7 @@ export type CreatorPostInput = {
   author_address: string;
   title?: string;
   excerpt?: string;
+  content?: string;
   grind_score?: number;
   ai_slop?: number;
   human_pct?: number;
@@ -49,6 +50,7 @@ export type CreatorFeedPost = {
   author_address: string;
   title?: string | null;
   excerpt?: string | null;
+  content?: string | null;
   grind_score?: number | null;
   ai_slop?: number | null;
   human_pct?: number | null;
@@ -111,6 +113,14 @@ export async function updateCreatorProfile(input: {
   } catch (e) {
     return { ok: false, error: e instanceof Error ? e.message : 'Network error' };
   }
+}
+
+/** Fetch a single public feed post (with full content) by its on-chain entry id. */
+export async function fetchCreatorPost(entryId: number | string): Promise<CreatorFeedPost | null> {
+  const res = await fetch(apiPath(`/api/creator-feed?entry=${encodeURIComponent(String(entryId))}`));
+  if (!res.ok) throw new Error(`Post read failed (${res.status})`);
+  const json = await res.json().catch(() => ({ posts: [] }));
+  return Array.isArray(json.posts) && json.posts[0] ? json.posts[0] : null;
 }
 
 /** A creator's full body of work (public HI Feed posts + their other publishes). */

@@ -31,7 +31,7 @@ module.exports = async (req, res) => {
   const [postsRes, profRes] = await Promise.all([
     supabase
       .from('creator_posts')
-      .select('entry_id, chain_id, contract_address, transaction_hash, content_hash, author_address, title, excerpt, grind_score, ai_slop, human_pct, tier, word_count, revisions, edit_days, minutes, is_public, published_at')
+      .select('entry_id, chain_id, contract_address, transaction_hash, content_hash, author_address, title, excerpt, content, grind_score, ai_slop, human_pct, tier, word_count, revisions, edit_days, minutes, is_public, published_at')
       .eq('author_address', author)
       .order('published_at', { ascending: false })
       .limit(200),
