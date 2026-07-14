@@ -31,6 +31,19 @@ const AmbientNav: React.FC = () => {
           <span className="hi-ambient__label">Write</span>
         </NavLink>
         <NavLink
+          to="/feed"
+          className={({ isActive }) => `hi-ambient__item${isActive ? ' is-active' : ''}`}
+          title="HI Feed"
+        >
+          <span className="hi-ambient__icon" aria-hidden>
+            <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round">
+              <rect x="4" y="4" width="16" height="6" rx="1.5" />
+              <rect x="4" y="14" width="16" height="6" rx="1.5" />
+            </svg>
+          </span>
+          <span className="hi-ambient__label">Feed</span>
+        </NavLink>
+        <NavLink
           to="/workflow"
           className={({ isActive }) => `hi-ambient__item${isActive ? ' is-active' : ''}`}
           title="How it works"
