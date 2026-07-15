@@ -1,0 +1,190 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Privacy Policy — Human Ink</title>
+    <meta
+      name="description"
+      content="How the Human Ink extension handles your data: keystroke timing and typed text stay on your device as a one-way hash; only anonymized metrics and pasted text are saved."
+    />
+    <link rel="icon" href="/favicon.ico" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap"
+      rel="stylesheet"
+    />
+    <style>
+      :root {
+        --hi-bg: #fafbfc;
+        --hi-elevated: #ffffff;
+        --hi-ink: #0a0a0a;
+        --hi-ink-soft: #3f4448;
+        --hi-line: rgba(10, 10, 10, 0.08);
+        --hi-cyan: #00b4d8;
+        --hi-cyan-deep: #0096b4;
+        --hi-cyan-ink: #075985;
+        --hi-cyan-wash: #e6f7fb;
+        --hi-font: 'Space Grotesk', 'Inter', 'Segoe UI', system-ui, sans-serif;
+        --hi-mono: 'JetBrains Mono', ui-monospace, Menlo, monospace;
+      }
+      * { box-sizing: border-box; }
+      html { -webkit-text-size-adjust: 100%; }
+      body {
+        margin: 0;
+        background: var(--hi-bg);
+        color: var(--hi-ink);
+        font-family: var(--hi-font);
+        line-height: 1.65;
+        font-size: 16px;
+      }
+      .wrap { max-width: 720px; margin: 0 auto; padding: 4rem 1.5rem 6rem; }
+      header { border-bottom: 1px solid var(--hi-line); padding-bottom: 1.75rem; margin-bottom: 2.5rem; }
+      .brand { display: inline-flex; align-items: center; gap: 0.6rem; text-decoration: none; color: inherit; }
+      .brand-mark {
+        width: 34px; height: 34px; border-radius: 9px; background: #0f1115;
+        color: var(--hi-cyan); font-weight: 700; font-size: 15px; letter-spacing: 0.02em;
+        display: inline-flex; align-items: center; justify-content: center;
+      }
+      .brand-name { font-weight: 600; font-size: 1.05rem; letter-spacing: -0.01em; }
+      h1 { font-size: 2rem; letter-spacing: -0.02em; margin: 1.75rem 0 0.4rem; }
+      .updated { color: var(--hi-ink-soft); font-size: 0.9rem; font-family: var(--hi-mono); }
+      h2 { font-size: 1.2rem; letter-spacing: -0.01em; margin: 2.6rem 0 0.6rem; }
+      p { color: var(--hi-ink-soft); margin: 0.75rem 0; }
+      strong { color: var(--hi-ink); font-weight: 600; }
+      ul { color: var(--hi-ink-soft); padding-left: 1.25rem; margin: 0.75rem 0; }
+      li { margin: 0.4rem 0; }
+      code {
+        font-family: var(--hi-mono); font-size: 0.86em; background: var(--hi-cyan-wash);
+        color: var(--hi-cyan-ink); padding: 0.1em 0.4em; border-radius: 5px;
+      }
+      a { color: var(--hi-cyan-deep); text-decoration: none; border-bottom: 1px solid rgba(0, 150, 180, 0.35); }
+      a:hover { color: var(--hi-cyan-ink); }
+      .lede { color: var(--hi-ink); font-size: 1.05rem; }
+      .callout {
+        background: var(--hi-elevated); border: 1px solid var(--hi-line); border-left: 3px solid var(--hi-cyan);
+        border-radius: 10px; padding: 1rem 1.25rem; margin: 1.5rem 0;
+      }
+      footer { margin-top: 3.5rem; padding-top: 1.75rem; border-top: 1px solid var(--hi-line); font-size: 0.9rem; color: var(--hi-ink-soft); }
+    </style>
+  </head>
+  <body>
+    <div class="wrap">
+      <header>
+        <a class="brand" href="/">
+          <span class="brand-mark">HI</span>
+          <span class="brand-name">Human Ink</span>
+        </a>
+        <h1>Privacy Policy</h1>
+        <div class="updated">Last updated: 2026-07-15</div>
+      </header>
+
+      <p class="lede">
+        Human Ink helps you prove that content you write is human-authored by analyzing your own
+        typing behavior, <strong>only on Google Docs</strong>. Your raw keystrokes and your own
+        <em>typed</em> text never leave your device — your writing is stored only as a one-way hash.
+        We save two things off-device: anonymized writing <strong>metrics</strong> per document, and
+        the <strong>text you paste in</strong>, so a reviewer can tell legitimate quotes from
+        AI-generated text pasted and lightly reworded.
+      </p>
+
+      <h2>What the extension processes</h2>
+      <p>
+        While tracking is <strong>enabled</strong> (you control this with the on/off switch), the
+        extension reads, locally and in memory, on <code>docs.google.com</code> documents only:
+      </p>
+      <ul>
+        <li>
+          <strong>Keystroke timing</strong> — when keys are pressed and released, to measure typing
+          cadence (hold, flight, and down-down intervals), speed, and backspace counts.
+        </li>
+        <li>
+          <strong>Paste events</strong> — that a paste happened and how many characters, to
+          distinguish typing from large copy-paste / AI insertions.
+        </li>
+        <li>
+          <strong>The text in the document</strong> — used only to compute a one-way SHA-256 hash on
+          your device. The text itself is never stored or sent.
+        </li>
+        <li>
+          <strong>Google Docs revision history</strong> — only when you explicitly ask for it, read
+          via the Google API using your own account, to classify typed vs pasted edits.
+        </li>
+      </ul>
+
+      <h2>What we save off your device (anonymized metrics only)</h2>
+      <p>
+        To give each document a memory across sessions and days, the extension saves a small
+        <strong>metrics-only</strong> record per document to our database (Supabase). It contains:
+        counts and timing (keystroke count, typed/pasted character counts, paste count, backspaces,
+        session duration, dates), the typed-vs-pasted ratio, the document id/title, and the one-way
+        proof hashes. If you are signed in, your Google email is attached for attribution.
+      </p>
+      <div class="callout">
+        <p style="margin-top: 0">
+          <strong>Pasted content.</strong> When you paste text into the document, we save that pasted
+          text (capped per paste) so quotes can be distinguished from reworded AI output. This is
+          content you brought in from elsewhere — not your own typing. Pasted content can be sensitive
+          (personal, copyrighted, or third-party material); we store only what was pasted into the doc,
+          attribute it to your account if you are signed in, and it should be treated accordingly
+          (consent, retention limits, restricted access — and FERPA if used with student work).
+        </p>
+        <p style="margin-bottom: 0">
+          It does <strong>not</strong> contain your keystrokes or your own typed text — those never
+          leave your browser (your writing is stored only as a one-way hash).
+        </p>
+      </div>
+
+      <h2>What we do NOT do</h2>
+      <ul>
+        <li>We do <strong>not</strong> transmit your raw keystrokes or your own typed text — only the metrics above and the text you paste in.</li>
+        <li>We do <strong>not</strong> run on any site other than Google Docs.</li>
+        <li>We do <strong>not</strong> track when you switch tabs or leave the document.</li>
+        <li>We do <strong>not</strong> sell or transfer your data, or use analytics / tracking pixels / ad SDKs.</li>
+        <li>We do <strong>not</strong> capture input in password, email, telephone, or numeric fields.</li>
+      </ul>
+
+      <h2>Google user data</h2>
+      <p>
+        Human Ink's use of information received from Google APIs adheres to the
+        <a href="https://developers.google.com/terms/api-services-user-data-policy" target="_blank" rel="noopener">Google API Services User Data Policy</a>,
+        including the Limited Use requirements. We request access to your Google Docs content and
+        revision history solely to compute the proof described above; we do not use it for advertising,
+        do not sell or transfer it, and do not allow humans to read it except as required for security
+        or to comply with the law.
+      </p>
+
+      <h2>Storage</h2>
+      <p>
+        Your on/off preference, a summary of your most recent session, and a per-document rollup are
+        kept in the browser's local extension storage (<code>chrome.storage.local</code>) on your
+        device. The per-document metrics record is also stored in our Supabase database (see above).
+        You can clear local data any time by removing the extension.
+      </p>
+
+      <h2>Hashing / on-chain</h2>
+      <p>
+        The extension computes SHA-256 hashes locally. Any future on-chain publishing is
+        <strong>user-initiated</strong> and only ever submits a hash (a fingerprint), never your raw
+        text or raw behavioral data.
+      </p>
+
+      <h2>Permissions</h2>
+      <ul>
+        <li><code>storage</code> — save your on/off preference, last-session summary, and per-document rollup locally.</li>
+        <li><code>activeTab</code> — let the popup read the live session from the tab you're viewing.</li>
+        <li><code>identity</code> — optional Google sign-in, to read your doc's revision history and attribute metrics to your account.</li>
+        <li>host access to <code>*.supabase.co</code> — to save the anonymized per-document metrics described above.</li>
+      </ul>
+
+      <h2>Contact</h2>
+      <p>
+        Questions about this policy or your data:
+        <a href="mailto:ydevarshi@gmail.com">ydevarshi@gmail.com</a>.
+      </p>
+
+      <footer>© 2026 Human Ink · <a href="/">humanink.xyz</a></footer>
+    </div>
+  </body>
+</html>
