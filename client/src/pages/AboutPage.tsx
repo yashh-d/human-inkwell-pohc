@@ -130,10 +130,9 @@ const AboutPage: React.FC = () => {
           Proof that a <span className="lp-accent">human</span> wrote it.
         </h1>
         <p className="about-intro__lede">
-          Anyone can generate a thousand words in a second. The hard part is no longer
-          producing text — it's proving a person actually wrote it. Human Ink turns the way
-          you type into a signature only you can produce, verifies you're a real human with
-          World&nbsp;ID, and writes a permanent record onchain.
+          Anyone can generate a thousand words in a second — the hard part is proving a
+          person wrote them. Human Ink turns how you type into a signature only you can
+          produce, confirms you're human with World&nbsp;ID, and seals it onchain.
         </p>
       </section>
 
@@ -145,16 +144,14 @@ const AboutPage: React.FC = () => {
         </h2>
         <div className="about-prose__cols">
           <p>
-            As generated text becomes indistinguishable from the real thing, the value of a
-            human voice depends on being able to prove it. Editors, schools, hiring teams and
-            readers all face the same question: was this written by a person, or produced by a
-            machine?
+            As AI text becomes indistinguishable from the real thing, a human voice is worth
+            only what you can prove. Editors, schools, hiring teams and readers all ask the
+            same question: person, or machine?
           </p>
           <p>
-            Human Ink answers it without surveillance. Instead of guessing whether text
-            "looks AI", it captures positive evidence of the act of writing — the timing of
-            your keystrokes, the edits you made, the pace you worked at — and seals it
-            cryptographically. The proof travels with the work; your words stay with you.
+            Human Ink answers without surveillance. Instead of guessing whether text
+            "looks AI", it captures positive evidence of writing — your keystroke timing, your
+            edits, your pace — sealed cryptographically. The proof travels with the work.
           </p>
         </div>
       </section>
