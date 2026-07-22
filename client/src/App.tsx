@@ -8,6 +8,7 @@ import { useMiniKit } from './hooks/useMiniKit';
 import AppLayout from './layouts/AppLayout';
 import LandingPage from './pages/LandingPage';
 import AboutPage from './pages/AboutPage';
+import EducationPage from './pages/EducationPage';
 import HomePage from './pages/HomePage';
 import WorkflowPage from './pages/WorkflowPage';
 import PublishProofPage from './pages/PublishProofPage';
@@ -16,6 +17,7 @@ import CreatorBadge from './pages/CreatorBadge';
 import CreatorFeedPage from './pages/CreatorFeedPage';
 import CreatorMePage from './pages/CreatorMePage';
 import CreatorPostPage from './pages/CreatorPostPage';
+import CreatorProfilePage from './pages/CreatorProfilePage';
 
 /** Only mount when enabled so `/_vercel/insights/script.js` is not requested on hosts where it 404s as HTML. */
 function VercelAnalyticsGate() {
@@ -81,18 +83,26 @@ function App() {
         <Routes>
           <Route path="/" element={<LandingPage />} />
           <Route path="/about" element={<AboutPage />} />
+          {/* Education is a marketing surface (like /about), rendered bare. */}
+          <Route path="/education" element={<EducationPage />} />
           {/* The badge must render bare (no app chrome) so it embeds cleanly in
               an <iframe>; it stays outside the app layout. */}
           <Route path="/badge" element={<CreatorBadge />} />
-          <Route element={onboardingOpen ? onboardingEl : <AppLayout />}>
-            <Route path="/write" element={writeEl} />
-            <Route path="/workflow" element={<WorkflowPage />} />
-            <Route path="/publish" element={<PublishProofPage />} />
-            {/* Creator surfaces share the same chrome + report as /publish. */}
+          {/* Creator surfaces are NOT behind the student onboarding/World-ID wall.
+              Sign-up is Privy-only (World ID is an opt-in badge), so these render
+              in the app chrome for everyone. */}
+          <Route element={<AppLayout />}>
             <Route path="/creator" element={<CreatorProofPage />} />
             <Route path="/feed" element={<CreatorFeedPage />} />
             <Route path="/feed/:entryId" element={<CreatorPostPage />} />
             <Route path="/me" element={<CreatorMePage />} />
+            <Route path="/c/:handle" element={<CreatorProfilePage />} />
+          </Route>
+          {/* Student surfaces keep the World-ID onboarding gate. */}
+          <Route element={onboardingOpen ? onboardingEl : <AppLayout />}>
+            <Route path="/write" element={writeEl} />
+            <Route path="/workflow" element={<WorkflowPage />} />
+            <Route path="/publish" element={<PublishProofPage />} />
           </Route>
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>

@@ -120,7 +120,23 @@
   margin: 0 auto;
   border-bottom: 1px solid var(--lp-line-soft);
 }
-.lp-nav__logo { height: 26px; width: auto; }
+/* humanink3.png renders blank on the light nav, so the brand is set as a text
+   wordmark instead, paired with the "powered by world" lockup. */
+.lp-nav__logo { height: 26px; width: auto; filter: brightness(0); }
+.lp-nav__brand { display: inline-flex; align-items: center; gap: 0.65rem; min-width: 0; }
+.lp-nav__wordmark {
+  font-family: var(--lp-font);
+  font-weight: 700;
+  font-size: 1.15rem;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  color: var(--lp-ink);
+  text-decoration: none;
+  line-height: 1;
+  white-space: nowrap;
+}
+.lp-nav__brand-sep { width: 1px; height: 18px; background: var(--lp-line-soft); flex: 0 0 auto; }
+.lp-nav__world { font-size: 0.72rem; }
 .lp-nav__right { display: flex; align-items: center; gap: 0.7rem; }
 .lp-nav__link {
   font-size: 0.92rem;
@@ -424,7 +440,6 @@
 /* ── Closing band (dark, premium) ────────────────────────── */
 .lp-final {
   text-align: center;
-  margin-top: clamp(2rem, 5vw, 4rem);
   padding: clamp(3.5rem, 8vw, 6.5rem) clamp(1.1rem, 4vw, 3.5rem);
   background: var(--lp-ink);
   color: #fff;
@@ -453,7 +468,92 @@
   margin: 0 auto;
   padding: 2rem clamp(1.1rem, 4vw, 3.5rem) 3rem;
 }
-.lp-footer__logo { height: 22px; width: auto; opacity: 0.8; }
+.lp-footer__logo { height: 22px; width: auto; opacity: 0.8; filter: brightness(0); }
+
+/* ── Full-bleed, on-brand section bands ──────────────────────
+   Add `lp-band lp-band--<tone>` to any centered section to give it a
+   full-width background that bleeds edge to edge (safe: the `.lp` page
+   clips overflow-x). Two stacked full-bleed layers behind the content:
+   ::before = colour + corner glows, ::after = a subtle texture (grid or
+   dots) for depth. No markup restructuring needed. ─────────────────── */
+.lp-band { border-top: none; }
+.lp-band::before,
+.lp-band::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 50%;
+  width: 100vw;
+  transform: translateX(-50%);
+  z-index: -1;
+  pointer-events: none;
+}
+.lp-band::after { z-index: -1; opacity: 0.6; }
+
+/* Cyan — the brand accent, now with real presence: crossed corner glows
+   over a cyan gradient, dusted with a faint dot field. */
+.lp-band--cyan::before {
+  background:
+    radial-gradient(58% 90% at 6% -12%, rgba(0, 180, 216, 0.26), transparent 55%),
+    radial-gradient(62% 95% at 104% 112%, rgba(7, 89, 133, 0.20), transparent 55%),
+    linear-gradient(180deg, rgba(0, 180, 216, 0.12), rgba(0, 180, 216, 0.04));
+  border-top: 1px solid rgba(0, 180, 216, 0.20);
+}
+.lp-band--cyan::after {
+  background-image: radial-gradient(rgba(0, 130, 160, 0.16) 1.1px, transparent 1.4px);
+  background-size: 22px 22px;
+}
+
+/* Panel — a cool neutral step-down with a faint blueprint grid. */
+.lp-band--panel::before {
+  background:
+    radial-gradient(70% 90% at 100% 0%, rgba(0, 180, 216, 0.10), transparent 55%),
+    linear-gradient(180deg, #eff4f8, #e4ecf2);
+  border-top: 1px solid var(--lp-line-soft);
+}
+.lp-band--panel::after {
+  background-image:
+    linear-gradient(rgba(11, 40, 60, 0.045) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(11, 40, 60, 0.045) 1px, transparent 1px);
+  background-size: 28px 28px, 28px 28px;
+}
+
+/* Mist — a soft cyan-lit wash rising from the top edge, lightly dotted. */
+.lp-band--mist::before {
+  background:
+    radial-gradient(90% 110% at 50% -25%, rgba(0, 180, 216, 0.16), transparent 60%),
+    linear-gradient(180deg, #f6fbfc, #eaf3f6);
+  border-top: 1px solid var(--lp-line-soft);
+}
+.lp-band--mist::after {
+  background-image: radial-gradient(rgba(0, 150, 180, 0.10) 1px, transparent 1.3px);
+  background-size: 20px 20px;
+}
+
+/* Ink — the dark, cyan-lit centrepiece. Twin glows, a fine light grid,
+   and text flipped to light. */
+.lp-band--ink { color: #fff; }
+.lp-band--ink::before {
+  background:
+    radial-gradient(65% 120% at 12% -10%, rgba(0, 180, 216, 0.34), transparent 55%),
+    radial-gradient(70% 130% at 100% 115%, rgba(0, 180, 216, 0.18), transparent 55%),
+    var(--lp-ink);
+}
+.lp-band--ink::after {
+  opacity: 0.5;
+  background-image:
+    linear-gradient(rgba(255, 255, 255, 0.05) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(255, 255, 255, 0.05) 1px, transparent 1px);
+  background-size: 30px 30px, 30px 30px;
+}
+.lp-band--ink .lp-eyebrow { color: rgba(255, 255, 255, 0.64); }
+.lp-band--ink .lp-section-title,
+.lp-band--ink h3 { color: #fff; }
+.lp-band--ink p { color: rgba(255, 255, 255, 0.74); }
+.lp-band--ink .lp-step { border-left-color: rgba(255, 255, 255, 0.14); }
+.lp-band--ink .lp-step__num { color: rgba(255, 255, 255, 0.5); }
+.lp-band--ink .about-works__label { color: rgba(255, 255, 255, 0.5); }
 
 /* ── Animations ──────────────────────────────────────────── */
 @keyframes lp-rise {
@@ -478,6 +578,8 @@
 }
 @media (max-width: 560px) {
   .lp-nav__right .lp-btn--ghost { display: none; }
+  /* Keep just the wordmark on narrow screens so the nav doesn't crowd. */
+  .lp-nav__brand-sep, .lp-nav__world { display: none; }
 }
 
 @media (prefers-reduced-motion: reduce) {

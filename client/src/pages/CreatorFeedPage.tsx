@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { fetchCreatorFeed, CreatorFeedPost } from '../creatorSupabase';
 import { EXPLORER_BASE } from '../lib/chain';
+import { fmtDuration } from '../lib/receipts';
 
 /**
  * /feed — the public Human Ink creator feed.
@@ -55,8 +56,9 @@ export default function CreatorFeedPage() {
 }
 
 function FeedCard({ post }: { post: CreatorFeedPost }) {
-  const score = post.grind_score ?? 0;
-  const color = score >= 60 ? '#047857' : score >= 30 ? '#b45309' : '#b91c1c';
+  const active = post.active_seconds != null ? fmtDuration(post.active_seconds) : null;
+  const kill = post.kill_ratio != null && post.words_published ? `${Number(post.kill_ratio).toFixed(2)}×` : null;
+  const words = post.words_published ?? post.word_count;
   const prof = post.creator_profiles || null;
   const author = prof?.display_name || (prof?.handle ? `@${prof.handle}` : shortAddr(post.author_address));
   const txUrl = post.transaction_hash ? `${EXPLORER_BASE}/tx/${post.transaction_hash}` : EXPLORER_BASE;
@@ -74,10 +76,12 @@ function FeedCard({ post }: { post: CreatorFeedPost }) {
           <div style={S.authorName}>{author}</div>
           <div style={S.meta}>{when}</div>
         </div>
-        <div style={S.scoreBox}>
-          <div style={{ ...S.scoreNum, color }}>{score}</div>
-          <div style={S.scoreLabel}>Grind Score</div>
-        </div>
+        {active && (
+          <div style={S.scoreBox}>
+            <div style={S.scoreNum}>{active}</div>
+            <div style={S.scoreLabel}>active writing</div>
+          </div>
+        )}
       </div>
 
       {post.title && <Link to={detailUrl} style={S.titleLink}><h3 style={S.title}>{post.title}</h3></Link>}
@@ -85,10 +89,10 @@ function FeedCard({ post }: { post: CreatorFeedPost }) {
       {truncated && <Link to={detailUrl} style={S.readMore}>Read more &rarr;</Link>}
 
       <div style={S.stats}>
-        {post.human_pct != null && <span>{post.human_pct}% human</span>}
-        {!!post.word_count && <span>{post.word_count.toLocaleString()} words</span>}
+        {kill && <span>{kill} words cut</span>}
+        {words != null && <span>{Number(words).toLocaleString()} words</span>}
+        {!!post.keystrokes && <span>{post.keystrokes.toLocaleString()} keystrokes</span>}
         {!!post.revisions && <span>{post.revisions} revisions</span>}
-        {!!post.edit_days && <span>{post.edit_days === 1 ? '1 day' : `${post.edit_days} days`}</span>}
       </div>
 
       <div style={S.cardFoot}>
@@ -119,7 +123,7 @@ const S: Record<string, React.CSSProperties> = {
   authorName: { fontSize: 14, fontWeight: 700, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' },
   meta: { fontSize: 11, color: 'var(--hi-text-muted, #64748b)', marginTop: 2 },
   scoreBox: { textAlign: 'center', flexShrink: 0 },
-  scoreNum: { fontSize: 28, fontWeight: 800, lineHeight: 1, fontVariantNumeric: 'tabular-nums' },
+  scoreNum: { fontSize: 18, fontWeight: 800, lineHeight: 1.1, fontVariantNumeric: 'tabular-nums', color: 'var(--hi-cyan-ink, #075985)', whiteSpace: 'nowrap' },
   scoreLabel: { fontSize: 8.5, textTransform: 'uppercase', letterSpacing: 0.6, color: 'var(--hi-text-muted, #64748b)', marginTop: 1 },
   titleLink: { textDecoration: 'none', color: 'inherit' },
   title: { fontSize: 17, fontWeight: 700, margin: '14px 0 4px', lineHeight: 1.3 },

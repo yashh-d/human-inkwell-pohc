@@ -40,7 +40,7 @@ module.exports = async (req, res) => {
   if (req.body && typeof req.body === 'object' && !Buffer.isBuffer(req.body)) body = req.body;
   else { try { body = await readJson(req); } catch { return send(res, 400, { error: 'Invalid JSON' }); } }
 
-  const { author_address, display_name, handle, bio } = body;
+  const { author_address, display_name, handle, bio, world_verified } = body;
   if (!author_address) return send(res, 400, { error: 'author_address required' });
   let authorLo;
   try { authorLo = getAddress(String(author_address).trim()).toLowerCase(); }
@@ -54,6 +54,7 @@ module.exports = async (req, res) => {
   if (display_name !== undefined) row.display_name = trimStr(display_name, 80);
   if (handle !== undefined) row.handle = cleanHandle(handle);
   if (bio !== undefined) row.bio = trimStr(bio, 400);
+  if (world_verified !== undefined) row.world_verified = !!world_verified;
 
   let { error } = await supabase.from('creator_profiles').upsert(row, { onConflict: 'wallet_address' });
   if (error && (error.code === '23505' || /duplicate|unique/i.test(String(error.message)))) {

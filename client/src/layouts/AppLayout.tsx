@@ -3,6 +3,7 @@ import { Outlet, useLocation } from 'react-router-dom';
 import AmbientNav from '../components/AmbientNav';
 import BrandHeader from '../components/BrandHeader';
 import PoweredByWorld from '../components/PoweredByWorld';
+import SiteNav from '../components/SiteNav';
 
 const WORKFLOW_PATH = '/workflow';
 const WRITE_PATH = '/write';
@@ -22,6 +23,7 @@ const AppLayout: React.FC = () => {
 
   return (
     <>
+      <SiteNav />
       <BrandHeader subtitle={subtitle} />
       <main className="hi-app-main hi-app-main--ambient">
         <Outlet />

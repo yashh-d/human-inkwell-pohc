@@ -1,0 +1,101 @@
+/* ───────────────────────────────────────────────────────────────
+   Creator welcome — the context screen shown before the editor.
+   Borrows the landing page's palette + type (via the --lp-* tokens
+   re-declared below, and the lp-btn / lp-eyebrow classes from
+   LandingPage.css), but is deliberately its own calmer subsection —
+   a contained intro, not a landing-page clone.
+   ─────────────────────────────────────────────────────────────── */
+
+.creator-intro {
+  --lp-cyan: var(--hi-cyan, #00b4d8);
+  --lp-cyan-deep: var(--hi-cyan-deep, #0096b4);
+  --lp-cyan-ink: var(--hi-cyan-ink, #075985);
+  --lp-ink: #0b0d0e;
+  --lp-muted: rgba(11, 13, 14, 0.56);
+  --lp-faint: rgba(11, 13, 14, 0.40);
+  --lp-line: rgba(11, 13, 14, 0.10);
+  --lp-line-soft: rgba(11, 13, 14, 0.07);
+  --lp-font: var(--hi-font-display, 'Space Grotesk', 'Inter', system-ui, sans-serif);
+
+  color: var(--lp-ink);
+  font-family: var(--lp-font);
+  animation: lp-rise 0.5s cubic-bezier(0.2, 0.8, 0.2, 1) both;
+}
+
+/* Contained column — narrower than the landing hero so it reads as a
+   subsection within the app, not a full marketing page. */
+.creator-intro__inner {
+  max-width: 760px;
+  margin: 0 auto;
+  padding: clamp(1.75rem, 5vw, 3.25rem) clamp(1.1rem, 4vw, 2rem) clamp(2rem, 5vw, 3rem);
+}
+
+/* One-sentence value prop. Sits between a section title and a hero —
+   confident, but clearly a subsection lead, not a landing headline. */
+.creator-intro__lead {
+  font-size: clamp(1.5rem, 3vw, 2.1rem);
+  line-height: 1.28;
+  letter-spacing: -0.025em;
+  font-weight: 700;
+  margin: 0 0 1.1rem;
+  max-width: 34ch;
+}
+
+.creator-intro__body {
+  font-size: 1.02rem;
+  line-height: 1.62;
+  color: var(--lp-muted);
+  margin: 0 0 2.2rem;
+  max-width: 56ch;
+}
+
+/* Who it's for — a calm three-up of audience cards. */
+.creator-intro__audiences {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 0.9rem;
+  margin-bottom: 2.4rem;
+}
+.creator-audience {
+  padding: 1.25rem 1.25rem 1.35rem;
+  background: #fff;
+  border: 1px solid var(--lp-line);
+  border-radius: 14px;
+}
+.creator-audience__title {
+  font-size: 1.02rem;
+  letter-spacing: -0.015em;
+  margin: 0 0 0.45rem;
+}
+.creator-audience__body {
+  font-size: 0.9rem;
+  line-height: 1.5;
+  color: var(--lp-muted);
+  margin: 0;
+}
+
+.creator-intro__cta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.7rem;
+  margin-bottom: 1.6rem;
+}
+
+.creator-intro__links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1.4rem;
+}
+.creator-intro__link {
+  font-size: 0.92rem;
+  font-weight: 600;
+  letter-spacing: -0.005em;
+  color: var(--lp-muted);
+  text-decoration: none;
+  transition: color 0.2s ease;
+}
+.creator-intro__link:hover { color: var(--lp-ink); }
+
+@media (max-width: 620px) {
+  .creator-intro__audiences { grid-template-columns: 1fr; }
+}

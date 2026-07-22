@@ -186,8 +186,8 @@ a:hover {
 }
 
 .hi-brand--header .hi-brand__humanink-logo {
-  max-width: min(180px, 55vw);
-  max-height: 44px;
+  max-width: min(224px, 62vw);
+  max-height: 56px;
   width: auto;
   object-fit: contain;
   object-position: left center;
@@ -227,7 +227,7 @@ a:hover {
 }
 
 .hi-brand--header .hi-brand__humanink-name {
-  font-size: 0.72rem;
+  font-size: 0.85rem;
   letter-spacing: 0.16em;
 }
 
@@ -275,9 +275,13 @@ a:hover {
   flex-shrink: 0;
 }
 
+.hi-brand--header .hi-brand__powered-text {
+  font-size: 0.86rem;
+}
+
 .hi-brand--header .hi-brand__world-icon {
-  width: 18px;
-  height: 18px;
+  width: 22px;
+  height: 22px;
 }
 
 .hi-brand__world-word {
@@ -293,5 +297,5 @@ a:hover {
 }
 
 .hi-brand--header .hi-brand__world-word {
-  font-size: 0.9rem;
+  font-size: 1.05rem;
 }

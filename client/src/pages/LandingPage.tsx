@@ -1,6 +1,7 @@
 import React from 'react';
 import { Link } from 'react-router-dom';
 import InkCanvas from '../components/InkCanvas';
+import SiteNav from '../components/SiteNav';
 import './LandingPage.css';
 
 const HUMANINK_LOGO = '/brand/humanink3.png';
@@ -108,37 +109,10 @@ const DOC_FEATURES: { key: string; title: string; body: string; icon: React.Reac
 
 const LandingPage: React.FC = () => {
   return (
-    <div className="lp">
+    <>
+      <SiteNav />
+      <div className="lp">
       <InkCanvas />
-
-      {/* Nav */}
-      <header className="lp-nav">
-        <div className="lp-nav__brand">
-          <Link to="/" className="lp-nav__wordmark" aria-label="Human Ink home">Human Ink</Link>
-          <span className="lp-nav__brand-sep" aria-hidden />
-          <PoweredByWorld className="lp-nav__world" />
-        </div>
-        <div className="lp-nav__right">
-          <Link to="/about" className="lp-nav__link">
-            About
-          </Link>
-          <Link to="/creator" className="lp-nav__link">
-            Creator
-          </Link>
-          <a
-            href={CHROME_STORE_URL}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="lp-btn lp-btn--ghost lp-btn--sm"
-          >
-            <ChromeMark />
-            Add to Chrome
-          </a>
-          <Link to="/write" className="lp-btn lp-btn--primary lp-btn--sm">
-            Start writing
-          </Link>
-        </div>
-      </header>
 
       {/* Hero */}
       <section className="lp-hero">
@@ -192,7 +166,7 @@ const LandingPage: React.FC = () => {
       </section>
 
       {/* How it works */}
-      <section className="lp-how">
+      <section className="lp-how lp-band lp-band--ink">
         <div className="lp-how__head">
           <Eyebrow>How it works</Eyebrow>
           <h2 className="lp-section-title">Three steps to permanent proof.</h2>
@@ -217,7 +191,7 @@ const LandingPage: React.FC = () => {
       </section>
 
       {/* Chrome extension */}
-      <section className="lp-chrome-section">
+      <section className="lp-chrome-section lp-band lp-band--cyan">
         <div className="lp-chrome-section__copy">
           <Eyebrow>Chrome extension</Eyebrow>
           <h2 className="lp-section-title lp-section-title--left">Prove it anywhere you write.</h2>
@@ -266,7 +240,7 @@ const LandingPage: React.FC = () => {
       </section>
 
       {/* Capabilities from Google Docs */}
-      <section className="lp-features">
+      <section className="lp-features lp-band lp-band--panel">
         <div className="lp-features__head">
           <Eyebrow>From your Google Docs</Eyebrow>
           <h2 className="lp-section-title lp-section-title--left">
@@ -313,7 +287,8 @@ const LandingPage: React.FC = () => {
         </Link>
         <PoweredByWorld />
       </footer>
-    </div>
+      </div>
+    </>
   );
 };
 

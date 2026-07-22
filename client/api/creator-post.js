@@ -50,6 +50,8 @@ module.exports = async (req, res) => {
     chain_id, contract_address, entry_id, transaction_hash, content_hash, author_address,
     title, excerpt, content, grind_score, ai_slop, human_pct, tier,
     word_count, revisions, edit_days, minutes, is_public,
+    // Receipts (spec: receipts, not scores).
+    active_seconds, sessions, keystrokes, words_typed, words_published, kill_ratio, wpm, wpm_series,
     handle, display_name, bio, links,
   } = body;
 
@@ -107,6 +109,15 @@ module.exports = async (req, res) => {
     revisions: clampInt(revisions),
     edit_days: clampInt(edit_days),
     minutes: clampInt(minutes),
+    // Receipts.
+    active_seconds: active_seconds == null ? null : clampInt(active_seconds),
+    sessions: sessions == null ? null : clampInt(sessions),
+    keystrokes: keystrokes == null ? null : clampInt(keystrokes),
+    words_typed: words_typed == null ? null : clampInt(words_typed),
+    words_published: words_published == null ? null : clampInt(words_published),
+    kill_ratio: kill_ratio == null || kill_ratio === '' ? null : Math.max(0, Math.min(999, Number(kill_ratio))),
+    wpm: wpm == null ? null : clampInt(wpm),
+    wpm_series: Array.isArray(wpm_series) ? wpm_series.slice(0, 64).map((n) => clampInt(n)) : null,
     is_public: is_public === false ? false : true,
   };
 

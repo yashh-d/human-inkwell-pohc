@@ -1,6 +1,7 @@
 import React from 'react';
 import { Link } from 'react-router-dom';
 import InkCanvas from '../components/InkCanvas';
+import SiteNav from '../components/SiteNav';
 import './LandingPage.css';
 import './AboutPage.css';
 
@@ -117,29 +118,10 @@ const GLOSSARY: { term: string; def: string }[] = [
 
 const AboutPage: React.FC = () => {
   return (
-    <div className="lp about">
+    <>
+      <SiteNav current="about" />
+      <div className="lp about">
       <InkCanvas />
-
-      {/* Nav */}
-      <header className="lp-nav">
-        <Link to="/" className="about-nav__home" aria-label="Humanink home">
-          <img src={HUMANINK_LOGO} alt="Humanink" className="lp-nav__logo" />
-        </Link>
-        <div className="lp-nav__right">
-          <a
-            href={CHROME_STORE_URL}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="lp-btn lp-btn--ghost lp-btn--sm"
-          >
-            <ChromeMark />
-            Add to Chrome
-          </a>
-          <Link to="/write" className="lp-btn lp-btn--primary lp-btn--sm">
-            Start writing
-          </Link>
-        </div>
-      </header>
 
       {/* Intro */}
       <section className="about-intro">
@@ -156,7 +138,7 @@ const AboutPage: React.FC = () => {
       </section>
 
       {/* The problem */}
-      <section className="about-prose">
+      <section className="about-prose lp-band lp-band--mist">
         <Eyebrow>Why it matters</Eyebrow>
         <h2 className="lp-section-title lp-section-title--left">
           Human writing needs a watermark of its own.
@@ -178,7 +160,7 @@ const AboutPage: React.FC = () => {
       </section>
 
       {/* How it works — end to end */}
-      <section className="about-pipeline">
+      <section className="about-pipeline lp-band lp-band--ink">
         <div className="about-pipeline__head">
           <Eyebrow>How it works</Eyebrow>
           <h2 className="lp-section-title lp-section-title--left">
@@ -217,7 +199,7 @@ const AboutPage: React.FC = () => {
       </section>
 
       {/* Privacy */}
-      <section className="about-privacy">
+      <section className="about-privacy lp-band lp-band--cyan">
         <div className="about-privacy__head">
           <Eyebrow>Your privacy</Eyebrow>
           <h2 className="lp-section-title lp-section-title--left">
@@ -292,7 +274,8 @@ const AboutPage: React.FC = () => {
         </Link>
         <PoweredByWorld />
       </footer>
-    </div>
+      </div>
+    </>
   );
 };
 

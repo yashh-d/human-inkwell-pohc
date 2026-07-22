@@ -27,6 +27,14 @@ export type CreatorPostInput = {
   revisions?: number;
   edit_days?: number;
   minutes?: number;
+  active_seconds?: number;
+  sessions?: number;
+  keystrokes?: number;
+  words_typed?: number;
+  words_published?: number;
+  kill_ratio?: number;
+  wpm?: number;
+  wpm_series?: number[];
   is_public?: boolean;
   handle?: string;
   display_name?: string;
@@ -39,6 +47,7 @@ export type CreatorFeedProfile = {
   display_name?: string | null;
   avatar_url?: string | null;
   links?: Record<string, string> | null;
+  world_verified?: boolean | null;
 };
 
 export type CreatorFeedPost = {
@@ -59,6 +68,14 @@ export type CreatorFeedPost = {
   revisions?: number | null;
   edit_days?: number | null;
   minutes?: number | null;
+  active_seconds?: number | null;
+  sessions?: number | null;
+  keystrokes?: number | null;
+  words_typed?: number | null;
+  words_published?: number | null;
+  kill_ratio?: number | null;
+  wpm?: number | null;
+  wpm_series?: number[] | null;
   is_public?: boolean | null;
   published_at: string;
   creator_profiles?: CreatorFeedProfile | null;
@@ -99,7 +116,7 @@ export async function fetchCreatorFeed(opts: { limit?: number; author?: string }
 
 /** Update the signed-in creator's editable profile (username / handle). */
 export async function updateCreatorProfile(input: {
-  author_address: string; display_name?: string; handle?: string; bio?: string;
+  author_address: string; display_name?: string; handle?: string; bio?: string; world_verified?: boolean;
 }): Promise<{ ok: boolean; error?: string; handleTaken?: boolean }> {
   try {
     const res = await fetch(apiPath('/api/creator-profile-update'), {
@@ -129,4 +146,18 @@ export async function fetchCreatorProfile(author: string): Promise<CreatorProfil
   if (!res.ok) throw new Error(`Profile read failed (${res.status})`);
   const json = await res.json().catch(() => ({ profile: null, posts: [] }));
   return { profile: json.profile || null, posts: Array.isArray(json.posts) ? json.posts : [] };
+}
+
+/**
+ * The PUBLIC social profile at /c/<handle>: the creator's identity + only their
+ * public (HI Feed) pieces. Returns null when the handle isn't claimed.
+ */
+export async function fetchCreatorProfileByHandle(handle: string): Promise<CreatorProfileResult | null> {
+  const clean = handle.trim().replace(/^@/, '');
+  const res = await fetch(apiPath(`/api/creator-profile?handle=${encodeURIComponent(clean)}`));
+  if (res.status === 404) return null;
+  if (!res.ok) throw new Error(`Profile read failed (${res.status})`);
+  const json = await res.json().catch(() => ({ profile: null, posts: [] }));
+  if (!json.profile) return null;
+  return { profile: json.profile, posts: Array.isArray(json.posts) ? json.posts : [] };
 }

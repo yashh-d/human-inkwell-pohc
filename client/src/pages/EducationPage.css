@@ -1,0 +1,87 @@
+/* ───────────────────────────────────────────────────────────────
+   Education page — Humanink. Builds on the landing system (.lp
+   tokens & buttons) and reuses several About layouts (about-intro,
+   about-pipeline, about-works, about-list). Adds the education-only
+   sections: intro CTA, capabilities head, FERPA and the "why" grid.
+   ─────────────────────────────────────────────────────────────── */
+
+.edu-intro__cta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.8rem;
+  margin-top: 2.1rem;
+}
+
+/* ── Capabilities (reuses .lp-feature-grid) ──────────────── */
+.edu-features {
+  max-width: 1120px;
+  margin: 0 auto;
+  padding: clamp(3rem, 7vw, 5.5rem) clamp(1.1rem, 4vw, 3.5rem);
+  border-top: 1px solid var(--lp-line-soft);
+}
+.edu-features__head { margin-bottom: 2.6rem; }
+
+/* ── FERPA / privacy ─────────────────────────────────────── */
+.edu-ferpa {
+  max-width: 1120px;
+  margin: 0 auto;
+  padding: clamp(3rem, 7vw, 5.5rem) clamp(1.1rem, 4vw, 3.5rem);
+  border-top: 1px solid var(--lp-line-soft);
+}
+.edu-ferpa__head { margin-bottom: 2.4rem; }
+.edu-ferpa__sub {
+  font-size: 1.06rem;
+  line-height: 1.6;
+  color: var(--lp-muted);
+  max-width: 60ch;
+  margin: 1.2rem 0 0;
+}
+.edu-ferpa__list {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 1.1rem 2.6rem;
+}
+.edu-ferpa__list li { margin-bottom: 0; }
+
+/* ── Why professors choose it ────────────────────────────── */
+.edu-why {
+  max-width: 1120px;
+  margin: 0 auto;
+  padding: clamp(3rem, 7vw, 5.5rem) clamp(1.1rem, 4vw, 3.5rem);
+  border-top: 1px solid var(--lp-line-soft);
+}
+.edu-why__head { margin-bottom: 2.6rem; }
+.edu-why__grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 1.1rem;
+}
+.edu-why__card {
+  padding: 1.6rem 1.6rem 1.7rem;
+  background: #fff;
+  border: 1px solid var(--lp-line);
+  border-radius: 14px;
+  transition: transform 0.2s ease, border-color 0.2s ease, box-shadow 0.2s ease;
+}
+.edu-why__card:hover {
+  transform: translateY(-3px);
+  border-color: rgba(0, 180, 216, 0.4);
+  box-shadow: 0 22px 44px -28px rgba(0, 150, 180, 0.45);
+}
+.edu-why__card h3 {
+  font-size: 1.14rem;
+  letter-spacing: -0.015em;
+  margin: 0 0 0.55rem;
+}
+.edu-why__card p {
+  font-size: 0.96rem;
+  line-height: 1.55;
+  color: var(--lp-muted);
+  margin: 0;
+}
+
+/* ── Responsive ──────────────────────────────────────────── */
+@media (max-width: 900px) {
+  .edu-ferpa__list { grid-template-columns: 1fr; }
+  .edu-why__grid { grid-template-columns: 1fr; }
+}

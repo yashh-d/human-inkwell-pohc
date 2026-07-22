@@ -1,0 +1,40 @@
+/* ───────────────────────────────────────────────────────────────
+   SiteNav — the global top bar. Pinned to the top on every page and
+   stays put as the page scrolls. Self-contained: it re-declares the
+   --lp-* tokens so the borrowed lp-nav / lp-btn / lp-world classes
+   (from LandingPage.css) render correctly wherever it's mounted, not
+   just inside a `.lp` page.
+   ─────────────────────────────────────────────────────────────── */
+
+.site-nav {
+  --lp-cyan: var(--hi-cyan, #00b4d8);
+  --lp-cyan-deep: var(--hi-cyan-deep, #0096b4);
+  --lp-cyan-ink: var(--hi-cyan-ink, #075985);
+  --lp-ink: #0b0d0e;
+  --lp-muted: rgba(11, 13, 14, 0.56);
+  --lp-faint: rgba(11, 13, 14, 0.40);
+  --lp-line: rgba(11, 13, 14, 0.10);
+  --lp-line-soft: rgba(11, 13, 14, 0.07);
+  --lp-font: var(--hi-font-display, 'Space Grotesk', 'Inter', system-ui, sans-serif);
+
+  position: sticky;
+  top: 0;
+  z-index: 100;
+  /* Full-bleed frosted bar so page content scrolls cleanly underneath. */
+  background: rgba(251, 252, 253, 0.82);
+  -webkit-backdrop-filter: saturate(1.4) blur(12px);
+  backdrop-filter: saturate(1.4) blur(12px);
+  border-bottom: 1px solid var(--lp-line-soft);
+}
+
+/* The hairline + background now live on the full-width wrapper, and the
+   bar is a touch shorter than the landing hero's original nav. */
+.site-nav .lp-nav {
+  border-bottom: none;
+  padding-block: 0.85rem;
+}
+
+/* Older/less-capable browsers without backdrop-filter get a solid bar. */
+@supports not ((-webkit-backdrop-filter: blur(1px)) or (backdrop-filter: blur(1px))) {
+  .site-nav { background: var(--hi-bg, #fbfcfd); }
+}

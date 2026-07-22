@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom';
 import { loadProof, PROOF_KEY, ExtensionProof } from '../lib/authorship';
 import { useLiveWritingCapture } from '../hooks/useLiveWritingCapture';
 import PublishProofPage from './PublishProofPage';
+import CreatorWelcome from './CreatorWelcome';
 
 /**
  * /creator — the creator surface.
@@ -22,13 +23,18 @@ export default function CreatorProofPage() {
     return hasHash ? (loadProof().proof || null) : null;
   });
 
+  // Land on a welcome/context screen first instead of the bare editor — a
+  // genuine URL-hash handoff (a future creator extension) skips straight past it.
+  const [started, setStarted] = useState<boolean>(() => /proof=/.test(window.location.hash || ''));
+
   // Clear any stale pending proof so nothing lingers to resurrect later.
   useEffect(() => {
     if (!proof) { try { sessionStorage.removeItem(PROOF_KEY); } catch { /* ignore */ } }
   }, [proof]);
 
-  if (!proof) return <CreatorEditor onComplete={setProof} />;
-  return <PublishProofPage variant="creator" injectedProof={proof} />;
+  if (proof) return <PublishProofPage variant="creator" injectedProof={proof} />;
+  if (!started) return <CreatorWelcome onStart={() => setStarted(true)} />;
+  return <CreatorEditor onComplete={setProof} />;
 }
 
 /**

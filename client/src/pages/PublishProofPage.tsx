@@ -13,6 +13,7 @@ import {
   processBand, reasonLine, computeIntegrity, buildRubricAlignment,
 } from "../lib/authorship";
 import { detectAi, AiResult } from '../lib/aiDetector';
+import { computeReceipts, fmtDuration } from '../lib/receipts';
 import { publishCreatorPost } from '../creatorSupabase';
 
 const CHAIN_ID = Number(process.env.REACT_APP_CHAIN_ID || 4801);
@@ -239,6 +240,7 @@ export default function PublishProofPage(
     if (typeof entryId !== 'number' || !tx || !author) return;
     setFeedState('saving');
     const mm = proof.metrics || {};
+    const r = computeReceipts(proof);
     publishCreatorPost({
       chain_id: CHAIN_ID,
       contract_address: CONTRACT_ADDRESS,
@@ -251,10 +253,19 @@ export default function PublishProofPage(
       grind_score: authorship.score,
       ai_slop: ai.ai,
       human_pct: ai.human,
-      word_count: Math.round((mm.textLength || mm.keystrokeCount || proof.keystrokeCount || 0) / 5),
-      revisions: proof.docsRevision?.revisionCount || proof.revision?.editCount || 0,
-      edit_days: proof.docsRevision?.editDays || ((mm.elapsedMs || 0) > 0 ? 1 : 0),
+      word_count: r.wordsPublished,
+      revisions: r.revisions,
+      edit_days: r.editDays,
       minutes: Math.round((mm.elapsedMs || 0) / 60000),
+      // Receipts (the creator surfaces read these).
+      active_seconds: r.activeSeconds,
+      sessions: r.sessions,
+      keystrokes: r.keystrokes,
+      words_typed: r.wordsTyped,
+      words_published: r.wordsPublished,
+      kill_ratio: r.killRatio,
+      wpm: r.wpm,
+      wpm_series: r.wpmSeries,
       is_public: feedOptIn,
       display_name: feedUsername || undefined,
       handle: feedUsername ? feedUsername.toLowerCase().replace(/[^a-z0-9_]/g, '') : undefined,
@@ -282,6 +293,8 @@ export default function PublishProofPage(
   const authorAddress = submit.phase === 'success'
     ? (submit.result?.walletAddress || (identity.status === 'ready' ? identity.address : ''))
     : '';
+  const successEntryId = submit.phase === 'success' && typeof submit.result?.entryId === 'number'
+    ? (submit.result.entryId as number) : undefined;
 
   if (view === 'b') {
     return (
@@ -310,6 +323,9 @@ export default function PublishProofPage(
       {/* F2, two DECOUPLED metrics side by side. The Process Score is our own
           integrity measure; the AI probability is a separate post-hoc reference.
           They are never blended (a detector false-positive can't move the score). */}
+      {isCreator ? (
+        <ReceiptsHero proof={proof} verified={success} />
+      ) : (
       <div style={styles.heroRow}>
         <div style={{ ...styles.heroCard, borderColor: band.color, margin: 0 }}>
           <div style={styles.heroHead}>
@@ -333,6 +349,7 @@ export default function PublishProofPage(
           <p style={styles.reasonLine}>Independent post-hoc detector, a parallel reference, not part of the {scoreLabel}.</p>
         </div>
       </div>
+      )}
 
       <button style={styles.seeWhy} onClick={() => setShowEvidence((v) => !v)}>
         {showEvidence ? 'Hide evidence ▲' : 'See why ▼'}
@@ -340,9 +357,10 @@ export default function PublishProofPage(
 
       {showEvidence && (
       <>
-      {/* Evidence cards, then a drop-down with the per-signal breakdown (shared with B). */}
+      {/* Evidence cards, then a drop-down with the per-signal breakdown (shared with B).
+          The composite-score breakdown is hidden for creators (receipts, not scores). */}
       <EvidenceCards proof={proof} authorship={authorship} />
-      <ScoreCalcDetails authorship={authorship} scoreLabel={scoreLabel} />
+      {!isCreator && <ScoreCalcDetails authorship={authorship} scoreLabel={scoreLabel} />}
 
       {/* On desktop these informational cards flow into 2–3 columns; on mobile
           they stack. Auto-fit grid → responsive without media queries. */}
@@ -474,6 +492,7 @@ export default function PublishProofPage(
         <>
           <Receipt result={submit.result} />
           {isCreator && <HIFeedStatus state={feedState} msg={feedMsg} isPublic={feedOptIn} />}
+          {isCreator && feedOptIn && feedState === 'done' && typeof successEntryId === 'number' && <CraftCardEmbed entryId={successEntryId} />}
         </>
       ) : (
         <>
@@ -761,6 +780,90 @@ function PublishVersionB({
  * the on-chain publish and the feed post one action — the feed post fires
  * automatically once the tx confirms (see the auto-post effect).
  */
+/**
+ * Receipts hero (creator variant) — descriptive proof-of-work, not a score.
+ * The kill ratio is the headline (writers are proud of cutting); active time,
+ * sessions, keystrokes, revisions and a cadence sparkline round it out.
+ */
+function ReceiptsHero({ proof, verified }: { proof: ExtensionProof; verified: boolean }) {
+  const r = computeReceipts(proof);
+  const kill = r.wordsPublished > 0 ? r.killRatio.toFixed(2) : '—';
+  const stat = (v: string | number, l: string) => (
+    <div style={styles.receiptStat}><span style={styles.receiptNum}>{v}</span><span style={styles.receiptLbl}>{l}</span></div>
+  );
+  return (
+    <div style={{ ...styles.heroCard, margin: '16px 0', borderColor: 'rgba(0,180,216,0.5)' }}>
+      <div style={styles.heroHead}>
+        <span style={styles.heroLabel}>The receipts</span>
+        {verified && <span style={styles.verifiedPill}>✓ Verified on-chain</span>}
+      </div>
+      <div style={styles.receiptGrid}>
+        {stat(fmtDuration(r.activeSeconds), 'active writing')}
+        {stat(`${kill}×`, 'words cut ratio')}
+        {stat(r.wordsPublished.toLocaleString(), 'words published')}
+        {stat(r.keystrokes.toLocaleString(), 'keystrokes')}
+        {stat(r.revisions || '—', 'revisions')}
+        {stat(r.sessions, r.sessions === 1 ? 'session' : 'sessions')}
+      </div>
+      {r.wpmSeries.length > 1 && (
+        <div style={{ marginTop: 14 }}>
+          <div style={styles.receiptCadenceLbl}>Typing cadence{r.wpm ? ` · ${r.wpm} WPM` : ''}</div>
+          <Sparkline series={r.wpmSeries} />
+        </div>
+      )}
+    </div>
+  );
+}
+
+/** After publishing: the embeddable Craft Card + its snippet and permalink. */
+function CraftCardEmbed({ entryId }: { entryId: number }) {
+  const origin = window.location.origin;
+  const badgeUrl = `${origin}/badge?id=${entryId}`;
+  const permalink = `${origin}/feed/${entryId}`;
+  const iframe = `<iframe src="${badgeUrl}" width="380" height="150" frameborder="0" title="Human Ink Craft Card" style="border:0;overflow:hidden"></iframe>`;
+  return (
+    <div style={styles.card}>
+      <div style={styles.sec}>Your Craft Card</div>
+      <p style={styles.muted}>Embed this on your post so readers can see — and verify — the work behind it.</p>
+      <div style={{ display: 'flex', justifyContent: 'center', padding: '8px 0' }}>
+        <iframe src={badgeUrl} width={380} height={150} title="craft card preview" style={{ border: 0, maxWidth: '100%' }} />
+      </div>
+      <CopyRow label="Embed on your site (HTML)" value={iframe} />
+      <CopyRow label="Permalink" value={permalink} />
+    </div>
+  );
+}
+
+function CopyRow({ label, value }: { label: string; value: string }) {
+  const [copied, setCopied] = useState(false);
+  const copy = () => { try { navigator.clipboard.writeText(value); setCopied(true); window.setTimeout(() => setCopied(false), 1400); } catch { /* no clipboard */ } };
+  return (
+    <div style={{ marginTop: 10 }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+        <span style={styles.fieldLabel}>{label}</span>
+        <button style={styles.copyBtn} onClick={copy}>{copied ? 'Copied ✓' : 'Copy'}</button>
+      </div>
+      <div style={styles.codeBox}>{value}</div>
+    </div>
+  );
+}
+
+/** Tiny cadence sparkline (bars), cyan brand. Pure inline SVG. */
+function Sparkline({ series }: { series: number[] }) {
+  const W = 320, H = 40, gap = 2;
+  const n = series.length;
+  const max = Math.max(1, ...series);
+  const bw = Math.max(1, (W - gap * (n - 1)) / n);
+  return (
+    <svg viewBox={`0 0 ${W} ${H}`} width="100%" style={{ display: 'block' }}>
+      {series.map((v, i) => {
+        const h = Math.max(2, (v / max) * (H - 4));
+        return <rect key={i} x={(i * (bw + gap)).toFixed(1)} y={(H - h).toFixed(1)} width={bw.toFixed(1)} height={h.toFixed(1)} rx={1} fill="var(--hi-cyan, #00b4d8)" opacity={0.85} />;
+      })}
+    </svg>
+  );
+}
+
 function HIFeedToggle({ optIn, setOptIn, username }: { optIn: boolean; setOptIn: (v: boolean) => void; username: string }) {
   return (
     <div style={styles.card}>
@@ -1372,6 +1475,15 @@ const styles: Record<string, React.CSSProperties> = {
   ghostBtn: { width: '100%', padding: '4px 0', background: 'none', border: 'none', color: '#6ee7b7', fontSize: 13, fontWeight: 600, cursor: 'pointer', textAlign: 'left' },
   textarea: { width: '100%', boxSizing: 'border-box', marginTop: 8, padding: 10, borderRadius: 8, border: '1px solid rgba(255,255,255,0.18)', background: 'rgba(0,0,0,0.25)', color: 'inherit', fontSize: 13, fontFamily: 'inherit', resize: 'vertical' },
   input: { width: '100%', boxSizing: 'border-box', marginTop: 8, padding: 10, borderRadius: 8, border: '1px solid rgba(255,255,255,0.18)', background: 'rgba(0,0,0,0.25)', color: 'inherit', fontSize: 13, fontFamily: 'inherit' },
+  receiptGrid: { display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 12, marginTop: 8 },
+  receiptStat: { display: 'flex', flexDirection: 'column', gap: 2 },
+  receiptNum: { fontSize: 24, fontWeight: 800, lineHeight: 1.05, fontVariantNumeric: 'tabular-nums', color: 'var(--hi-cyan-ink, #075985)' },
+  receiptLbl: { fontSize: 10.5, textTransform: 'uppercase', letterSpacing: 0.5, opacity: 0.65 },
+  receiptCadenceLbl: { fontSize: 11, opacity: 0.6, marginBottom: 4, fontWeight: 600 },
+  verifiedPill: { fontSize: 11, fontWeight: 700, color: '#047857', border: '1px solid #a7f3d0', background: '#ecfdf5', borderRadius: 999, padding: '2px 9px' },
+  fieldLabel: { fontSize: 11, textTransform: 'uppercase', letterSpacing: 0.5, opacity: 0.6, fontWeight: 700 },
+  copyBtn: { padding: '4px 12px', borderRadius: 7, border: '1px solid #6ee7b7', background: 'rgba(110,231,183,0.12)', color: '#0b7a5b', fontSize: 12, fontWeight: 700, cursor: 'pointer' },
+  codeBox: { marginTop: 6, padding: 10, borderRadius: 8, background: 'rgba(0,0,0,0.05)', border: '1px solid rgba(0,0,0,0.1)', fontFamily: 'ui-monospace, Menlo, monospace', fontSize: 11, wordBreak: 'break-all', lineHeight: 1.5, userSelect: 'all' },
   rubricRow: { padding: '8px 0', borderTop: '1px solid rgba(255,255,255,0.08)' },
   rubricCrit: { fontSize: 13, fontWeight: 600, marginBottom: 2, display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' },
   alignTag: { fontSize: 9, textTransform: 'uppercase', letterSpacing: 0.5, borderRadius: 4, padding: '1px 5px' },
