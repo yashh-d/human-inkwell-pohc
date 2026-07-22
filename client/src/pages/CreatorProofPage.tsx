@@ -1,7 +1,9 @@
 import { useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
+import { usePrivy, useLogin } from '@privy-io/react-auth';
 import { loadProof, PROOF_KEY, ExtensionProof } from '../lib/authorship';
 import { useLiveWritingCapture } from '../hooks/useLiveWritingCapture';
+import { useMiniKit } from '../hooks/useMiniKit';
 import PublishProofPage from './PublishProofPage';
 import CreatorWelcome from './CreatorWelcome';
 
@@ -27,13 +29,25 @@ export default function CreatorProofPage() {
   // genuine URL-hash handoff (a future creator extension) skips straight past it.
   const [started, setStarted] = useState<boolean>(() => /proof=/.test(window.location.hash || ''));
 
+  // "Start writing" signs the creator in first (Privy popup) if they aren't
+  // already, then reveals the editor. Inside World App the MiniKit identity is
+  // used downstream, so we skip the Privy modal there.
+  const { authenticated } = usePrivy();
+  const { isInWorldApp } = useMiniKit();
+  const { login } = useLogin({ onComplete: () => setStarted(true) });
+
+  const handleStart = () => {
+    if (authenticated || isInWorldApp) { setStarted(true); return; }
+    login(); // opens the Privy sign-up / sign-in modal; onComplete → start writing
+  };
+
   // Clear any stale pending proof so nothing lingers to resurrect later.
   useEffect(() => {
     if (!proof) { try { sessionStorage.removeItem(PROOF_KEY); } catch { /* ignore */ } }
   }, [proof]);
 
   if (proof) return <PublishProofPage variant="creator" injectedProof={proof} />;
-  if (!started) return <CreatorWelcome onStart={() => setStarted(true)} />;
+  if (!started) return <CreatorWelcome onStart={handleStart} />;
   return <CreatorEditor onComplete={setProof} />;
 }
 
