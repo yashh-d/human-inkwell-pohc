@@ -33,7 +33,9 @@ module.exports = async (req, res) => {
 
   let query = supabase
     .from('creator_posts')
-    .select('entry_id, chain_id, contract_address, transaction_hash, content_hash, author_address, title, excerpt, content, grind_score, ai_slop, human_pct, tier, word_count, revisions, edit_days, minutes, active_seconds, sessions, keystrokes, words_typed, words_published, kill_ratio, wpm, wpm_series, published_at, creator_profiles(handle, display_name, avatar_url, links)')
+    // select('*') so a not-yet-applied column (content / receipts migrations)
+    // can't 400 the whole feed — missing columns just come back undefined.
+    .select('*, creator_profiles(handle, display_name, avatar_url, links)')
     .eq('is_public', true)
     .order('published_at', { ascending: false })
     .limit(entry != null ? 1 : limit);
@@ -45,7 +47,7 @@ module.exports = async (req, res) => {
     // The embedded join needs a FK PostgREST can see; fall back to a flat select.
     let flat = supabase
       .from('creator_posts')
-      .select('entry_id, chain_id, contract_address, transaction_hash, content_hash, author_address, title, excerpt, content, grind_score, ai_slop, human_pct, tier, word_count, revisions, edit_days, minutes, active_seconds, sessions, keystrokes, words_typed, words_published, kill_ratio, wpm, wpm_series, published_at')
+      .select('*')
       .eq('is_public', true)
       .order('published_at', { ascending: false })
       .limit(entry != null ? 1 : limit);

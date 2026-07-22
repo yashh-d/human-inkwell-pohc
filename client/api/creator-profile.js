@@ -60,7 +60,9 @@ module.exports = async (req, res) => {
 
   let postsQuery = supabase
     .from('creator_posts')
-    .select('entry_id, chain_id, contract_address, transaction_hash, content_hash, author_address, title, excerpt, content, grind_score, ai_slop, human_pct, tier, word_count, revisions, edit_days, minutes, active_seconds, sessions, keystrokes, words_typed, words_published, kill_ratio, wpm, wpm_series, is_public, published_at')
+    // select('*') so a not-yet-applied column (content / receipts migrations)
+    // can't 400 the whole read — missing columns just come back undefined.
+    .select('*')
     .eq('author_address', walletAddress)
     .order('published_at', { ascending: false })
     .limit(200);
