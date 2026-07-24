@@ -75,10 +75,10 @@ export default function PublishProofPage(
   const [authError, setAuthError] = useState<string | null>(null);
   const [pendingPublish, setPendingPublish] = useState(false);
   // A/B design toggle: A is the current report; B is the evidence-first redesign.
-  // The evidence-first report (formerly "Version B") is the one and only design;
-  // the A/B toggle is gone. Kept as a typed const so the legacy layout below
-  // stays compilable as reference until it's excised entirely.
-  const view: 'a' | 'b' = 'b';
+  // The original report (Version A: Process Score + AI% + typing stats + charts)
+  // is the one and only design; the A/B toggle is gone. Kept as a typed const so
+  // the unused B layout below stays compilable until it's excised entirely.
+  const view: 'a' | 'b' = 'a';
   // Creator variant: opt into HI Feed BEFORE publishing, so the on-chain write
   // and the feed post happen from one action (the feed post fires automatically
   // once the tx confirms). Identity comes from the signed-in Google account — no
