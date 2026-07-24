@@ -44,7 +44,20 @@ type SubmitState =
   | { phase: 'error'; message: string };
 
 export default function PublishProofPage(
-  { variant = 'student', injectedProof }: { variant?: 'student' | 'creator'; injectedProof?: ExtensionProof } = {},
+  {
+    variant = 'student',
+    injectedProof,
+    previewOnly = false,
+    onPreviewVerify,
+  }: {
+    variant?: 'student' | 'creator';
+    injectedProof?: ExtensionProof;
+    // Preview mode (the /write demo): render the exact same report, but swap the
+    // real "publish" action for a "verify with World ID" call-to-action and drop
+    // the A/B design toggle. Nothing is signed or written on-chain.
+    previewOnly?: boolean;
+    onPreviewVerify?: () => void;
+  } = {},
 ) {
   const isCreator = variant === 'creator';
   // Creator variant renames the two metric labels only (same scores + layout).
@@ -62,7 +75,10 @@ export default function PublishProofPage(
   const [authError, setAuthError] = useState<string | null>(null);
   const [pendingPublish, setPendingPublish] = useState(false);
   // A/B design toggle: A is the current report; B is the evidence-first redesign.
-  const [view, setView] = useState<'a' | 'b'>('a');
+  // The evidence-first report (formerly "Version B") is the one and only design;
+  // the A/B toggle is gone. Kept as a typed const so the legacy layout below
+  // stays compilable as reference until it's excised entirely.
+  const view: 'a' | 'b' = 'b';
   // Creator variant: opt into HI Feed BEFORE publishing, so the on-chain write
   // and the feed post happen from one action (the feed post fires automatically
   // once the tx confirms). Identity comes from the signed-in Google account — no
@@ -302,7 +318,6 @@ export default function PublishProofPage(
         proof={proof} ai={ai} authorship={authorship} integrity={integrity} bands={bands}
         success={success} busy={busy} submit={submit} onPublish={handlePrimary}
         authError={authError} identityAuthError={identity.authError}
-        view={view} setView={setView}
         isCreator={isCreator} authorAddress={authorAddress}
       />
     );
@@ -310,14 +325,14 @@ export default function PublishProofPage(
 
   return (
     <div style={styles.wrap}>
-      {!isCreator && <ViewToggle view={view} setView={setView} />}
-      {!isCreator && <BrandKicker />}
       <h1 style={styles.h1}>{success ? '✓ Proof published' : 'Proof of human writing'}</h1>
       <p style={styles.muted}>
-        {isCreator
+        {previewOnly
+          ? 'Preview of the proof this would generate — computed on your device'
+          : isCreator
           ? 'Written in the Human Ink editor'
           : `Captured by the Human Ink extension${proof.context === 'google-docs' ? ' from Google Docs' : ''}`}
-        {proof.email ? ` · ${proof.email}` : ''}.{SIMULATE ? ' Demo, simulated on-chain write.' : ''}
+        {!previewOnly && proof.email ? ` · ${proof.email}` : ''}.{!previewOnly && SIMULATE ? ' Demo, simulated on-chain write.' : ''}
       </p>
 
       {/* F2, two DECOUPLED metrics side by side. The Process Score is our own
@@ -488,7 +503,16 @@ export default function PublishProofPage(
       </>
       )}
 
-      {success ? (
+      {previewOnly ? (
+        <>
+          <button style={styles.primary} onClick={() => onPreviewVerify?.()}>
+            Verify with World ID to post for real
+          </button>
+          <p style={{ ...styles.muted, textAlign: 'center', marginTop: 10 }}>
+            This is a preview — nothing was signed or written on-chain. Verify with World ID to make it permanent.
+          </p>
+        </>
+      ) : success ? (
         <>
           <Receipt result={submit.result} />
           {isCreator && <HIFeedStatus state={feedState} msg={feedMsg} isPublic={feedOptIn} />}
@@ -505,67 +529,6 @@ export default function PublishProofPage(
           <Link to="/" style={{ ...styles.link, marginTop: 14, display: 'block' }}>Cancel</Link>
         </>
       )}
-      <ProofSignoff />
-    </div>
-  );
-}
-
-/** Small pill toggle to flip between the two report designs (A = current, B = new). */
-function ViewToggle({ view, setView }: { view: 'a' | 'b'; setView: (v: 'a' | 'b') => void }) {
-  const btn = (v: 'a' | 'b', label: string) => (
-    <button
-      onClick={() => setView(v)}
-      style={{
-        padding: '5px 12px', borderRadius: 999, fontSize: 12, fontWeight: 650, cursor: 'pointer',
-        border: '1px solid', borderColor: view === v ? '#6ee7b7' : 'rgba(127,127,127,0.4)',
-        background: view === v ? 'rgba(110,231,183,0.15)' : 'transparent',
-        color: view === v ? '#6ee7b7' : 'inherit',
-      }}
-    >{label}</button>
-  );
-  return (
-    <div style={{ display: 'flex', gap: 6, justifyContent: 'center', margin: '0 0 16px' }}>
-      {btn('a', 'Version A')}{btn('b', 'Version B · new')}
-    </div>
-  );
-}
-
-/** Cyan ink-drop glyph — the recurring Human Ink brand mark (theme-independent SVG). */
-function InkDrop({ size = 15 }: { size?: number }) {
-  return (
-    <svg width={size} height={Math.round(size * 1.2)} viewBox="0 0 15 18" fill="none" aria-hidden
-      style={{ display: 'block', flex: '0 0 auto' }}>
-      <path d="M7.5 1.2C7.5 1.2 1 8.4 1 12A6.5 6.5 0 0 0 14 12C14 8.4 7.5 1.2 7.5 1.2Z" fill="var(--hi-cyan, #00b4d8)" />
-      <path d="M10.4 12.4a3 3 0 0 1-2.9 2.5" stroke="#fff" strokeWidth="1.2" strokeLinecap="round" opacity="0.6" />
-    </svg>
-  );
-}
-
-/** Brand eyebrow above the page title: ink-drop + HUMAN INK wordmark. Subtle, on-brand. */
-function BrandKicker() {
-  return (
-    <div style={styles.kicker}>
-      <InkDrop size={14} />
-      <span style={styles.kickerText}>Human Ink</span>
-    </div>
-  );
-}
-
-/** In-page proof sign-off: frames the report as sealed by Human Ink, powered by World. */
-function ProofSignoff() {
-  return (
-    <div style={styles.signoff}>
-      <span style={styles.signoffMark}>
-        <InkDrop size={13} />
-        <span style={styles.signoffBrand}>Sealed with Human Ink</span>
-      </span>
-      <span style={styles.signoffDot} aria-hidden>·</span>
-      <span style={styles.signoffPowered}>powered by</span>
-      <a href="https://world.org" target="_blank" rel="noopener noreferrer" style={styles.signoffWorld}
-        aria-label="World. Visit world.org">
-        <img src="/brand/world-icon.png" alt="" width={15} height={15} style={{ display: 'block', flex: '0 0 auto' }} />
-        <span style={styles.signoffWorldWord}>world</span>
-      </a>
     </div>
   );
 }
@@ -597,7 +560,7 @@ const PLAIN_LABEL: Record<string, string> = {
  */
 function PublishVersionB({
   proof, ai, authorship, integrity, bands,
-  success, busy, submit, onPublish, authError, identityAuthError, view, setView,
+  success, busy, submit, onPublish, authError, identityAuthError,
   isCreator, authorAddress,
 }: {
   proof: ExtensionProof;
@@ -611,8 +574,6 @@ function PublishVersionB({
   onPublish: () => void;
   authError: string | null;
   identityAuthError?: string | null;
-  view: 'a' | 'b';
-  setView: (v: 'a' | 'b') => void;
   isCreator?: boolean;
   authorAddress?: string;
 }) {
@@ -653,8 +614,6 @@ function PublishVersionB({
 
   return (
     <div style={styles.wrap}>
-      {!isCreator && <ViewToggle view={view} setView={setView} />}
-      {!isCreator && <BrandKicker />}
       <h1 style={styles.h1}>{success ? '✓ Proof published' : 'Proof of Human Writing'}</h1>
 
       {/* What Human Ink measures, framing up front to distinguish from AI detectors. */}
@@ -764,7 +723,6 @@ function PublishVersionB({
           <Link to="/" style={{ ...styles.link, marginTop: 14, display: 'block' }}>Cancel</Link>
         </>
       )}
-      <ProofSignoff />
     </div>
   );
 }
@@ -1202,12 +1160,50 @@ function EvidenceCard({ label, value, score, note, info }: { label: string; valu
   );
 }
 
+// Provenance palette + labels, shared by both revision charts.
+const CHART_TYPE = '#6ee7b7', CHART_EXTERNAL = '#fbbf24', CHART_MOVE = '#60a5fa', CHART_CITED = '#a78bfa';
+function provColor(e: { type: string; origin?: PasteOrigin }) {
+  return e.type !== 'paste' ? CHART_TYPE
+    : e.origin === 'internal_move' ? CHART_MOVE
+    : e.origin === 'cited_source' ? CHART_CITED
+    : CHART_EXTERNAL;
+}
+function provLabel(e: { type: string; origin?: PasteOrigin }) {
+  return e.type !== 'paste' ? 'typed'
+    : e.origin === 'internal_move' ? 'moved within doc'
+    : e.origin === 'cited_source' ? 'quoted source'
+    : 'pasted in';
+}
+const fmtTipDate = (ms?: number | null) =>
+  ms ? new Date(ms).toLocaleString(undefined, { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }) : null;
+
+/** Floating HTML tooltip for the inline-SVG charts. Positioned by mapping a viewBox
+ *  coordinate to a percentage of the container (the SVG scales to 100% width). */
+function ChartTip({ vx, vy, W, H, lines }: { vx: number; vy: number; W: number; H: number; lines: React.ReactNode[] }) {
+  const left = (vx / W) * 100;
+  const top = (vy / H) * 100;
+  const flipX = left > 62;
+  return (
+    <div style={{
+      position: 'absolute', left: `${left}%`, top: `${top}%`,
+      transform: `translate(${flipX ? 'calc(-100% - 8px)' : '8px'}, -116%)`,
+      pointerEvents: 'none', zIndex: 5, whiteSpace: 'nowrap',
+      background: '#0f172a', color: '#f8fafc', border: '1px solid rgba(255,255,255,0.14)',
+      borderRadius: 6, padding: '5px 8px', fontSize: 11.5, lineHeight: 1.4,
+      boxShadow: '0 6px 18px rgba(0,0,0,0.28)',
+    }}>
+      {lines.map((l, i) => <div key={i} style={i === 0 ? { fontWeight: 700 } : { opacity: 0.85 }}>{l}</div>)}
+    </div>
+  );
+}
+
 /**
  * Document-growth chart: how the piece was written, in order. X spans the real
  * editing date range (from Google Docs revision history when available); Y is the
  * cumulative size of the document as each edit lands. Typed work rises in a gentle
  * green slope; pasted blocks show as amber vertical cliffs, the visual signature
- * of text dropped in rather than written. Pure inline SVG, no chart library.
+ * of text dropped in rather than written. Hover any point to read the exact edit.
+ * Pure inline SVG, no chart library.
  */
 function WritingTimelineChart({
   timeline,
@@ -1216,7 +1212,8 @@ function WritingTimelineChart({
   timeline: { type: 'type' | 'paste'; chars: number; origin?: PasteOrigin; t?: number }[];
   docs?: ExtensionProof['docsRevision'];
 }) {
-  const W = 320, H = 176, padL = 6, padR = 6, padT = 12, padB = 24;
+  const [hover, setHover] = useState<number | null>(null);
+  const W = 320, H = 190, padL = 40, padR = 10, padT = 14, padB = 40;
   const innerW = W - padL - padR, innerH = H - padT - padB;
 
   // Cumulative document size, seeded with a 0 baseline so the curve starts at the floor.
@@ -1239,60 +1236,91 @@ function WritingTimelineChart({
   };
   const y = (v: number) => padT + innerH - (v / total) * innerH;
 
-  // Color by provenance: typed = green slope; EXTERNAL paste = amber cliff (the
-  // signal); within-doc move = blue; cited quote = purple. Only amber is a concern.
-  const TYPE = '#6ee7b7', EXTERNAL = '#fbbf24', MOVE = '#60a5fa', CITED = '#a78bfa';
-  const segColor = (e: { type: string; origin?: PasteOrigin }) =>
-    e.type !== 'paste' ? TYPE
-      : e.origin === 'internal_move' ? MOVE
-      : e.origin === 'cited_source' ? CITED
-      : EXTERNAL;
   const segments = timeline.map((e, i) => ({
     x1: x(i), y1: y(cum[i]), x2: x(i + 1), y2: y(cum[i + 1]),
     paste: e.type === 'paste',
-    external: e.type === 'paste' && (e.origin === 'external' || e.origin == null),
-    color: segColor(e),
+    color: provColor(e),
   }));
   const areaPts = cum.map((v, i) => `${x(i).toFixed(1)},${y(v).toFixed(1)}`).join(' ');
   const baseY = y(0);
   const areaPath = `${padL},${baseY} ${areaPts} ${x(n - 1).toFixed(1)},${baseY}`;
 
+  // Per-edit hover bands: from the midpoint to the previous point to the midpoint to
+  // the next, so the whole width is hoverable and lands on the nearest edit.
+  const xs = timeline.map((_, i) => x(i + 1));
+  const band = (i: number) => {
+    const l = i === 0 ? padL : (xs[i - 1] + xs[i]) / 2;
+    const r = i === xs.length - 1 ? W - padR : (xs[i] + xs[i + 1]) / 2;
+    return { l, w: Math.max(0.5, r - l) };
+  };
+
+  // Y axis ticks (characters) and X axis end labels (dates).
+  const yTicks = [0, 0.5, 1].map((f) => ({ v: Math.round(total * f), yy: y(total * f) }));
   const fmtDate = (ms?: number | null) => (ms ? new Date(ms).toLocaleDateString(undefined, { month: 'short', day: 'numeric' }) : null);
   const startLabel = (hasTime ? fmtDate(tMin) : fmtDate(docs?.firstModified)) || 'start';
   const endLabel = (hasTime ? fmtDate(tMax) : fmtDate(docs?.lastModified)) || 'finish';
 
+  const active = hover != null ? { e: timeline[hover], px: xs[hover], py: y(cum[hover + 1]), cumv: cum[hover + 1] } : null;
+
   return (
-    <div style={{ margin: '4px 0 12px' }}>
-      <svg viewBox={`0 0 ${W} ${H}`} width="100%" style={{ display: 'block' }}>
+    <div style={{ position: 'relative', margin: '4px 0 12px' }}>
+      <svg viewBox={`0 0 ${W} ${H}`} width="100%" style={{ display: 'block' }}
+        onMouseLeave={() => setHover(null)}>
         <defs>
           <linearGradient id="wtGrad" x1="0" y1="0" x2="0" y2="1">
             <stop offset="0%" stopColor="rgba(110,231,183,0.28)" />
             <stop offset="100%" stopColor="rgba(110,231,183,0.02)" />
           </linearGradient>
         </defs>
+
+        {/* Y axis: gridlines + character tick labels */}
+        {yTicks.map((t, i) => (
+          <g key={`y${i}`}>
+            <line x1={padL} y1={t.yy} x2={W - padR} y2={t.yy} stroke="currentColor" strokeOpacity={i === 0 ? 0.18 : 0.08} strokeWidth={1} />
+            <text x={padL - 5} y={t.yy + 3} fill="currentColor" opacity={0.55} fontSize={8.5} textAnchor="end">{t.v.toLocaleString()}</text>
+          </g>
+        ))}
+        <text transform={`rotate(-90 11 ${padT + innerH / 2})`} x={11} y={padT + innerH / 2} fill="currentColor" opacity={0.6} fontSize={9} fontWeight={600} textAnchor="middle">Characters</text>
+
         <polygon points={areaPath} fill="url(#wtGrad)" />
         {segments.map((s, i) => (
-          <line
-            key={i}
-            x1={s.x1} y1={s.y1} x2={s.x2} y2={s.y2}
-            stroke={s.color}
-            strokeWidth={s.paste ? 2.5 : 1.8}
-            strokeLinecap="round"
-          />
+          <line key={i} x1={s.x1} y1={s.y1} x2={s.x2} y2={s.y2} stroke={s.color} strokeWidth={s.paste ? 2.5 : 1.8} strokeLinecap="round" />
         ))}
-        {segments.filter((s) => s.paste).map((s, i) => (
-          <circle key={`p${i}`} cx={s.x2} cy={s.y2} r={2.6} fill={s.color} />
-        ))}
-        <line x1={padL} y1={baseY} x2={W - padR} y2={baseY} stroke="currentColor" strokeOpacity={0.12} strokeWidth={1} />
-        <text x={padL} y={H - 6} fill="currentColor" opacity={0.55} fontSize={9}>{startLabel}</text>
-        <text x={W - padR} y={H - 6} fill="currentColor" opacity={0.55} fontSize={9} textAnchor="end">{endLabel}</text>
-        <text x={padL} y={padT + 2} fill="currentColor" opacity={0.45} fontSize={9}>{total.toLocaleString()} chars</text>
+        {segments.map((s, i) => s.paste ? <circle key={`p${i}`} cx={s.x2} cy={s.y2} r={2.6} fill={s.color} /> : null)}
+
+        {/* X axis: date range + title */}
+        <text x={padL} y={H - 16} fill="currentColor" opacity={0.55} fontSize={8.5}>{startLabel}</text>
+        <text x={W - padR} y={H - 16} fill="currentColor" opacity={0.55} fontSize={8.5} textAnchor="end">{endLabel}</text>
+        <text x={padL + innerW / 2} y={H - 4} fill="currentColor" opacity={0.6} fontSize={9} fontWeight={600} textAnchor="middle">Time →</text>
+
+        {/* Hover: marker + transparent hit bands (drawn last so they capture events) */}
+        {active && (
+          <>
+            <line x1={active.px} y1={padT} x2={active.px} y2={baseY} stroke="currentColor" strokeOpacity={0.25} strokeWidth={1} strokeDasharray="2 2" />
+            <circle cx={active.px} cy={active.py} r={3.6} fill={provColor(active.e)} stroke="#fff" strokeWidth={1.2} />
+          </>
+        )}
+        {timeline.map((_, i) => {
+          const b = band(i);
+          return <rect key={`h${i}`} x={b.l} y={padT} width={b.w} height={innerH} fill="transparent"
+            onMouseEnter={() => setHover(i)} onMouseMove={() => setHover(i)} style={{ cursor: 'pointer' }} />;
+        })}
       </svg>
+
+      {active && (
+        <ChartTip vx={active.px} vy={active.py} W={W} H={H} lines={[
+          `+${active.e.chars.toLocaleString()} chars`,
+          provLabel(active.e),
+          `${active.cumv.toLocaleString()} chars total so far`,
+          ...(active.e.t ? [fmtTipDate(active.e.t)] : []),
+        ]} />
+      )}
+
       <div style={{ ...styles.scoreRow, flexWrap: 'wrap', gap: 8 }}>
-        <span><span style={{ color: '#6ee7b7' }}>●</span> typed</span>
-        <span><span style={{ color: '#fbbf24' }}>●</span> pasted in (cliffs)</span>
-        {segments.some((s) => s.color === '#60a5fa') && <span><span style={{ color: '#60a5fa' }}>●</span> moved</span>}
-        {segments.some((s) => s.color === '#a78bfa') && <span><span style={{ color: '#a78bfa' }}>●</span> quoted</span>}
+        <span><span style={{ color: CHART_TYPE }}>●</span> typed</span>
+        <span><span style={{ color: CHART_EXTERNAL }}>●</span> pasted in (cliffs)</span>
+        {segments.some((s) => s.color === CHART_MOVE) && <span><span style={{ color: CHART_MOVE }}>●</span> moved</span>}
+        {segments.some((s) => s.color === CHART_CITED) && <span><span style={{ color: CHART_CITED }}>●</span> quoted</span>}
       </div>
     </div>
   );
@@ -1313,7 +1341,8 @@ function BurstChart({
   timeline: { type: 'type' | 'paste'; chars: number; origin?: PasteOrigin; t?: number }[];
   byTime?: boolean;
 }) {
-  const W = 320, H = 132, padT = 10, padB = 18, padL = 6, padR = 6;
+  const [hover, setHover] = useState<number | null>(null);
+  const W = 320, H = 156, padT = 12, padB = 40, padL = 40, padR = 10;
   const innerW = W - padL - padR, innerH = H - padT - padB;
   const n = timeline.length;
   const max = Math.max(1, ...timeline.map((e) => e.chars));
@@ -1334,32 +1363,61 @@ function BurstChart({
   const xAt = (i: number) =>
     useTime ? padL + ((ts[i] - tMin) / tSpan) * (innerW - bw)
             : padL + i * (idxBw + idxGap);
+  const barH = (chars: number) => Math.max(2, (chars / max) * innerH);
+  const barY = (chars: number) => padT + innerH - barH(chars);
 
-  const TYPE = '#6ee7b7', EXTERNAL = '#fbbf24', MOVE = '#60a5fa', CITED = '#a78bfa';
-  const color = (e: { type: string; origin?: PasteOrigin }) =>
-    e.type !== 'paste' ? TYPE
-      : e.origin === 'internal_move' ? MOVE
-      : e.origin === 'cited_source' ? CITED
-      : EXTERNAL;
   const fmtDate = (ms: number) => new Date(ms).toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+  // Y axis ticks (characters).
+  const yTicks = [0, 0.5, 1].map((f) => ({ v: Math.round(max * f), yy: padT + innerH - f * innerH }));
+
+  const active = hover != null ? { e: timeline[hover], px: xAt(hover) + bw / 2, py: barY(timeline[hover].chars) } : null;
 
   return (
-    <div style={{ margin: '4px 0 12px' }}>
-      <svg viewBox={`0 0 ${W} ${H}`} width="100%" style={{ display: 'block' }}>
-        {timeline.map((e, i) => {
-          const h = Math.max(2, (e.chars / max) * innerH);
-          const x = xAt(i);
-          const y = padT + innerH - h;
-          return <rect key={i} x={x.toFixed(1)} y={y.toFixed(1)} width={bw.toFixed(1)} height={h.toFixed(1)} rx={1} fill={color(e)} />;
-        })}
-        <line x1={padL} y1={padT + innerH} x2={W - padR} y2={padT + innerH} stroke="currentColor" strokeOpacity={0.12} strokeWidth={1} />
-        {useTime && (
+    <div style={{ position: 'relative', margin: '4px 0 12px' }}>
+      <svg viewBox={`0 0 ${W} ${H}`} width="100%" style={{ display: 'block' }}
+        onMouseLeave={() => setHover(null)}>
+        {/* Y axis: gridlines + character tick labels + title */}
+        {yTicks.map((t, i) => (
+          <g key={`y${i}`}>
+            <line x1={padL} y1={t.yy} x2={W - padR} y2={t.yy} stroke="currentColor" strokeOpacity={i === 0 ? 0.18 : 0.08} strokeWidth={1} />
+            <text x={padL - 5} y={t.yy + 3} fill="currentColor" opacity={0.55} fontSize={8.5} textAnchor="end">{t.v.toLocaleString()}</text>
+          </g>
+        ))}
+        <text transform={`rotate(-90 11 ${padT + innerH / 2})`} x={11} y={padT + innerH / 2} fill="currentColor" opacity={0.6} fontSize={9} fontWeight={600} textAnchor="middle">Characters</text>
+
+        {timeline.map((e, i) => (
+          <rect key={i} x={xAt(i).toFixed(1)} y={barY(e.chars).toFixed(1)} width={bw.toFixed(1)} height={barH(e.chars).toFixed(1)} rx={1}
+            fill={provColor(e)} opacity={hover == null || hover === i ? 1 : 0.45} />
+        ))}
+
+        {/* X axis: date range (time mode) or burst-order note, + title */}
+        {useTime ? (
           <>
-            <text x={padL} y={H - 4} fill="currentColor" opacity={0.55} fontSize={9}>{fmtDate(tMin)}</text>
-            <text x={W - padR} y={H - 4} fill="currentColor" opacity={0.55} fontSize={9} textAnchor="end">{fmtDate(tMax)}</text>
+            <text x={padL} y={H - 16} fill="currentColor" opacity={0.55} fontSize={8.5}>{fmtDate(tMin)}</text>
+            <text x={W - padR} y={H - 16} fill="currentColor" opacity={0.55} fontSize={8.5} textAnchor="end">{fmtDate(tMax)}</text>
+            <text x={padL + innerW / 2} y={H - 4} fill="currentColor" opacity={0.6} fontSize={9} fontWeight={600} textAnchor="middle">Time →</text>
           </>
+        ) : (
+          <text x={padL + innerW / 2} y={H - 6} fill="currentColor" opacity={0.6} fontSize={9} fontWeight={600} textAnchor="middle">Bursts in order →</text>
         )}
+
+        {/* Wide transparent hit targets so thin time-mode bars are still hoverable */}
+        {timeline.map((_, i) => {
+          const c = xAt(i) + bw / 2;
+          const hw = Math.max(bw, 7);
+          return <rect key={`h${i}`} x={(c - hw / 2).toFixed(1)} y={padT} width={hw.toFixed(1)} height={innerH} fill="transparent"
+            onMouseEnter={() => setHover(i)} onMouseMove={() => setHover(i)} style={{ cursor: 'pointer' }} />;
+        })}
       </svg>
+
+      {active && (
+        <ChartTip vx={active.px} vy={active.py} W={W} H={H} lines={[
+          `${active.e.chars.toLocaleString()} chars`,
+          provLabel(active.e),
+          ...(active.e.t ? [fmtTipDate(active.e.t)] : []),
+        ]} />
+      )}
+
       {/* Captions live in normal HTML, not as SVG text (which scales with the chart
           width and balloons). */}
       <div style={{ ...styles.scoreRow, gap: 8 }}>
@@ -1405,16 +1463,6 @@ const styles: Record<string, React.CSSProperties> = {
     backgroundImage: 'radial-gradient(ellipse 46% 30% at 82% 4%, rgba(0,180,216,0.10), rgba(0,200,230,0) 70%)',
     backgroundRepeat: 'no-repeat',
   },
-  // ── Branding: eyebrow kicker + proof sign-off ──
-  kicker: { display: 'inline-flex', alignItems: 'center', gap: 7, marginBottom: 7 },
-  kickerText: { fontSize: 11, fontWeight: 700, letterSpacing: '0.18em', textTransform: 'uppercase', color: 'var(--hi-cyan-ink, #075985)' },
-  signoff: { display: 'flex', flexWrap: 'wrap', alignItems: 'center', justifyContent: 'center', gap: '6px 9px', marginTop: 30, paddingTop: 18, borderTop: '1px solid rgba(15,23,42,0.08)', fontSize: 12 },
-  signoffMark: { display: 'inline-flex', alignItems: 'center', gap: 6 },
-  signoffBrand: { fontWeight: 700, letterSpacing: '0.02em', color: 'inherit', opacity: 0.85 },
-  signoffDot: { opacity: 0.35, userSelect: 'none' },
-  signoffPowered: { opacity: 0.6 },
-  signoffWorld: { display: 'inline-flex', alignItems: 'center', gap: 5, textDecoration: 'none', color: 'inherit', fontWeight: 600 },
-  signoffWorldWord: { textTransform: 'lowercase', letterSpacing: '-0.01em' },
   // Informational cards flow into as many ~330px columns as fit (3 on desktop,
   // 2 on a tablet, 1 on a phone), responsive with no media queries.
   bodyGrid: { display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(330px, 1fr))', gap: 14, alignItems: 'start', margin: '12px 0' },
