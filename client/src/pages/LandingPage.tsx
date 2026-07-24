@@ -4,7 +4,7 @@ import InkCanvas from '../components/InkCanvas';
 import SiteNav from '../components/SiteNav';
 import './LandingPage.css';
 
-const HUMANINK_LOGO = '/brand/humanink3.png';
+const HUMANINK_LOGO = '/brand/humaninklogo.png';
 const WORLD_ICON = '/brand/world-icon.png';
 const GOOGLE_DOCS = '/brand/google-docs.png';
 const GOOGLE_DRIVE = '/brand/google-drive.png';

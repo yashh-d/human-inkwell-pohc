@@ -186,8 +186,8 @@ a:hover {
 }
 
 .hi-brand--header .hi-brand__humanink-logo {
-  max-width: min(224px, 62vw);
-  max-height: 56px;
+  max-width: min(140px, 44vw);
+  max-height: 76px;
   width: auto;
   object-fit: contain;
   object-position: left center;
@@ -195,7 +195,7 @@ a:hover {
 }
 
 .hi-brand--footer .hi-brand__humanink-logo {
-  max-width: 100px;
+  max-width: 84px;
 }
 
 .hi-brand__tagline {

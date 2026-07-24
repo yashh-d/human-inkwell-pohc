@@ -53,7 +53,7 @@ root.render(
         appearance: {
           theme: 'light',
           accentColor: '#121212',
-          logo: 'https://worldcoin.org/logo.png', // Temporary placeholder for logo
+          logo: '/brand/humaninklogo.png', // Human Ink mark in the Privy login modal
         },
       }}
     >

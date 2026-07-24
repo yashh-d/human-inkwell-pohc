@@ -468,7 +468,7 @@
   margin: 0 auto;
   padding: 2rem clamp(1.1rem, 4vw, 3.5rem) 3rem;
 }
-.lp-footer__logo { height: 22px; width: auto; opacity: 0.8; filter: brightness(0); }
+.lp-footer__logo { height: 34px; width: auto; opacity: 0.85; }
 
 /* ── Full-bleed, on-brand section bands ──────────────────────
    Add `lp-band lp-band--<tone>` to any centered section to give it a

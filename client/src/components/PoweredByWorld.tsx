@@ -1,6 +1,6 @@
 import React from 'react';
 
-const LOGO_HUMANINK = '/brand/humanink3.png';
+const LOGO_HUMANINK = '/brand/humaninklogo.png';
 /** World product mark: official orb asset + “world” word in UI (lowercase) */
 const LOGO_WORLD_ICON = '/brand/world-icon.png';
 
@@ -35,10 +35,6 @@ const PoweredByWorld: React.FC<PoweredByWorldProps> = ({
   );
   const powered = (
     <div className="hi-brand__powered">
-      <span className="hi-brand__humanink-name">Humanink</span>
-      <span className="hi-brand__dot" aria-hidden>
-        ·
-      </span>
       <span className="hi-brand__powered-text">powered by</span>
       <a
         href="https://world.org"
