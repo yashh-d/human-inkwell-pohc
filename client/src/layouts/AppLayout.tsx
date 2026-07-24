@@ -17,6 +17,10 @@ const SUBTITLE: Record<string, string> = {
   [WORKFLOW_PATH]: '',
 };
 
+// Routes that render their own in-page heading and don't want the brand block
+// (logo + powered-by-world + hero subtitle) doubled above SiteNav.
+const HIDE_BRAND_HEADER = new Set<string>(['/publish']);
+
 const AppLayout: React.FC = () => {
   const { pathname } = useLocation();
   const subtitle = SUBTITLE[pathname] ?? SUBTITLE['/'];
@@ -24,7 +28,7 @@ const AppLayout: React.FC = () => {
   return (
     <>
       <SiteNav />
-      <BrandHeader subtitle={subtitle} />
+      {!HIDE_BRAND_HEADER.has(pathname) && <BrandHeader subtitle={subtitle} />}
       <main className="hi-app-main hi-app-main--ambient">
         <Outlet />
       </main>
