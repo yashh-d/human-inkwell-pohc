@@ -18,17 +18,22 @@ const SUBTITLE: Record<string, string> = {
 };
 
 // Routes that render their own in-page heading and don't want the brand block
-// (logo + powered-by-world + hero subtitle) doubled above SiteNav.
-const HIDE_BRAND_HEADER = new Set<string>(['/publish']);
+// (logo + powered-by-world + hero subtitle) doubled below SiteNav — the header
+// already carries the brand. Creator surfaces + profile included.
+const HIDE_BRAND_HEADER = new Set<string>(['/publish', '/creator', '/feed', '/me']);
+// Dynamic creator routes (/feed/:entryId, /c/:handle) hide it too.
+const HIDE_BRAND_PREFIXES = ['/feed/', '/c/'];
 
 const AppLayout: React.FC = () => {
   const { pathname } = useLocation();
   const subtitle = SUBTITLE[pathname] ?? SUBTITLE['/'];
+  const hideBrand =
+    HIDE_BRAND_HEADER.has(pathname) || HIDE_BRAND_PREFIXES.some((p) => pathname.startsWith(p));
 
   return (
     <>
       <SiteNav />
-      {!HIDE_BRAND_HEADER.has(pathname) && <BrandHeader subtitle={subtitle} />}
+      {!hideBrand && <BrandHeader subtitle={subtitle} />}
       <main className="hi-app-main hi-app-main--ambient">
         <Outlet />
       </main>
