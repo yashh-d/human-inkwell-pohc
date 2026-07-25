@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useLoginWithOAuth, useWallets, usePrivy } from '@privy-io/react-auth';
 import { ethers } from 'ethers';
@@ -1161,6 +1161,29 @@ function EvidenceCard({ label, value, score, note, info }: { label: string; valu
   );
 }
 
+/**
+ * True-pixel chart sizing: measure the container and draw the SVG 1:1 instead of
+ * stretching a tiny fixed viewBox to 100% width (which scaled fonts/strokes ~3×
+ * on desktop and made the charts look bloated). Fonts stay crisp at any width.
+ */
+function useMeasuredWidth(fallback = 320) {
+  const ref = useRef<HTMLDivElement>(null);
+  const [w, setW] = useState(fallback);
+  useEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    const ro = new ResizeObserver((entries) => {
+      const cw = entries[0]?.contentRect?.width;
+      if (cw && Math.abs(cw - w) > 1) setW(cw);
+    });
+    ro.observe(el);
+    if (el.clientWidth) setW(el.clientWidth);
+    return () => ro.disconnect();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+  return [ref, w] as const;
+}
+
 // Provenance palette + labels, shared by both revision charts.
 const CHART_TYPE = '#6ee7b7', CHART_EXTERNAL = '#fbbf24', CHART_MOVE = '#60a5fa', CHART_CITED = '#a78bfa';
 function provColor(e: { type: string; origin?: PasteOrigin }) {
@@ -1214,7 +1237,10 @@ function WritingTimelineChart({
   docs?: ExtensionProof['docsRevision'];
 }) {
   const [hover, setHover] = useState<number | null>(null);
-  const W = 320, H = 190, padL = 40, padR = 10, padT = 14, padB = 40;
+  const [boxRef, mw] = useMeasuredWidth();
+  // Drawn at the container's true pixel width — crisp 10–11px labels, fixed
+  // height, no viewBox stretching.
+  const W = Math.max(300, mw), H = 230, padL = 56, padR = 14, padT = 16, padB = 44;
   const innerW = W - padL - padR, innerH = H - padT - padB;
 
   // Cumulative document size, seeded with a 0 baseline so the curve starts at the floor.
@@ -1264,8 +1290,8 @@ function WritingTimelineChart({
   const active = hover != null ? { e: timeline[hover], px: xs[hover], py: y(cum[hover + 1]), cumv: cum[hover + 1] } : null;
 
   return (
-    <div style={{ position: 'relative', margin: '4px 0 12px' }}>
-      <svg viewBox={`0 0 ${W} ${H}`} width="100%" style={{ display: 'block' }}
+    <div ref={boxRef} style={{ position: 'relative', margin: '4px 0 12px', width: '100%' }}>
+      <svg width={W} height={H} viewBox={`0 0 ${W} ${H}`} style={{ display: 'block' }}
         onMouseLeave={() => setHover(null)}>
         <defs>
           <linearGradient id="wtGrad" x1="0" y1="0" x2="0" y2="1">
@@ -1278,27 +1304,27 @@ function WritingTimelineChart({
         {yTicks.map((t, i) => (
           <g key={`y${i}`}>
             <line x1={padL} y1={t.yy} x2={W - padR} y2={t.yy} stroke="currentColor" strokeOpacity={i === 0 ? 0.18 : 0.08} strokeWidth={1} />
-            <text x={padL - 5} y={t.yy + 3} fill="currentColor" opacity={0.55} fontSize={8.5} textAnchor="end">{t.v.toLocaleString()}</text>
+            <text x={padL - 7} y={t.yy + 3.5} fill="currentColor" opacity={0.55} fontSize={11} textAnchor="end">{t.v.toLocaleString()}</text>
           </g>
         ))}
-        <text transform={`rotate(-90 11 ${padT + innerH / 2})`} x={11} y={padT + innerH / 2} fill="currentColor" opacity={0.6} fontSize={9} fontWeight={600} textAnchor="middle">Characters</text>
+        <text transform={`rotate(-90 13 ${padT + innerH / 2})`} x={13} y={padT + innerH / 2} fill="currentColor" opacity={0.6} fontSize={11} fontWeight={600} textAnchor="middle">Characters</text>
 
         <polygon points={areaPath} fill="url(#wtGrad)" />
         {segments.map((s, i) => (
-          <line key={i} x1={s.x1} y1={s.y1} x2={s.x2} y2={s.y2} stroke={s.color} strokeWidth={s.paste ? 2.5 : 1.8} strokeLinecap="round" />
+          <line key={i} x1={s.x1} y1={s.y1} x2={s.x2} y2={s.y2} stroke={s.color} strokeWidth={s.paste ? 3 : 2} strokeLinecap="round" />
         ))}
-        {segments.map((s, i) => s.paste ? <circle key={`p${i}`} cx={s.x2} cy={s.y2} r={2.6} fill={s.color} /> : null)}
+        {segments.map((s, i) => s.paste ? <circle key={`p${i}`} cx={s.x2} cy={s.y2} r={3.5} fill={s.color} /> : null)}
 
         {/* X axis: date range + title */}
-        <text x={padL} y={H - 16} fill="currentColor" opacity={0.55} fontSize={8.5}>{startLabel}</text>
-        <text x={W - padR} y={H - 16} fill="currentColor" opacity={0.55} fontSize={8.5} textAnchor="end">{endLabel}</text>
-        <text x={padL + innerW / 2} y={H - 4} fill="currentColor" opacity={0.6} fontSize={9} fontWeight={600} textAnchor="middle">Time →</text>
+        <text x={padL} y={H - 18} fill="currentColor" opacity={0.55} fontSize={11}>{startLabel}</text>
+        <text x={W - padR} y={H - 18} fill="currentColor" opacity={0.55} fontSize={11} textAnchor="end">{endLabel}</text>
+        <text x={padL + innerW / 2} y={H - 5} fill="currentColor" opacity={0.6} fontSize={11} fontWeight={600} textAnchor="middle">Time →</text>
 
         {/* Hover: marker + transparent hit bands (drawn last so they capture events) */}
         {active && (
           <>
             <line x1={active.px} y1={padT} x2={active.px} y2={baseY} stroke="currentColor" strokeOpacity={0.25} strokeWidth={1} strokeDasharray="2 2" />
-            <circle cx={active.px} cy={active.py} r={3.6} fill={provColor(active.e)} stroke="#fff" strokeWidth={1.2} />
+            <circle cx={active.px} cy={active.py} r={4.2} fill={provColor(active.e)} stroke="#fff" strokeWidth={1.4} />
           </>
         )}
         {timeline.map((_, i) => {
@@ -1343,7 +1369,9 @@ function BurstChart({
   byTime?: boolean;
 }) {
   const [hover, setHover] = useState<number | null>(null);
-  const W = 320, H = 156, padT = 12, padB = 40, padL = 40, padR = 10;
+  const [boxRef, mw] = useMeasuredWidth();
+  // True-pixel sizing (see useMeasuredWidth) — fixed height, crisp labels.
+  const W = Math.max(300, mw), H = 180, padT = 14, padB = 44, padL = 56, padR = 14;
   const innerW = W - padL - padR, innerH = H - padT - padB;
   const n = timeline.length;
   const max = Math.max(1, ...timeline.map((e) => e.chars));
@@ -1358,12 +1386,17 @@ function BurstChart({
   const tMin = useTime ? Math.min(...ts) : 0;
   const tMax = useTime ? Math.max(...ts) : 1;
   const tSpan = tMax - tMin || 1;
-  const idxGap = n > 60 ? 0.5 : 2;
-  const idxBw = n > 0 ? Math.max(1, (innerW - idxGap * (n - 1)) / n) : innerW;
-  const bw = useTime ? Math.max(1.2, Math.min(idxBw, 4)) : idxBw;
+  const idxGap = n > 60 ? 1 : 3;
+  // Cap bar width so a handful of bursts on a wide page reads as tidy bars, not
+  // giant slabs; when capped, center the group in the plot area.
+  const idxBwRaw = n > 0 ? Math.max(1, (innerW - idxGap * (n - 1)) / n) : innerW;
+  const idxBw = Math.min(idxBwRaw, 26);
+  const groupW = n * idxBw + (n - 1) * idxGap;
+  const idxX0 = padL + Math.max(0, (innerW - groupW) / 2);
+  const bw = useTime ? Math.max(2, Math.min(idxBw, 6)) : idxBw;
   const xAt = (i: number) =>
     useTime ? padL + ((ts[i] - tMin) / tSpan) * (innerW - bw)
-            : padL + i * (idxBw + idxGap);
+            : idxX0 + i * (idxBw + idxGap);
   const barH = (chars: number) => Math.max(2, (chars / max) * innerH);
   const barY = (chars: number) => padT + innerH - barH(chars);
 
@@ -1374,32 +1407,32 @@ function BurstChart({
   const active = hover != null ? { e: timeline[hover], px: xAt(hover) + bw / 2, py: barY(timeline[hover].chars) } : null;
 
   return (
-    <div style={{ position: 'relative', margin: '4px 0 12px' }}>
-      <svg viewBox={`0 0 ${W} ${H}`} width="100%" style={{ display: 'block' }}
+    <div ref={boxRef} style={{ position: 'relative', margin: '4px 0 12px', width: '100%' }}>
+      <svg width={W} height={H} viewBox={`0 0 ${W} ${H}`} style={{ display: 'block' }}
         onMouseLeave={() => setHover(null)}>
         {/* Y axis: gridlines + character tick labels + title */}
         {yTicks.map((t, i) => (
           <g key={`y${i}`}>
             <line x1={padL} y1={t.yy} x2={W - padR} y2={t.yy} stroke="currentColor" strokeOpacity={i === 0 ? 0.18 : 0.08} strokeWidth={1} />
-            <text x={padL - 5} y={t.yy + 3} fill="currentColor" opacity={0.55} fontSize={8.5} textAnchor="end">{t.v.toLocaleString()}</text>
+            <text x={padL - 7} y={t.yy + 3.5} fill="currentColor" opacity={0.55} fontSize={11} textAnchor="end">{t.v.toLocaleString()}</text>
           </g>
         ))}
-        <text transform={`rotate(-90 11 ${padT + innerH / 2})`} x={11} y={padT + innerH / 2} fill="currentColor" opacity={0.6} fontSize={9} fontWeight={600} textAnchor="middle">Characters</text>
+        <text transform={`rotate(-90 13 ${padT + innerH / 2})`} x={13} y={padT + innerH / 2} fill="currentColor" opacity={0.6} fontSize={11} fontWeight={600} textAnchor="middle">Characters</text>
 
         {timeline.map((e, i) => (
-          <rect key={i} x={xAt(i).toFixed(1)} y={barY(e.chars).toFixed(1)} width={bw.toFixed(1)} height={barH(e.chars).toFixed(1)} rx={1}
+          <rect key={i} x={xAt(i).toFixed(1)} y={barY(e.chars).toFixed(1)} width={bw.toFixed(1)} height={barH(e.chars).toFixed(1)} rx={2}
             fill={provColor(e)} opacity={hover == null || hover === i ? 1 : 0.45} />
         ))}
 
         {/* X axis: date range (time mode) or burst-order note, + title */}
         {useTime ? (
           <>
-            <text x={padL} y={H - 16} fill="currentColor" opacity={0.55} fontSize={8.5}>{fmtDate(tMin)}</text>
-            <text x={W - padR} y={H - 16} fill="currentColor" opacity={0.55} fontSize={8.5} textAnchor="end">{fmtDate(tMax)}</text>
-            <text x={padL + innerW / 2} y={H - 4} fill="currentColor" opacity={0.6} fontSize={9} fontWeight={600} textAnchor="middle">Time →</text>
+            <text x={padL} y={H - 18} fill="currentColor" opacity={0.55} fontSize={11}>{fmtDate(tMin)}</text>
+            <text x={W - padR} y={H - 18} fill="currentColor" opacity={0.55} fontSize={11} textAnchor="end">{fmtDate(tMax)}</text>
+            <text x={padL + innerW / 2} y={H - 5} fill="currentColor" opacity={0.6} fontSize={11} fontWeight={600} textAnchor="middle">Time →</text>
           </>
         ) : (
-          <text x={padL + innerW / 2} y={H - 6} fill="currentColor" opacity={0.6} fontSize={9} fontWeight={600} textAnchor="middle">Bursts in order →</text>
+          <text x={padL + innerW / 2} y={H - 7} fill="currentColor" opacity={0.6} fontSize={11} fontWeight={600} textAnchor="middle">Bursts in order →</text>
         )}
 
         {/* Wide transparent hit targets so thin time-mode bars are still hoverable */}
