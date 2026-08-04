@@ -5,11 +5,12 @@
  * World App walletAuth when inside World App. No seed phrase, no World ID wall —
  * proof-of-human is an optional badge added later. See useCreatorAuth.
  */
+import { Link } from 'react-router-dom';
 import { useCreatorAuth } from '../hooks/useCreatorAuth';
 
 export default function CreatorSignIn({
   heading = 'Create your creator account',
-  sub = 'Sign in and claim your profile in two quick steps. No wallet or seed phrase — we handle that for you.',
+  sub = 'Sign in to claim your public profile. No wallet or seed phrase required — one is created for you automatically.',
 }: { heading?: string; sub?: string }) {
   const { signIn, signingIn, isInWorldApp, error } = useCreatorAuth();
 
@@ -22,7 +23,12 @@ export default function CreatorSignIn({
         {signingIn ? 'Opening sign-in…' : isInWorldApp ? 'Continue with World App' : 'Continue with Google'}
       </button>
       {error && <p style={S.err}>{error}</p>}
-      <p style={S.fine}>Then you’ll pick a @handle — that’s your public profile. That’s it.</p>
+      <p style={S.fine}>Next, you’ll choose a @handle for your public profile.</p>
+
+      {/* Educators use a completely separate login (no wallet, no @handle, no Privy). */}
+      <div style={S.sep} aria-hidden />
+      <p style={{ ...S.fine, margin: '0 0 10px' }}>Educator or professor? Use your institutional account.</p>
+      <Link to="/dashboard" style={S.eduBtn}>Professor sign in</Link>
     </div>
   );
 }
@@ -35,4 +41,6 @@ const S: Record<string, React.CSSProperties> = {
   btn: { width: '100%', color: '#fff', background: 'var(--hi-cyan, #00b4d8)', fontSize: 15, fontWeight: 700, border: 'none', borderRadius: 10, padding: '12px 16px', cursor: 'pointer' },
   err: { fontSize: 12.5, color: '#b91c1c', margin: '10px 0 0' },
   fine: { fontSize: 11.5, color: 'var(--hi-text-muted, #64748b)', margin: '14px 0 0', lineHeight: 1.5 },
+  sep: { height: 1, background: 'var(--hi-border, #e6e9ee)', margin: '18px 0 16px' },
+  eduBtn: { display: 'block', boxSizing: 'border-box', width: '100%', textAlign: 'center', textDecoration: 'none', color: '#fff', background: '#6c5ce7', fontSize: 15, fontWeight: 700, borderRadius: 10, padding: '12px 16px', cursor: 'pointer' },
 };

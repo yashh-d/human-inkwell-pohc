@@ -58,3 +58,6 @@ brandlogos/
 # Scratch screenshots
 edit.png
 fucked.png
+
+# Professor seed scripts contain plaintext temp passwords — NEVER commit (public repo)
+client/scripts/

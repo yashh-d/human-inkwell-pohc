@@ -190,6 +190,10 @@ const EducationPage: React.FC = () => {
             How it works
           </Link>
         </div>
+        <p className="edu-intro__signin">
+          Already using Human&nbsp;Ink in your class?{' '}
+          <Link to="/dashboard" className="edu-intro__signin-link">Professor sign in&nbsp;→</Link>
+        </p>
       </section>
 
       {/* In the classroom — end to end */}
@@ -304,6 +308,9 @@ const EducationPage: React.FC = () => {
           </a>
           <Link to="/about" className="lp-btn lp-btn--ghost-dark lp-btn--lg">
             Learn how it works
+          </Link>
+          <Link to="/dashboard" className="lp-btn lp-btn--ghost-dark lp-btn--lg">
+            Professor sign in
           </Link>
         </div>
         <PoweredByWorld className="lp-world--final" tone="dark" />

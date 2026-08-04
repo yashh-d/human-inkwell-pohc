@@ -12,6 +12,21 @@
   margin-top: 2.1rem;
 }
 
+/* Educator entry point — professors sign in to their own dashboard (separate
+   from the creator/Privy flow). */
+.edu-intro__signin {
+  margin-top: 1.25rem;
+  font-size: 0.95rem;
+  color: var(--lp-muted);
+}
+.edu-intro__signin-link {
+  color: var(--lp-cyan-ink);
+  font-weight: 600;
+  text-decoration: none;
+  white-space: nowrap;
+}
+.edu-intro__signin-link:hover { text-decoration: underline; }
+
 /* ── Capabilities (reuses .lp-feature-grid) ──────────────── */
 .edu-features {
   max-width: 1120px;

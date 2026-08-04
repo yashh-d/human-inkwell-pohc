@@ -15,6 +15,8 @@ import {
   LINKEDIN_FEED_URL,
 } from '../utils/socialShare';
 import WorldIDWidget from '../components/WorldIDWidget';
+import PublishProofPage from './PublishProofPage';
+import { ExtensionProof } from '../lib/authorship';
 import { blockchainService } from '../blockchain';
 import { useWallets } from '@privy-io/react-auth';
 import { ethers } from 'ethers';
@@ -100,6 +102,59 @@ function BiometricTimingRows({ s }: { s: FeatureStatistics }) {
       </tr>
     </>
   );
+}
+
+/** Shape the demo's locally-captured data into the exact ExtensionProof the
+ *  Chrome extension hands to /publish, so the preview renders the real report.
+ *  Paste is disabled in the writing surface, so this is a fully-typed session. */
+function buildDemoProof(args: {
+  content: string;
+  contentHash: string;
+  humanSignatureHash: string;
+  bio: DetailedBiometricData;
+  tabAwayCount: number;
+}): ExtensionProof {
+  const { content, contentHash, humanSignatureHash, bio, tabAwayCount } = args;
+  const cps = bio.rawFeatures.typingSpeed; // chars/sec
+  const chars = content.length;
+  return {
+    v: 1,
+    source: 'humanink-web-preview',
+    contentHash,
+    text: content,
+    humanSignatureHash,
+    keystrokeCount: bio.totalKeystrokes,
+    typingSpeed: cps,
+    context: 'web',
+    docTitle: null,
+    url: null,
+    email: null,
+    metrics: {
+      wpm: Math.round(cps * 12), // c/s → WPM (≈5 chars per word)
+      typingSpeedCharsPerSec: cps,
+      keystrokeCount: bio.totalKeystrokes,
+      backspaceCount: bio.rawFeatures.backspaceCount,
+      pasteCount: 0,
+      pastedChars: 0,
+      largestPaste: 0,
+      bigPastes: 0,
+      humanTypedRatio: 1,
+      pageExits: tabAwayCount,
+      elapsedMs: bio.captureTimespan,
+      textLength: chars,
+    },
+    revision: {
+      editCount: 1,
+      typedEdits: 1,
+      pasteEdits: 0,
+      typedChars: chars,
+      pastedChars: 0,
+      humanTypedRatio: 1,
+      largestPaste: 0,
+      timeline: [{ type: 'type', chars, t: 0 }],
+    },
+    docsRevision: null,
+  };
 }
 
 function calculateStatistics(values: number[]): FeatureStatistics {
@@ -1181,41 +1236,23 @@ function HomePage({
             </div>
           </div>
 
-          <div className="hi-overlay__body hi-overlay__body--centered">
-            <div className="hi-receipt">
-              <div
-                className="hi-receipt__note"
-                role="note"
-                style={{
-                  background: '#fff7d6',
-                  border: '1px solid #e8d98a',
-                  borderRadius: 8,
-                  padding: '10px 12px',
-                  marginBottom: 12,
-                }}
-              >
-                <strong>Demo preview.</strong> Nothing was signed, and nothing was written to
-                World Chain. This is computed entirely on your device.
-              </div>
-              <h2 className="hi-receipt__title">Your biometric preview</h2>
-              <p className="hi-receipt__note">
-                This is exactly what the real flow analyzes and posts onchain — your typing
-                rhythm and the two hashes below. To make it permanent, verify with World ID.
-              </p>
-              <div className="hi-receipt__actions" role="group" aria-label="Demo next steps">
-                <button
-                  type="button"
-                  className="hi-btn hi-btn--primary"
-                  onClick={handleWriteAnother}
-                >
-                  Verify with World ID to post for real
-                </button>
-              </div>
-              <details className="hi-receipt__detail" open>
-                <summary>Full detail · biometric, hashes</summary>
-                {biometricDetail}
-              </details>
-            </div>
+          {/* The exact /publish report, rendered from the demo's locally-captured
+              proof. previewOnly swaps the on-chain publish action for a World-ID
+              call-to-action — nothing is signed or written on-chain. */}
+          <div className="hi-overlay__body hi-overlay__body--report">
+            {biometricData && contentHash && humanSignatureHash && (
+              <PublishProofPage
+                previewOnly
+                onPreviewVerify={handleWriteAnother}
+                injectedProof={buildDemoProof({
+                  content,
+                  contentHash,
+                  humanSignatureHash,
+                  bio: biometricData,
+                  tabAwayCount: sessionTabAwayCount,
+                })}
+              />
+            )}
           </div>
         </div>
       )}

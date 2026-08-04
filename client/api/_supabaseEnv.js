@@ -31,6 +31,22 @@ function getSupabaseCreds() {
   return { url, key, error };
 }
 
+/**
+ * Service-role creds. REQUIRED by the accounts/assignments/submissions routes:
+ * those tables have RLS enabled with no anon/authenticated policies, so only the
+ * service-role key (which bypasses RLS) can read/write them. Never expose this
+ * key to the client.
+ */
+function getServiceRoleCreds() {
+  const url = getSupabaseUrl();
+  const key = (process.env.SUPABASE_SERVICE_ROLE_KEY || '').trim();
+  const error =
+    !url || !key
+      ? 'Server missing Supabase service role: set SUPABASE_URL (or REACT_APP_SUPABASE_URL) and SUPABASE_SERVICE_ROLE_KEY in Vercel, then redeploy.'
+      : null;
+  return { url, key, error };
+}
+
 /** For /api/debug-supabase — which env names are set, never secret values. */
 function getSupabaseDebugMeta() {
   const urlKey = ['REACT_APP_SUPABASE_URL', 'SUPABASE_URL', 'NEXT_PUBLIC_SUPABASE_URL'].find(
@@ -59,4 +75,4 @@ function getSupabaseDebugMeta() {
   };
 }
 
-module.exports = { getSupabaseCreds, getSupabaseDebugMeta };
+module.exports = { getSupabaseCreds, getServiceRoleCreds, getSupabaseDebugMeta };

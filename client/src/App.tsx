@@ -18,6 +18,8 @@ import CreatorFeedPage from './pages/CreatorFeedPage';
 import CreatorMePage from './pages/CreatorMePage';
 import CreatorPostPage from './pages/CreatorPostPage';
 import CreatorProfilePage from './pages/CreatorProfilePage';
+import SubmissionReportPage from './pages/SubmissionReportPage';
+import ProfessorDashboardPage from './pages/ProfessorDashboardPage';
 
 /** Only mount when enabled so `/_vercel/insights/script.js` is not requested on hosts where it 404s as HTML. */
 function VercelAnalyticsGate() {
@@ -88,6 +90,12 @@ function App() {
           {/* The badge must render bare (no app chrome) so it embeds cleanly in
               an <iframe>; it stays outside the app layout. */}
           <Route path="/badge" element={<CreatorBadge />} />
+          {/* Shareable report link + professor dashboard render bare (no student
+              onboarding gate, no app chrome). Access control is server-side: the
+              report shows a summary to all and full detail only to a signed-in
+              professor. */}
+          <Route path="/s/:slug" element={<SubmissionReportPage />} />
+          <Route path="/dashboard" element={<ProfessorDashboardPage />} />
           {/* Creator surfaces are NOT behind the student onboarding/World-ID wall.
               Sign-up is Privy-only (World ID is an opt-in badge), so these render
               in the app chrome for everyone. */}

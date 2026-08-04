@@ -15,6 +15,7 @@ import {
 import { detectAi, AiResult } from '../lib/aiDetector';
 import { computeReceipts, fmtDuration } from '../lib/receipts';
 import { publishCreatorPost } from '../creatorSupabase';
+import StudentSubmitPanel from '../components/StudentSubmitPanel';
 
 const CHAIN_ID = Number(process.env.REACT_APP_CHAIN_ID || 4801);
 
@@ -49,6 +50,7 @@ export default function PublishProofPage(
     injectedProof,
     previewOnly = false,
     onPreviewVerify,
+    reportOnly = false,
   }: {
     variant?: 'student' | 'creator';
     injectedProof?: ExtensionProof;
@@ -57,9 +59,17 @@ export default function PublishProofPage(
     // the A/B design toggle. Nothing is signed or written on-chain.
     previewOnly?: boolean;
     onPreviewVerify?: () => void;
+    // Report-only mode (the professor's /s/<slug> detailed view): render the full
+    // scores + evidence from an injected proof, with the detail expanded and no
+    // publish/verify action. This is the gated view only professors reach.
+    reportOnly?: boolean;
   } = {},
 ) {
   const isCreator = variant === 'creator';
+  // The detailed evidence breakdown is professor-facing: shown for the creator
+  // report, the /write preview, and the professor's report-only view — but hidden
+  // from a student's own publish page (they see only the two headline scores).
+  const showDetail = isCreator || previewOnly || reportOnly;
   // Creator variant renames the two metric labels only (same scores + layout).
   const scoreLabel = isCreator ? 'Grind Score' : 'Process Score';
   const aiLabel = isCreator ? 'Slop Score' : 'AI probability';
@@ -121,7 +131,7 @@ export default function PublishProofPage(
   const integrity = useMemo(() => (proof ? computeIntegrity(proof) : null), [proof]);
 
   // F2: evidence collapsed by default; score-bands are server-tunable (no deploy).
-  const [showEvidence, setShowEvidence] = useState(false);
+  const [showEvidence, setShowEvidence] = useState<boolean>(!!reportOnly);
   const [bands, setBands] = useState<ScoreBands>(DEFAULT_BANDS);
   useEffect(() => {
     let alive = true;
@@ -367,11 +377,13 @@ export default function PublishProofPage(
       </div>
       )}
 
-      <button style={styles.seeWhy} onClick={() => setShowEvidence((v) => !v)}>
-        {showEvidence ? 'Hide evidence ▲' : 'See why ▼'}
-      </button>
+      {showDetail && (
+        <button style={styles.seeWhy} onClick={() => setShowEvidence((v) => !v)}>
+          {showEvidence ? 'Hide evidence ▲' : 'See why ▼'}
+        </button>
+      )}
 
-      {showEvidence && (
+      {showDetail && showEvidence && (
       <>
       {/* Evidence cards, then a drop-down with the per-signal breakdown (shared with B).
           The composite-score breakdown is hidden for creators (receipts, not scores). */}
@@ -504,7 +516,7 @@ export default function PublishProofPage(
       </>
       )}
 
-      {previewOnly ? (
+      {reportOnly ? null : previewOnly ? (
         <>
           <button style={styles.primary} onClick={() => onPreviewVerify?.()}>
             Verify with World ID to post for real
@@ -518,6 +530,24 @@ export default function PublishProofPage(
           <Receipt result={submit.result} />
           {isCreator && <HIFeedStatus state={feedState} msg={feedMsg} isPublic={feedOptIn} />}
           {isCreator && feedOptIn && feedState === 'done' && typeof successEntryId === 'number' && <CraftCardEmbed entryId={successEntryId} />}
+          {!isCreator && (
+            <StudentSubmitPanel
+              proof={proof}
+              summary={{
+                authorship_score: authorship.score,
+                ai_score: ai ? ai.ai : null,
+                integrity_score: integrity.score,
+                band: band.tone,
+              }}
+              onchain={{
+                chain_id: CHAIN_ID,
+                contract_address: CONTRACT_ADDRESS,
+                entry_id: typeof submit.result?.entryId === 'number' ? submit.result.entryId : undefined,
+                content_hash: proof.contentHash,
+                transaction_hash: submit.result?.transactionHash,
+              }}
+            />
+          )}
         </>
       ) : (
         <>
