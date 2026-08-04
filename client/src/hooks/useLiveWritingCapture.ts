@@ -13,6 +13,7 @@ import { useKeystrokeCapture } from './useKeystrokeCapture';
 import { useBiometricProcessor } from './useBiometricProcessor';
 import { hashContent } from '../utils/crypto';
 import { ExtensionProof, PasteOrigin } from '../lib/authorship';
+import { computeActiveMs, ACTIVE_CAP_MS } from '../lib/activeTime';
 
 const BIG_PASTE = 120;      // chars; matches the integrity "large block" threshold
 const BURST_GAP_MS = 2000;  // a pause > 2s starts a new typing burst
@@ -21,7 +22,7 @@ type PasteRec = { chars: number; origin: PasteOrigin; t: number };
 type TimelineEntry = { type: 'type' | 'paste'; chars: number; origin?: PasteOrigin; t: number };
 
 export function useLiveWritingCapture() {
-  const { startCapture, stopCapture, getRawKeystrokeData, getTabAwayCount, isCapturing } = useKeystrokeCapture();
+  const { startCapture, stopCapture, getRawKeystrokeData, getTabAwayCount, getHiddenMs, getHiddenIntervals, getActivityTimestamps, isCapturing } = useKeystrokeCapture();
   const { extractFeatures, generateHumanSignatureHash } = useBiometricProcessor();
 
   const firstInputRef = useRef<number | null>(null);
@@ -83,9 +84,20 @@ export function useLiveWritingCapture() {
     const keystrokeCount = keydowns.length;
     const backspaceCount = keydowns.filter((e) => e.key === 'Backspace').length;
 
-    const started = firstInputRef.current ?? Date.now();
-    const ended = lastInputRef.current ?? started;
-    const elapsedMs = Math.max(0, ended - started);
+    // Active writing time — NOT wall-clock. We reconstruct time from activity
+    // events (keydowns + pastes + mouse/scroll/click heartbeats): each gap
+    // between successive events is credited, minus any portion the tab was
+    // hidden, and capped per-gap so a long visible pause is bounded rather than
+    // counted in full. This is the single honest definition shared with the
+    // extension (see lib/activeTime.ts) and what "time invested" promises.
+    const eventTimes = [
+      ...keydowns.map((e) => e.timestamp),
+      ...pastesRef.current.map((p) => p.t),
+      ...getActivityTimestamps(),
+    ];
+    const activeMs = computeActiveMs(eventTimes, getHiddenIntervals(), ACTIVE_CAP_MS);
+    const hiddenMs = getHiddenMs();
+    const elapsedMs = activeMs;
     const typingSpeed = elapsedMs > 0 ? (keystrokeCount / (elapsedMs / 1000)) : 0; // chars/sec
 
     const pastes = pastesRef.current;
@@ -133,6 +145,7 @@ export function useLiveWritingCapture() {
         bigPastes,
         humanTypedRatio,
         pageExits: getTabAwayCount(),
+        hiddenMs,
         elapsedMs,
         textLength,
       },
@@ -153,7 +166,7 @@ export function useLiveWritingCapture() {
       docsRevision: null,
     };
     return proof;
-  }, [stopCapture, getRawKeystrokeData, getTabAwayCount, buildTimeline, extractFeatures, generateHumanSignatureHash]);
+  }, [stopCapture, getRawKeystrokeData, getTabAwayCount, getHiddenMs, getHiddenIntervals, getActivityTimestamps, buildTimeline, extractFeatures, generateHumanSignatureHash]);
 
   return { attach, noteInput, notePaste, finish, reset, isCapturing, getPasteCount, getPastedChars };
 }

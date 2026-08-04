@@ -1,5 +1,6 @@
 import React from 'react';
 import { Link } from 'react-router-dom';
+import CreatorNavAuth from './CreatorNavAuth';
 import '../pages/LandingPage.css';
 import './SiteNav.css';
 
@@ -82,6 +83,7 @@ const SiteNav: React.FC<{ current?: SiteNavCurrent }> = ({ current }) => (
       <Link to="/write" className="lp-btn lp-btn--primary lp-btn--sm">
         Start writing
       </Link>
+      <CreatorNavAuth />
     </div>
   </header>
   </div>

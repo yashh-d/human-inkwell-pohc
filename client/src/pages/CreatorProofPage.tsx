@@ -4,6 +4,7 @@ import { usePrivy, useLogin } from '@privy-io/react-auth';
 import { loadProof, PROOF_KEY, ExtensionProof } from '../lib/authorship';
 import { useLiveWritingCapture } from '../hooks/useLiveWritingCapture';
 import { useMiniKit } from '../hooks/useMiniKit';
+import { ACTIVE_CAP_MS } from '../lib/activeTime';
 import PublishProofPage from './PublishProofPage';
 import CreatorWelcome from './CreatorWelcome';
 
@@ -63,7 +64,9 @@ function CreatorEditor({ onComplete }: { onComplete: (p: ExtensionProof) => void
   const [title, setTitle] = useState('');
   const [text, setText] = useState('');
   const [startedAt, setStartedAt] = useState<number | null>(null);
-  const [now, setNow] = useState(Date.now());
+  const [activeMs, setActiveMs] = useState(0);
+  const lastInputAtRef = useRef(0);
+  const lastTickRef = useRef(0);
   const [building, setBuilding] = useState(false);
 
   // Attach keystroke capture EXACTLY once. (startCapture clears its buffer, so
@@ -73,14 +76,36 @@ function CreatorEditor({ onComplete }: { onComplete: (p: ExtensionProof) => void
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // Live "time invested" ticker. Accumulate only while the tab is visible AND
+  // there's been recent activity — so leaving the tab open (or idle) doesn't run
+  // the clock. The idle window mirrors the per-gap cap baked into the published
+  // proof (ACTIVE_CAP_MS = 3 min), and any presence at the doc — typing, mouse,
+  // scroll or click — counts as activity.
   useEffect(() => {
     if (startedAt == null) return;
-    const id = window.setInterval(() => setNow(Date.now()), 1000);
+    lastTickRef.current = Date.now();
+    const id = window.setInterval(() => {
+      const t = Date.now();
+      const prev = lastTickRef.current || t;
+      lastTickRef.current = t;
+      const idleFor = t - lastInputAtRef.current;
+      if (!document.hidden && idleFor <= ACTIVE_CAP_MS) {
+        setActiveMs((m) => m + (t - prev));
+      }
+    }, 1000);
     return () => window.clearInterval(id);
   }, [startedAt]);
 
+  // Any presence at the doc counts as activity for the live ticker: mouse-move,
+  // scroll and click, not just keystrokes. (The published proof records these as
+  // heartbeats in the capture hook; here we just keep the on-screen clock live.)
+  const markActivity = () => {
+    lastInputAtRef.current = Date.now();
+    if (startedAt == null) { setStartedAt(Date.now()); lastTickRef.current = Date.now(); }
+  };
+
   const onChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
-    if (startedAt == null) setStartedAt(Date.now());
+    markActivity();
     cap.noteInput();
     setText(e.target.value);
   };
@@ -90,7 +115,7 @@ function CreatorEditor({ onComplete }: { onComplete: (p: ExtensionProof) => void
   };
 
   const words = text.trim() ? text.trim().split(/\s+/).length : 0;
-  const elapsedMs = startedAt ? now - startedAt : 0;
+  const elapsedMs = activeMs;
   const mins = Math.floor(elapsedMs / 60000);
   const secs = Math.floor((elapsedMs % 60000) / 1000);
   const wpm = elapsedMs > 3000 ? Math.round(words / (elapsedMs / 60000)) : 0;
@@ -126,6 +151,9 @@ function CreatorEditor({ onComplete }: { onComplete: (p: ExtensionProof) => void
           value={text}
           onChange={onChange}
           onPaste={onPaste}
+          onMouseMove={markActivity}
+          onScroll={markActivity}
+          onClick={markActivity}
           rows={16}
           spellCheck
         />

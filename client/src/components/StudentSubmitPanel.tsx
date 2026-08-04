@@ -8,6 +8,23 @@ import {
   type DirectoryTree,
 } from '../submissionsApi';
 
+const STUDENT_NAME_KEY = 'humanink_student_name';
+/** Remember the student's name so repeat submitters don't retype it. */
+function rememberedStudentName(): string {
+  try {
+    return localStorage.getItem(STUDENT_NAME_KEY) || '';
+  } catch {
+    return '';
+  }
+}
+function rememberStudentName(name: string): void {
+  try {
+    localStorage.setItem(STUDENT_NAME_KEY, name);
+  } catch {
+    /* storage blocked — non-fatal */
+  }
+}
+
 /**
  * Shown to a student right after a successful on-chain publish. It:
  *   1. Stores the submission server-side (summary + professor-only detail) and
@@ -35,42 +52,76 @@ export default function StudentSubmitPanel({
 }) {
   const [slug, setSlug] = useState<string | null>(null);
   const [createErr, setCreateErr] = useState<string | null>(null);
+  const [name, setName] = useState<string>(() => rememberedStudentName());
+  const [saving, setSaving] = useState(false);
   const posted = useRef(false);
 
-  useEffect(() => {
-    if (posted.current) return;
+  const save = async () => {
+    const fullName = name.trim();
+    if (!fullName || posted.current) return;
     posted.current = true;
-    createSubmission({
-      proof,
-      summary,
-      student_email: proof.email || null,
-      chain_id: onchain.chain_id,
-      contract_address: onchain.contract_address,
-      entry_id: onchain.entry_id,
-      content_hash: onchain.content_hash || proof.contentHash,
-      transaction_hash: onchain.transaction_hash,
-    })
-      .then((r) => setSlug(r.share_slug))
-      .catch((e) => setCreateErr(e instanceof Error ? e.message : 'Could not save your submission.'));
-  }, [proof, summary, onchain]);
+    setSaving(true);
+    setCreateErr(null);
+    try {
+      const r = await createSubmission({
+        proof,
+        summary,
+        student_name: fullName,
+        student_email: proof.email || null,
+        chain_id: onchain.chain_id,
+        contract_address: onchain.contract_address,
+        entry_id: onchain.entry_id,
+        content_hash: onchain.content_hash || proof.contentHash,
+        transaction_hash: onchain.transaction_hash,
+      });
+      rememberStudentName(fullName);
+      setSlug(r.share_slug);
+    } catch (e) {
+      posted.current = false; // let them retry
+      setCreateErr(e instanceof Error ? e.message : 'Could not save your submission.');
+    } finally {
+      setSaving(false);
+    }
+  };
 
   const link = useMemo(
     () => (slug ? `${window.location.origin}/s/${slug}` : ''),
     [slug],
   );
 
-  if (createErr) {
-    return (
-      <div style={s.panel}>
-        <p style={s.err}>{createErr}</p>
-        <p style={s.hint}>Your proof is still on-chain — you can retry from the extension.</p>
-      </div>
-    );
-  }
+  // Step 1 — name entry. We save only once the student names themselves, so the
+  // professor sees a real name on the report and roster, not just an email.
   if (!slug) {
     return (
       <div style={s.panel}>
-        <p style={s.hint}>Saving your proof…</p>
+        <div style={s.h}>Add your name</div>
+        <p style={s.hint}>
+          Enter your full name so your professor can identify your work — they’ll see this on
+          the report, not just your email.
+        </p>
+        <input
+          style={s.nameInput}
+          value={name}
+          maxLength={80}
+          autoFocus
+          placeholder="Your full name"
+          onChange={(e) => setName(e.target.value)}
+          onKeyDown={(e) => { if (e.key === 'Enter') save(); }}
+        />
+        {proof.email && <p style={s.hint}>Signed in as {proof.email}</p>}
+        <button
+          style={{ ...s.primary, marginTop: 12, opacity: name.trim() && !saving ? 1 : 0.5 }}
+          disabled={!name.trim() || saving}
+          onClick={save}
+        >
+          {saving ? 'Saving…' : 'Save & get share link'}
+        </button>
+        {createErr && (
+          <>
+            <p style={s.err}>{createErr}</p>
+            <p style={s.hint}>Your proof is still on-chain — you can try saving again.</p>
+          </>
+        )}
       </div>
     );
   }
@@ -78,6 +129,7 @@ export default function StudentSubmitPanel({
   return (
     <div style={s.panel}>
       <div style={s.h}>Share with your professor</div>
+      {name.trim() && <p style={s.hint}>Submitting as <strong>{name.trim()}</strong>.</p>}
       <CopyRow value={link} />
       <p style={s.hint}>
         No assignment yet? Just copy this link and paste it anywhere — at the bottom of your doc, in an
@@ -207,6 +259,7 @@ const s: Record<string, React.CSSProperties> = {
   hint: { fontSize: 12.5, color: '#94a3b8', marginTop: 8, lineHeight: 1.5 },
   copyRow: { display: 'flex', gap: 8, alignItems: 'center' },
   linkInput: { flex: 1, minWidth: 0, padding: '9px 11px', borderRadius: 8, border: '1px solid #2a2f3a', background: '#0b0e14', color: '#e5e7eb', fontSize: 13, fontFamily: 'ui-monospace, Menlo, monospace' },
+  nameInput: { boxSizing: 'border-box', width: '100%', padding: '11px 12px', borderRadius: 8, border: '1px solid #2a2f3a', background: '#0b0e14', color: '#e5e7eb', fontSize: 14, marginTop: 10 },
   copyBtn: { padding: '9px 14px', borderRadius: 8, border: '1px solid #3b4252', background: '#1c2230', color: '#e5e7eb', fontSize: 13, cursor: 'pointer', whiteSpace: 'nowrap' },
   attach: { marginTop: 16, paddingTop: 14, borderTop: '1px solid #22262f' },
   selects: { display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 10 },
