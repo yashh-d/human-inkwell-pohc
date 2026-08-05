@@ -70,6 +70,16 @@ export type ExtensionProof = {
     editDays?: number;
     authors: string[];
   } | null;
+  // Tracking-off disclosure: whether (and for how long) the writer toggled live
+  // capture OFF. Transparency only — the Google revision scan is toggle-independent,
+  // so pausing can't hide pasted text; older hand-offs won't carry this.
+  pause?: {
+    everPaused: boolean;
+    currentlyPaused: boolean;
+    pauseCount: number;
+    pausedMs: number;
+    pauses: { start: number; end: number }[];
+  } | null;
 };
 
 export const PROOF_KEY = 'humanink_pending_proof';

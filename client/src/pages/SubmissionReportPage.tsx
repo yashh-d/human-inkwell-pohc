@@ -75,7 +75,7 @@ export default function SubmissionReportPage() {
             <Link to="/dashboard" style={dashLink}>Dashboard →</Link>
           </div>
         </div>
-        <PublishProofPage injectedProof={view.detail} reportOnly />
+        <PublishProofPage injectedProof={view.detail} injectedPasteEvents={view.pasteEvents ?? undefined} reportOnly />
       </div>
     );
   }

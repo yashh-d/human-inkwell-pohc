@@ -50,6 +50,16 @@ export async function createSubmission(
   return jsonOrThrow(res);
 }
 
+/** One persisted paste behind an amber cliff/bar — professor-only content. */
+export type PasteEvent = {
+  charCount: number;
+  content: string;
+  origin: 'external' | 'cited_source' | 'internal_move' | string;
+  pastedAt: number | null;
+  isLarge: boolean;
+  truncated: boolean;
+};
+
 export type SubmissionView = {
   slug: string;
   summary: SubmissionSummary;
@@ -65,6 +75,8 @@ export type SubmissionView = {
   detail?: ExtensionProof | null;
   student?: { email: string | null; name: string | null };
   assignment?: { id: string; title: string; join_code: string } | null;
+  // Professor-only: the actual text of each external/cited paste, for the charts.
+  pasteEvents?: PasteEvent[] | null;
 };
 
 export async function fetchSubmission(slug: string, token?: string | null): Promise<SubmissionView> {

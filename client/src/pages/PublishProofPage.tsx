@@ -13,6 +13,7 @@ import {
   processBand, reasonLine, computeIntegrity, buildRubricAlignment,
 } from "../lib/authorship";
 import { detectAi, AiResult } from '../lib/aiDetector';
+import type { PasteEvent } from '../submissionsApi';
 import { computeReceipts, fmtDuration } from '../lib/receipts';
 import { publishCreatorPost } from '../creatorSupabase';
 import StudentSubmitPanel from '../components/StudentSubmitPanel';
@@ -48,12 +49,16 @@ export default function PublishProofPage(
   {
     variant = 'student',
     injectedProof,
+    injectedPasteEvents,
     previewOnly = false,
     onPreviewVerify,
     reportOnly = false,
   }: {
     variant?: 'student' | 'creator';
     injectedProof?: ExtensionProof;
+    // Professor-only paste content (from /api/submission), matched onto the paste
+    // entries in the revision charts so a hover reveals what was pasted in.
+    injectedPasteEvents?: PasteEvent[];
     // Preview mode (the /write demo): render the exact same report, but swap the
     // real "publish" action for a "verify with World ID" call-to-action and drop
     // the A/B design toggle. Nothing is signed or written on-chain.
@@ -84,6 +89,9 @@ export default function PublishProofPage(
   const [submit, setSubmit] = useState<SubmitState>({ phase: 'idle' });
   const [authError, setAuthError] = useState<string | null>(null);
   const [pendingPublish, setPendingPublish] = useState(false);
+  // Students name themselves (and optionally pick an assignment) BEFORE publishing;
+  // the publish button stays disabled until the required name is filled in.
+  const [studentReady, setStudentReady] = useState(false);
   // A/B design toggle: A is the current report; B is the evidence-first redesign.
   // The original report (Version A: Process Score + AI% + typing stats + charts)
   // is the one and only design; the A/B toggle is gone. The `as` keeps the union
@@ -322,6 +330,7 @@ export default function PublishProofPage(
     : '';
   const successEntryId = submit.phase === 'success' && typeof submit.result?.entryId === 'number'
     ? (submit.result.entryId as number) : undefined;
+  const successResult = submit.phase === 'success' ? submit.result : undefined;
 
   if (view === 'b') {
     return (
@@ -459,6 +468,35 @@ export default function PublishProofPage(
         </div>
       )}
 
+      {/* Tracking-off disclosure. Live keystroke capture can be toggled off; when
+          it is, we say so here. This is transparency, not a loophole — the Google
+          revision scan above is toggle-independent, so pasted text is still caught
+          even during an off window. */}
+      {proof.pause && proof.pause.everPaused && (
+        <div style={{ ...styles.card, borderColor: 'var(--warn-border, #fde68a)' }}>
+          <div style={styles.sec}>⚠ Live tracking was turned off</div>
+          <Row k="Total time off" v={fmtMs(proof.pause.pausedMs)} />
+          <Row
+            k="Times toggled off"
+            v={String(proof.pause.pauseCount || (proof.pause.pauses?.length ?? 0))}
+          />
+          {proof.pause.currentlyPaused && <Row k="Status" v="off at publish time" />}
+          {Array.isArray(proof.pause.pauses) && proof.pause.pauses.length > 0 && (
+            proof.pause.pauses.slice(-6).map((w, i) => (
+              <Row
+                key={i}
+                k={`Off window ${proof.pause!.pauses.length > 6 ? proof.pause!.pauses.length - 6 + i + 1 : i + 1}`}
+                v={`${new Date(w.start).toLocaleString()} → ${w.end ? new Date(w.end).toLocaleTimeString() : 'still off'} (${fmtMs(Math.max(0, (w.end || Date.now()) - w.start))})`}
+              />
+            ))
+          )}
+          <p style={{ ...styles.muted, marginTop: 6 }}>
+            The Google Docs revision scan runs regardless of this toggle, so any text
+            pasted while tracking was off is still recorded above.
+          </p>
+        </div>
+      )}
+
       </div>{/* end bodyGrid */}
 
       {/* For professors, optional rubric → AI-assisted process alignment.
@@ -511,7 +549,7 @@ export default function PublishProofPage(
       )}
 
       {/* Revision-analysis charts, organized + enlarged, at the bottom. */}
-      <RevisionCharts proof={proof} />
+      <RevisionCharts proof={proof} pasteEvents={injectedPasteEvents} />
 
       </>
       )}
@@ -525,39 +563,67 @@ export default function PublishProofPage(
             This is a preview — nothing was signed or written on-chain. Verify with World ID to make it permanent.
           </p>
         </>
-      ) : success ? (
-        <>
-          <Receipt result={submit.result} />
-          {isCreator && <HIFeedStatus state={feedState} msg={feedMsg} isPublic={feedOptIn} />}
-          {isCreator && feedOptIn && feedState === 'done' && typeof successEntryId === 'number' && <CraftCardEmbed entryId={successEntryId} />}
-          {!isCreator && (
-            <StudentSubmitPanel
-              proof={proof}
-              summary={{
-                authorship_score: authorship.score,
-                ai_score: ai ? ai.ai : null,
-                integrity_score: integrity.score,
-                band: band.tone,
-              }}
-              onchain={{
-                chain_id: CHAIN_ID,
-                contract_address: CONTRACT_ADDRESS,
-                entry_id: typeof submit.result?.entryId === 'number' ? submit.result.entryId : undefined,
-                content_hash: proof.contentHash,
-                transaction_hash: submit.result?.transactionHash,
-              }}
-            />
-          )}
-        </>
+      ) : isCreator ? (
+        success ? (
+          <>
+            <Receipt result={submit.result} />
+            <HIFeedStatus state={feedState} msg={feedMsg} isPublic={feedOptIn} />
+            {feedOptIn && feedState === 'done' && typeof successEntryId === 'number' && <CraftCardEmbed entryId={successEntryId} />}
+          </>
+        ) : (
+          <>
+            <HIFeedToggle optIn={feedOptIn} setOptIn={setFeedOptIn} username={feedUsername} />
+            <button style={{ ...styles.primary, opacity: busy ? 0.6 : 1 }} disabled={busy} onClick={handlePrimary}>
+              {busy ? 'Publishing…' : SIMULATE ? 'Publish proof on-chain' : feedOptIn ? 'Continue with Google & publish to HI Feed' : 'Continue with Google & publish'}
+            </button>
+            {(authError || identity.authError) && <p style={styles.error}>{authError || identity.authError}</p>}
+            {submit.phase === 'error' && <p style={styles.error}>{submit.message}</p>}
+            <Link to="/" style={{ ...styles.link, marginTop: 14, display: 'block' }}>Cancel</Link>
+          </>
+        )
       ) : (
+        // Student: name + (optional) assignment are gathered BEFORE publishing, so
+        // one action signs in, writes on-chain, mints the share link, and drops it
+        // into the professor's assignment. The panel keeps its own position in the
+        // tree so the collected name/target survive the publish → success flip.
         <>
-          {isCreator && <HIFeedToggle optIn={feedOptIn} setOptIn={setFeedOptIn} username={feedUsername} />}
-          <button style={{ ...styles.primary, opacity: busy ? 0.6 : 1 }} disabled={busy} onClick={handlePrimary}>
-            {busy ? 'Publishing…' : SIMULATE ? 'Publish proof on-chain' : isCreator && feedOptIn ? 'Continue with Google & publish to HI Feed' : 'Continue with Google & publish'}
-          </button>
-          {(authError || identity.authError) && <p style={styles.error}>{authError || identity.authError}</p>}
-          {submit.phase === 'error' && <p style={styles.error}>{submit.message}</p>}
-          <Link to="/" style={{ ...styles.link, marginTop: 14, display: 'block' }}>Cancel</Link>
+          {success && <Receipt result={submit.result} />}
+          <StudentSubmitPanel
+            key="student-submit"
+            published={success}
+            onReadyChange={setStudentReady}
+            proof={proof}
+            summary={{
+              authorship_score: authorship.score,
+              ai_score: ai ? ai.ai : null,
+              integrity_score: integrity.score,
+              band: band.tone,
+            }}
+            onchain={{
+              chain_id: CHAIN_ID,
+              contract_address: CONTRACT_ADDRESS,
+              entry_id: successEntryId,
+              content_hash: proof.contentHash,
+              transaction_hash: successResult?.transactionHash,
+            }}
+          />
+          {!success && (
+            <>
+              <button
+                style={{ ...styles.primary, marginTop: 16, opacity: busy || !studentReady ? 0.6 : 1 }}
+                disabled={busy || !studentReady}
+                onClick={handlePrimary}
+              >
+                {busy ? 'Publishing…' : SIMULATE ? 'Publish proof on-chain' : 'Continue with Google & publish'}
+              </button>
+              {!studentReady && (
+                <p style={{ ...styles.muted, textAlign: 'center', marginTop: 8 }}>Add your name above to continue.</p>
+              )}
+              {(authError || identity.authError) && <p style={styles.error}>{authError || identity.authError}</p>}
+              {submit.phase === 'error' && <p style={styles.error}>{submit.message}</p>}
+              <Link to="/" style={{ ...styles.link, marginTop: 14, display: 'block' }}>Cancel</Link>
+            </>
+          )}
         </>
       )}
     </div>
@@ -1147,8 +1213,12 @@ function EvidenceCards({ proof, authorship }: { proof: ExtensionProof; authorshi
  * and the burst terminology is spelled out (a "burst" = one run of continuous typing)
  * so "edit events" vs "typing bursts" is no longer a mystery.
  */
-function RevisionCharts({ proof }: { proof: ExtensionProof }) {
+function RevisionCharts({ proof, pasteEvents }: { proof: ExtensionProof; pasteEvents?: PasteEvent[] }) {
   const rev = proof.revision || null;
+  // Match each paste entry in the timeline to its stored text (professor-only).
+  // Both lists are chronological, so within an origin group we can pair them in
+  // order; internal moves are never persisted, so they simply have no text.
+  const pasteText = useMemo(() => matchPasteText(rev?.timeline, pasteEvents), [rev, pasteEvents]);
   if (!rev || rev.editCount === 0 || !rev.timeline || rev.timeline.length === 0) return null;
   return (
     <div style={styles.card}>
@@ -1156,19 +1226,91 @@ function RevisionCharts({ proof }: { proof: ExtensionProof }) {
 
       <div style={{ marginTop: 8 }}>
         <div style={styles.chartTitle}>How the document grew</div>
-        <p style={styles.chartCaption}>Did it build up steadily, or appear in sudden blocks? Green = typed, amber = pasted in.</p>
-        <WritingTimelineChart timeline={rev.timeline} docs={proof.docsRevision} />
+        <p style={styles.chartCaption}>Did it build up steadily, or appear in sudden blocks? Green = typed, amber = pasted in.{pasteText.size > 0 ? ' Hover an amber cliff to read exactly what was pasted.' : ''}</p>
+        <WritingTimelineChart timeline={rev.timeline} docs={proof.docsRevision} pasteText={pasteText} />
       </div>
 
       <div style={{ marginTop: 22 }}>
         <div style={styles.chartTitle}>When the bursts happened</div>
         <p style={styles.chartCaption}>Each writing burst (one unbroken run of typing; a pause &gt; 2s starts a new one) on a real time axis across every session — empty gaps are time away from the document, tall amber bars are pasted blocks.</p>
-        <BurstChart timeline={rev.timeline} byTime />
+        <BurstChart timeline={rev.timeline} byTime pasteText={pasteText} />
       </div>
 
       <div style={{ marginTop: 16 }}>
         <Row k="Typing bursts" v={`${rev.typedEdits} runs of continuous typing`} />
         {rev.pasteEdits > 0 && <Row k="Paste insertions" v={`${rev.pasteEdits} pasted in from elsewhere`} />}
+      </div>
+
+      {pasteEvents && pasteEvents.length > 0 && <PastedContentList events={pasteEvents} />}
+    </div>
+  );
+}
+
+/**
+ * Pair paste entries in the writing timeline with their captured text. paste_events
+ * only stores foreign content (external + cited pastes), never internal moves — so
+ * we group events by origin and hand them out, in chronological order, to the
+ * timeline pastes of the matching origin. Returns timeline-index → PasteEvent.
+ */
+function matchPasteText(
+  timeline?: { type: 'type' | 'paste'; chars: number; origin?: PasteOrigin; t?: number }[],
+  events?: PasteEvent[],
+): Map<number, PasteEvent> {
+  const out = new Map<number, PasteEvent>();
+  if (!timeline || !events || events.length === 0) return out;
+  // FIFO queue of events per origin (chronological, as returned by the API).
+  const queues = new Map<string, PasteEvent[]>();
+  for (const e of events) {
+    const o = e.origin || 'external';
+    if (!queues.has(o)) queues.set(o, []);
+    queues.get(o)!.push(e);
+  }
+  timeline.forEach((t, i) => {
+    if (t.type !== 'paste') return;
+    const o = t.origin || 'external';
+    if (o === 'internal_move') return; // never persisted — no text to show
+    const q = queues.get(o);
+    const ev = q && q.shift();
+    if (ev) out.set(i, ev);
+  });
+  return out;
+}
+
+/** Collapse whitespace and trim a pasted blob to a readable one-liner for tooltips. */
+function pasteSnippet(text: string, max = 160): string {
+  const clean = text.replace(/\s+/g, ' ').trim();
+  return clean.length > max ? `${clean.slice(0, max)}…` : clean;
+}
+
+/**
+ * Professor-only reading panel: the full text behind every amber paste in the
+ * charts, so a reviewer can see whether a block was a cited quote or something
+ * dropped in wholesale. Amber = external, purple = quoted source (same palette as
+ * the charts). Long/truncated pastes scroll inside their own box.
+ */
+function PastedContentList({ events }: { events: PasteEvent[] }) {
+  return (
+    <div style={{ marginTop: 20 }}>
+      <div style={styles.chartTitle}>What was pasted in</div>
+      <p style={styles.chartCaption}>The exact text behind each amber block above — visible to you as the professor only. {events.length} {events.length === 1 ? 'paste' : 'pastes'} captured.</p>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginTop: 6 }}>
+        {events.map((e, i) => {
+          const color = e.origin === 'cited_source' ? CHART_CITED : e.origin === 'internal_move' ? CHART_MOVE : CHART_EXTERNAL;
+          const label = e.origin === 'cited_source' ? 'quoted source' : e.origin === 'internal_move' ? 'moved within doc' : 'pasted in';
+          const when = fmtTipDate(e.pastedAt);
+          return (
+            <div key={i} style={{ border: '1px solid rgba(255,255,255,0.12)', borderLeft: `3px solid ${color}`, borderRadius: 8, padding: '8px 10px', background: 'rgba(255,255,255,0.02)' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, fontSize: 11, opacity: 0.7, marginBottom: 5, flexWrap: 'wrap' }}>
+                <span style={{ color, fontWeight: 700 }}>● {label} · {e.charCount.toLocaleString()} chars{e.isLarge ? ' · large' : ''}</span>
+                {when && <span>{when}</span>}
+              </div>
+              <div style={{ fontSize: 12.5, lineHeight: 1.5, whiteSpace: 'pre-wrap', wordBreak: 'break-word', maxHeight: 160, overflow: 'auto', fontFamily: 'ui-monospace, Menlo, monospace', opacity: 0.92 }}>
+                {e.content}{e.truncated ? '…' : ''}
+              </div>
+              {e.truncated && <div style={{ fontSize: 10.5, opacity: 0.55, marginTop: 4 }}>Truncated at capture (very long paste).</div>}
+            </div>
+          );
+        })}
       </div>
     </div>
   );
@@ -1251,6 +1393,20 @@ function ChartTip({ vx, vy, W, H, lines }: { vx: number; vy: number; W: number; 
   );
 }
 
+/** The pasted text, quoted and wrapped, shown inside a chart tooltip (professor
+ *  view). Overrides the tooltip's default single-line layout so a paste is readable. */
+function PasteTipQuote({ text }: { text: string }) {
+  return (
+    <span style={{
+      display: 'block', whiteSpace: 'normal', maxWidth: 260, marginTop: 3,
+      paddingTop: 3, borderTop: '1px solid rgba(255,255,255,0.14)',
+      fontStyle: 'italic', opacity: 0.95, lineHeight: 1.35,
+    }}>
+      “{pasteSnippet(text)}”
+    </span>
+  );
+}
+
 /**
  * Document-growth chart: how the piece was written, in order. X spans the real
  * editing date range (from Google Docs revision history when available); Y is the
@@ -1262,9 +1418,11 @@ function ChartTip({ vx, vy, W, H, lines }: { vx: number; vy: number; W: number; 
 function WritingTimelineChart({
   timeline,
   docs,
+  pasteText,
 }: {
   timeline: { type: 'type' | 'paste'; chars: number; origin?: PasteOrigin; t?: number }[];
   docs?: ExtensionProof['docsRevision'];
+  pasteText?: Map<number, PasteEvent>;
 }) {
   const [hover, setHover] = useState<number | null>(null);
   const [boxRef, mw] = useMeasuredWidth();
@@ -1370,6 +1528,7 @@ function WritingTimelineChart({
           provLabel(active.e),
           `${active.cumv.toLocaleString()} chars total so far`,
           ...(active.e.t ? [fmtTipDate(active.e.t)] : []),
+          ...(hover != null && pasteText?.get(hover) ? [<PasteTipQuote key="q" text={pasteText.get(hover)!.content} />] : []),
         ]} />
       )}
 
@@ -1394,9 +1553,11 @@ function WritingTimelineChart({
 function BurstChart({
   timeline,
   byTime = false,
+  pasteText,
 }: {
   timeline: { type: 'type' | 'paste'; chars: number; origin?: PasteOrigin; t?: number }[];
   byTime?: boolean;
+  pasteText?: Map<number, PasteEvent>;
 }) {
   const [hover, setHover] = useState<number | null>(null);
   const [boxRef, mw] = useMeasuredWidth();
@@ -1479,6 +1640,7 @@ function BurstChart({
           `${active.e.chars.toLocaleString()} chars`,
           provLabel(active.e),
           ...(active.e.t ? [fmtTipDate(active.e.t)] : []),
+          ...(hover != null && pasteText?.get(hover) ? [<PasteTipQuote key="q" text={pasteText.get(hover)!.content} />] : []),
         ]} />
       )}
 
