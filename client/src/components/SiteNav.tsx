@@ -68,9 +68,6 @@ const SiteNav: React.FC<{ current?: SiteNavCurrent }> = ({ current }) => (
       <Link to="/education" className="lp-nav__link" aria-current={current === 'education' ? 'page' : undefined}>
         Education
       </Link>
-      <Link to="/me" className="lp-nav__link" aria-current={current === 'me' ? 'page' : undefined}>
-        My profile
-      </Link>
       <a
         href={CHROME_STORE_URL}
         target="_blank"
@@ -80,9 +77,6 @@ const SiteNav: React.FC<{ current?: SiteNavCurrent }> = ({ current }) => (
         <ChromeMark />
         Add to Chrome
       </a>
-      <Link to="/write" className="lp-btn lp-btn--primary lp-btn--sm">
-        Start writing
-      </Link>
       <CreatorNavAuth />
     </div>
   </header>

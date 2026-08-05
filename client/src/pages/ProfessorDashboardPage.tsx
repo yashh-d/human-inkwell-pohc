@@ -128,7 +128,6 @@ function LoginView() {
         <p style={muted}>Professor sign-in isn't configured yet (missing Supabase Auth settings).</p>
       ) : (
         <>
-          <p style={muted}>Sign in with the username and password you were given. This is separate from a creator account — no wallet, no @handle.</p>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginTop: 14 }}>
             <input
               style={input}

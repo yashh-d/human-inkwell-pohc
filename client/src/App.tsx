@@ -95,6 +95,10 @@ function App() {
               report shows a summary to all and full detail only to a signed-in
               professor. */}
           <Route path="/s/:slug" element={<SubmissionReportPage />} />
+          {/* Shareable professor login. Same surface as /dashboard: signed-out
+              professors get the sign-in screen, signed-in ones land on their
+              dashboard. */}
+          <Route path="/login" element={<ProfessorDashboardPage />} />
           <Route path="/dashboard" element={<ProfessorDashboardPage />} />
           {/* Creator surfaces are NOT behind the student onboarding/World-ID wall.
               Sign-up is Privy-only (World ID is an opt-in badge), so these render

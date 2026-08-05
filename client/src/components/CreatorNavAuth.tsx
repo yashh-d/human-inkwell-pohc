@@ -1,14 +1,17 @@
 import React, { useEffect, useState } from 'react';
+import { Link } from 'react-router-dom';
 import { usePrivy } from '@privy-io/react-auth';
 import { useViewerAddress } from '../hooks/useViewerAddress';
+import { useCreatorAuth } from '../hooks/useCreatorAuth';
 import { fetchCreatorProfile } from '../creatorSupabase';
 import { forgetMiniKitWallet } from '../utils/miniKitWallet';
 
 /**
- * The signed-in creator's identity + sign-out control for the top-right of
- * SiteNav. Renders nothing until an identity resolves, so signed-out marketing
- * visitors see the plain nav. Name preference: profile display_name → handle →
- * Google/email username → short wallet address.
+ * The auth-aware right end of SiteNav. Signed out, it's a single "Sign in" CTA
+ * (one-tap Google / World App — no wallet or seed phrase). Signed in, it becomes
+ * a "My profile" button plus the creator's identity chip and sign-out control.
+ * Name preference: profile display_name → handle → Google/email username → short
+ * wallet address.
  *
  * Sign out clears both auth sources (Privy session + any remembered World App
  * wallet) and returns home so the app fully resets.
@@ -16,6 +19,7 @@ import { forgetMiniKitWallet } from '../utils/miniKitWallet';
 const CreatorNavAuth: React.FC = () => {
   const { authenticated, user, logout } = usePrivy();
   const identity = useViewerAddress();
+  const { signIn, signingIn } = useCreatorAuth();
   const address = identity.status === 'ready' ? identity.address : '';
 
   const email =
@@ -42,9 +46,19 @@ const CreatorNavAuth: React.FC = () => {
     };
   }, [address]);
 
-  // Nothing to show until there's a real signed-in identity.
+  // Signed out: a single primary CTA that starts one-tap sign-in.
   const signedIn = authenticated || identity.status === 'ready';
-  if (!signedIn) return null;
+  if (!signedIn) {
+    return (
+      <button
+        className="lp-btn lp-btn--primary lp-btn--sm"
+        onClick={signIn}
+        disabled={signingIn}
+      >
+        {signingIn ? 'Signing in…' : 'Sign in'}
+      </button>
+    );
+  }
 
   const name = profileName || emailName || shortAddr || 'Signed in';
 
@@ -60,6 +74,9 @@ const CreatorNavAuth: React.FC = () => {
 
   return (
     <span style={wrap}>
+      <Link to="/me" className="lp-btn lp-btn--primary lp-btn--sm">
+        My profile
+      </Link>
       <span style={chip} title={email || address}>
         <span style={dot} aria-hidden />
         {name}

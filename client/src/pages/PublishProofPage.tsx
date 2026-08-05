@@ -614,7 +614,7 @@ export default function PublishProofPage(
                 disabled={busy || !studentReady}
                 onClick={handlePrimary}
               >
-                {busy ? 'Publishing…' : SIMULATE ? 'Publish proof on-chain' : 'Continue with Google & publish'}
+                {busy ? 'Publishing…' : 'Publish'}
               </button>
               {!studentReady && (
                 <p style={{ ...styles.muted, textAlign: 'center', marginTop: 8 }}>Add your name above to continue.</p>
