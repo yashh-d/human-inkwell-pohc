@@ -37,7 +37,29 @@ function fromModelScore(score01: number, metrics: ProofMetrics): AiResult {
 }
 
 const ENDPOINT = process.env.REACT_APP_AI_DETECT_URL || '/api/ai-detect';
-const TIMEOUT_MS = 20000; // 3B model on a cold worker can take a few seconds.
+// Must exceed the proxy's own timeout (30s) so a slow-but-succeeding score is not
+// aborted here first; otherwise we'd silently downgrade to the heuristic under load.
+const TIMEOUT_MS = 32000;
+
+/**
+ * Report where a score came from so degradation is VISIBLE. Without this, a detector
+ * that is down/overloaded silently serves heuristic numbers and the page looks
+ * healthy — the worst failure mode during beta/stress testing. Best-effort only:
+ * a console signal always, plus an optional beacon if REACT_APP_AI_DETECT_TELEMETRY
+ * is set. Never throws, never blocks the render.
+ */
+function reportOutcome(source: AiResult['source'], latencyMs: number, reason?: string): void {
+  try {
+    if (source !== 'model') {
+      // eslint-disable-next-line no-console
+      console.warn(`[aiDetector] served '${source}' score (not model)`, reason ?? '');
+    }
+    const url = process.env.REACT_APP_AI_DETECT_TELEMETRY;
+    if (url && typeof navigator !== 'undefined' && navigator.sendBeacon) {
+      navigator.sendBeacon(url, JSON.stringify({ source, latencyMs, reason, ts: Date.now() }));
+    }
+  } catch { /* telemetry must never break scoring */ }
+}
 
 /**
  * Score text with the real detector, falling back to the metrics heuristic.
@@ -55,10 +77,12 @@ export async function detectAi(
 ): Promise<AiResult> {
   const { text, contentHash, metrics } = args;
   if (!text || text.trim().length === 0) {
+    reportOutcome('simulated', 0, 'no text to score');
     return { ...computeAiScore(metrics), source: 'simulated' };
   }
   const ctrl = new AbortController();
   const timer = setTimeout(() => ctrl.abort(), TIMEOUT_MS);
+  const started = Date.now();
   try {
     const res = await fetch(ENDPOINT, {
       method: 'POST',
@@ -70,9 +94,11 @@ export async function detectAi(
     const data = await res.json();
     const score = typeof data.ai === 'number' ? data.ai : Number(data.score);
     if (!Number.isFinite(score)) throw new Error('detector returned no score');
+    reportOutcome('model', Date.now() - started);
     return fromModelScore(score, metrics);
-  } catch {
-    // Any failure → never break the page; degrade to the heuristic.
+  } catch (e) {
+    // Any failure → never break the page; degrade to the heuristic (but log it).
+    reportOutcome('fallback', Date.now() - started, e instanceof Error ? e.message : String(e));
     return { ...computeAiScore(metrics), source: 'fallback' };
   } finally {
     clearTimeout(timer);

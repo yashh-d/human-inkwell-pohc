@@ -31,6 +31,12 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (!text || typeof text !== 'string' || text.trim().length === 0) {
     return res.status(400).json({ error: 'Provide non-empty text.' });
   }
+  // Cap payload — the model truncates to ~1024 tokens; this stops an oversized body
+  // from tying up the function and the worker's tokenizer.
+  const MAX_TEXT_CHARS = 200_000;
+  if (text.length > MAX_TEXT_CHARS) {
+    return res.status(413).json({ error: 'Text too large.' });
+  }
 
   const detectorUrl = (process.env.DETECTOR_URL || '').replace(/\/+$/, '');
   if (!detectorUrl) {
@@ -50,11 +56,12 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
   try {
     const ctrl = new AbortController();
-    const timer = setTimeout(() => ctrl.abort(), 25000);
+    const timer = setTimeout(() => ctrl.abort(), 30000);
     const r = await fetch(`${detectorUrl}/detect`, {
       method: 'POST',
       headers,
-      body: JSON.stringify({ text }),
+      // Forward contentHash so the worker can cache by it (identical text scored once).
+      body: JSON.stringify({ text, contentHash }),
       signal: ctrl.signal,
     }).finally(() => clearTimeout(timer));
 

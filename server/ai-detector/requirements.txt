@@ -1,0 +1,14 @@
+fastapi>=0.110
+uvicorn[standard]>=0.29
+pydantic>=2.6
+torch>=2.2
+transformers>=4.44
+peft>=0.11
+accelerate>=0.30
+sentencepiece>=0.2
+emoji>=2.11            # used by Pangram's clean_text (emoji demojize/strip)
+
+# GPU only — 4-bit QLoRA inference as the model was trained. bitsandbytes is
+# CUDA-only; DO NOT install on macOS/CPU (the backend auto-loads unquantized there).
+#   pip install bitsandbytes>=0.43
+
