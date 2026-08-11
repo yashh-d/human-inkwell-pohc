@@ -175,8 +175,6 @@ function SummaryOnly({ view }: { view: SubmissionView }) {
   const s = view.summary;
   const bandColor =
     s.band === 'green' ? '#6ee7b7' : s.band === 'yellow' ? '#fbbf24' : s.band === 'red' ? '#f87171' : '#94a3b8';
-  const bandLabel =
-    s.band === 'green' ? 'Authentic, clear to move on' : s.band === 'yellow' ? 'Worth a glance' : s.band === 'red' ? 'Investigate' : '—';
   const aiColor =
     s.ai_score == null ? '#94a3b8' : s.ai_score < 30 ? '#6ee7b7' : s.ai_score <= 70 ? '#fbbf24' : '#f87171';
 
@@ -189,7 +187,7 @@ function SummaryOnly({ view }: { view: SubmissionView }) {
         <div style={{ ...hero, borderColor: bandColor }}>
           <div style={heroLabel}>Process Score</div>
           <div style={{ ...heroNum, color: bandColor }}>{s.authorship_score ?? '—'}</div>
-          <div style={{ ...pill, color: bandColor, borderColor: bandColor }}>{bandLabel}</div>
+          <div style={{ ...pill, color: bandColor, borderColor: bandColor }}>out of 100</div>
         </div>
         <div style={{ ...hero, borderColor: aiColor }}>
           <div style={heroLabel}>AI probability</div>

@@ -2,7 +2,7 @@
  * aiDetector.ts — the seam between Human Ink and a *real* AI-text detector.
  *
  * The UI only ever sees the shape computeAiScore() already returns
- * ({ ai, human, verdict, color }), so nothing downstream cares whether the
+ * ({ ai, human, color }), so nothing downstream cares whether the
  * number came from a model or the built-in heuristic. The backend model is an
  * implementation detail chosen server-side by one env var (DETECTOR_BACKEND) —
  * it is never named in the client. That keeps the frontend honest (it shows a
@@ -20,12 +20,12 @@ export type AiResult = ReturnType<typeof computeAiScore> & {
 };
 
 // Same bands as computeAiScore so a model result and a heuristic result are
-// visually/semantically interchangeable. Green must be genuinely low AI; red is
-// reserved for clearly high (a false red is a wrongful accusation).
-export function bandFromAi(ai: number): { verdict: string; color: string } {
-  const verdict = ai < 30 ? 'Likely human' : ai <= 70 ? 'Mixed signals' : 'Likely AI-assisted';
+// visually interchangeable. Colour only — no wording is attached to the number.
+// Green must be genuinely low AI; red is reserved for clearly high (a false red
+// is a wrongful accusation).
+export function bandFromAi(ai: number): { color: string } {
   const color = ai < 30 ? '#6ee7b7' : ai <= 70 ? '#fbbf24' : '#f87171';
-  return { verdict, color };
+  return { color };
 }
 
 /** Turn a raw 0..1 model score into the same shape computeAiScore() returns. */

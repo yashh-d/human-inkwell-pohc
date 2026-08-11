@@ -7,10 +7,10 @@ import { pushLedgerIndexAfterOnChainSuccess } from '../ledgerSupabase';
 import { useViewerAddress } from '../hooks/useViewerAddress';
 import { rememberMiniKitWallet } from '../utils/miniKitWallet';
 import {
-  ExtensionProof, PasteOrigin, ScoreBands, RubricRow,
+  ExtensionProof, PasteOrigin, ScoreBands,
   DEFAULT_BANDS, PROOF_KEY, loadProof, short, fmtMs,
   computeAiScore, pasteBreakdown, computeAuthorshipScore,
-  processBand, reasonLine, computeIntegrity, buildRubricAlignment,
+  processBand, reasonLine, computeIntegrity,
 } from "../lib/authorship";
 import { detectAi, AiResult } from '../lib/aiDetector';
 import type { PasteEvent } from '../submissionsApi';
@@ -153,17 +153,6 @@ export default function PublishProofPage(
       .catch(() => { /* defaults stand */ });
     return () => { alive = false; };
   }, []);
-
-  // Optional professor flow: paste a rubric → process alignment.
-  // DEMO: runs entirely client-side on the captured signals. The real Claude
-  // Agent SDK version is parked at future/rubric-analyze.ts, swap runAlignment
-  // to POST the rubric + process facts there when we wire the LLM back in.
-  const [showRubric, setShowRubric] = useState(false);
-  const [rubric, setRubric] = useState('');
-  const [alignment, setAlignment] = useState<{ summary: string; rows: RubricRow[] } | null>(null);
-  const runAlignment = useCallback(() => {
-    if (proof && rubric.trim()) setAlignment(buildRubricAlignment(rubric, proof));
-  }, [proof, rubric]);
 
   useEffect(() => {
     if (proof && window.location.hash) {
@@ -370,12 +359,11 @@ export default function PublishProofPage(
           <div style={styles.barWrap}>
             <div style={{ ...styles.barFill, width: `${authorship.score}%`, background: band.color }} />
           </div>
-          <div style={{ ...styles.bandPill, color: band.color, borderColor: band.color }}>{band.label}</div>
           <p style={styles.reasonLine}>{reason}</p>
         </div>
         <div style={{ ...styles.heroCard, borderColor: ai.color, margin: 0 }}>
           <div style={styles.heroHead}>
-            <span style={styles.heroLabel}>{aiLabel} <span style={styles.tag}>{aiPending ? 'analyzing…' : ai.source === 'model' ? 'open model' : 'estimated'}</span></span>
+            <span style={styles.heroLabel}>{aiLabel}{aiPending ? <span style={styles.tag}>analyzing…</span> : null}</span>
             <span style={{ ...styles.heroNum, color: ai.color }}>{ai.ai}%</span>
           </div>
           <div style={styles.barWrap}>
@@ -406,7 +394,7 @@ export default function PublishProofPage(
       <div style={{ ...styles.card, borderColor: integrity.color }}>
         <div style={styles.scoreHead}>
           <span style={styles.muted}>Revision authenticity</span>
-          <span style={{ ...styles.verdict, color: integrity.color }}>{integrity.verdict}</span>
+          <span style={{ ...styles.verdict, color: integrity.color }}>{integrity.score}</span>
         </div>
         <div style={styles.flagList}>
           {integrity.flags.map((f, i) => (
@@ -418,6 +406,7 @@ export default function PublishProofPage(
             </div>
           ))}
         </div>
+        <PasteDisclosure authorship={authorship} />
       </div>
 
       {/* Captured behavioral metrics — header + grid stay in one cell so the
@@ -498,55 +487,6 @@ export default function PublishProofPage(
       )}
 
       </div>{/* end bodyGrid */}
-
-      {/* For professors, optional rubric → AI-assisted process alignment.
-          Hidden for the creator variant (no grader in the loop). */}
-      {!isCreator && (
-      <div style={styles.card}>
-        {!showRubric ? (
-          <button style={styles.ghostBtn} onClick={() => setShowRubric(true)}>
-            + For professors: check against a rubric <span style={styles.tag}>optional</span>
-          </button>
-        ) : (
-          <>
-            <div style={styles.sec}>
-              Rubric alignment <span style={styles.tag}>demo</span>
-            </div>
-            <p style={styles.muted}>Paste your existing rubric, one criterion per line. We report how the writing process lines up with each. It’s a second opinion, not a grade.</p>
-            <textarea
-              style={styles.textarea}
-              value={rubric}
-              onChange={(e) => setRubric(e.target.value)}
-              placeholder={'e.g.\n1. Develops a clear thesis\n2. Supports claims with cited evidence\n3. Shows revision and editing\n4. Grammar and clarity'}
-              rows={5}
-            />
-            <button
-              style={{ ...styles.primary, marginTop: 8, opacity: rubric.trim() ? 1 : 0.6 }}
-              disabled={!rubric.trim()}
-              onClick={runAlignment}
-            >
-              Analyze against rubric
-            </button>
-            {alignment && (
-              <div style={{ marginTop: 12 }}>
-                <p style={{ ...styles.muted, fontStyle: 'italic' }}>{alignment.summary}</p>
-                {alignment.rows.map((r, i) => (
-                  <div key={i} style={styles.rubricRow}>
-                    <div style={styles.rubricCrit}>
-                      {r.criterion}
-                      {r.alignment && (
-                        <span style={{ ...styles.alignTag, ...alignTagStyle(r.alignment) }}>{r.alignment}</span>
-                      )}
-                    </div>
-                    <div style={styles.rubricNote}>{r.note}</div>
-                  </div>
-                ))}
-              </div>
-            )}
-          </>
-        )}
-      </div>
-      )}
 
       {/* Revision-analysis charts, organized + enlarged, at the bottom. */}
       <RevisionCharts proof={proof} pasteEvents={injectedPasteEvents} />
@@ -641,19 +581,13 @@ function Blocks({ score, total = 5 }: { score: number; total?: number }) {
   );
 }
 
-const PLAIN_LABEL: Record<string, string> = {
-  revision: 'Revision history',
-  typed: 'Original writing',
-  time: 'Time invested',
-  'time-span': 'Writing timeline',
-};
-
 /**
  * Version B, the evidence-first redesign. Same scoring + telemetry as A; only the
- * narrative order and copy change: lead with "Evidence of Human Authorship" + a
- * plain-English verdict and assessment, keep the Process Score as the supporting
- * number, surface authentic-revision near the top, explain how the score is built,
- * and relegate the AI detector + technical hashes to small secondary/advanced areas.
+ * narrative order and copy change: lead with the score and what was captured,
+ * surface revision authenticity near the top, explain how the score is built, and
+ * relegate the AI detector + technical hashes to small secondary/advanced areas.
+ * No page in either version puts a word next to a number — the reader gets the
+ * measurement and the evidence, and draws the conclusion themselves.
  */
 function PublishVersionB({
   proof, ai, authorship, integrity, bands,
@@ -686,8 +620,6 @@ function PublishVersionB({
   const docs = proof.docsRevision || null;
   const rev = proof.revision || null;
 
-  const verdictWord = band.tone === 'green' ? 'Strong' : band.tone === 'yellow' ? 'Moderate' : 'Limited';
-  const confidence = band.tone === 'green' ? 'High' : band.tone === 'yellow' ? 'Moderate' : 'Low';
   const typedPct = Math.round(pb.writtenRatio * 100);
   const editEvents = rev?.editCount || 0;
   const revisions = docs?.revisionCount || 0;
@@ -705,10 +637,6 @@ function PublishVersionB({
   bullets.push(editDays >= 2 ? `Writing occurred across ${editDays} days` : 'Writing occurred in one session');
   if (!largeBulk) bullets.push('No large bulk insertion detected');
 
-  const assessmentLead = band.tone === 'red'
-    ? 'Limited writing history was captured for this document. That does not imply AI use, but more process evidence would raise confidence.'
-    : 'This document shows evidence consistent with genuine human writing.';
-
   return (
     <div style={styles.wrap}>
       <h1 style={styles.h1}>{success ? '✓ Proof published' : 'Proof of Human Writing'}</h1>
@@ -720,25 +648,25 @@ function PublishVersionB({
         {proof.context === 'google-docs' ? ' Google Docs' : ' the web'}{proof.email ? ` · ${proof.email}` : ''}.
       </p>
 
-      {/* HERO, evidence of authorship is the headline; the score is supporting. */}
+      {/* HERO, the number on a 100-point scale is the headline. */}
       <div style={{ ...styles.heroCard, borderColor: band.color, margin: '14px 0' }}>
         <div style={{ fontSize: 13, fontWeight: 650, opacity: 0.8 }}>Evidence of Human Authorship</div>
         <div style={{ display: 'flex', alignItems: 'baseline', gap: 12, margin: '6px 0 2px' }}>
-          <span style={{ fontSize: 34, fontWeight: 800, color: band.color }}>{verdictWord}</span>
-          <span style={{ fontSize: 13, opacity: 0.7 }}>Confidence: {confidence}</span>
+          <span style={{ fontSize: 34, fontWeight: 800, color: band.color }}>{authorship.score}</span>
+          <span style={{ fontSize: 13, opacity: 0.7 }}>/ 100</span>
         </div>
         <div style={{ ...styles.barWrap, marginTop: 8 }}>
           <div style={{ ...styles.barFill, width: `${authorship.score}%`, background: band.color }} />
         </div>
         <div style={{ fontSize: 12, opacity: 0.7, marginTop: 8 }}>
-          {scoreLabel} <strong style={{ color: band.color }}>{authorship.score}</strong> / 100, our measure of captured writing process.
+          {scoreLabel}, our measure of captured writing process.
         </div>
       </div>
 
-      {/* ASSESSMENT, the narrative a professor can read in 20 seconds. */}
+      {/* WHAT WE CAPTURED, the facts a professor can read in 20 seconds. Facts
+          only — the reader draws the conclusion, we don't hand them one. */}
       <div style={styles.card}>
-        <div style={styles.signalHead}>Assessment</div>
-        <p style={{ fontSize: 13.5, lineHeight: 1.5, margin: '2px 0 10px' }}>{assessmentLead}</p>
+        <div style={styles.signalHead}>What we captured</div>
         <div style={styles.flagList}>
           {bullets.map((b, i) => (
             <div key={i} style={styles.flag}>
@@ -747,13 +675,12 @@ function PublishVersionB({
             </div>
           ))}
         </div>
-        <p style={{ ...styles.muted, marginTop: 10, fontStyle: 'italic' }}>The evidence below supports this conclusion.</p>
       </div>
 
       {/* AUTHENTIC REVISION, one of the strongest trust signals, placed up high. */}
       <div style={{ ...styles.card, borderColor: integrity.color }}>
         <div style={{ fontSize: 14, fontWeight: 700, color: integrity.color, marginBottom: 8 }}>
-          {integrity.verdict === 'Revisions look authentic' ? '✓ Authentic revision history' : integrity.verdict}
+          Revision authenticity {integrity.score}
         </div>
         <div style={styles.flagList}>
           {integrity.flags.slice(0, 4).map((f, i) => (
@@ -765,6 +692,7 @@ function PublishVersionB({
             </div>
           ))}
         </div>
+        <PasteDisclosure authorship={authorship} />
       </div>
 
       {/* EVIDENCE CARDS, then a drop-down with the per-signal breakdown (shared with A). */}
@@ -774,7 +702,7 @@ function PublishVersionB({
       {/* AI PROBABILITY, deliberately small and secondary (same framing as A). */}
       <div style={{ ...styles.card, padding: '10px 14px', opacity: 0.85 }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}>
-          <span style={{ fontSize: 12, opacity: 0.7 }}>{aiLabel} <span style={styles.tag}>{ai.source === 'model' ? 'open model' : 'estimated'}</span></span>
+          <span style={{ fontSize: 12, opacity: 0.7 }}>{aiLabel}</span>
           <span style={{ fontSize: 18, fontWeight: 700, color: ai.color }}>{ai.ai}%</span>
         </div>
         <p style={{ ...styles.muted, margin: '4px 0 0' }}>
@@ -1092,49 +1020,72 @@ function Receipt({ result }: { result: any }) {
   );
 }
 
+/**
+ * Pasted-character disclosure, shown beside the revision-authenticity score.
+ * Pasting is TRACKED IN FULL and NEVER DEDUCTED. This exists so a professor can
+ * see exactly how much text arrived from outside and read, in the same breath,
+ * that it did not cost the writer anything.
+ */
+function PasteDisclosure({ authorship }: { authorship: ReturnType<typeof computeAuthorshipScore> }) {
+  const n = (x: number) => Math.round(x).toLocaleString();
+  // Text the writer cut and repositioned inside their own document is editing,
+  // not pasting, so it is not counted or named here.
+  const ext = authorship.externalPastedChars;
+  const cited = authorship.citedPastedChars;
+  const total = ext + cited;
+  // Say the most specific true thing, without repeating a number back to itself.
+  const headline = total === 0 ? 'Nothing was pasted in.'
+    : ext === 0 ? `${n(cited)} characters quoted from a cited source.`
+    : cited === 0 ? `${n(ext)} characters pasted in from outside the document.`
+    : `${n(total)} characters pasted in: ${n(ext)} from outside the document, ${n(cited)} quoted from a cited source.`;
+  return (
+    <div style={{ display: 'flex', alignItems: 'flex-start', gap: 8, marginTop: 10, paddingTop: 10, borderTop: '1px solid rgba(127,127,127,0.18)' }}>
+      <span style={{ ...styles.flagDot, color: '#93c5fd' }}>ⓘ</span>
+      <span style={styles.flagText}>
+        <b style={{ fontWeight: 700 }}>{headline}</b>{' '}
+        {total > 0
+          ? 'Tracked and shown in full, never deducted: there are too many honest reasons to paste. Pasted text simply adds length without adding writing time, revision or edit bursts.'
+          : 'Every character of this document was typed here.'}
+      </span>
+    </div>
+  );
+}
+
 function ScoreBreakdown({ authorship, scoreLabel = 'Process Score' }: { authorship: ReturnType<typeof computeAuthorshipScore>; scoreLabel?: string }) {
-  const live = authorship.signals.filter((s) => s.has);
-  const totalWeight = live.reduce((s, x) => s + x.weight, 0) || 1;
-  // Each signal's points = its normalized score × its share of the live weight,
-  // exactly how the raw score is computed. The strength bar shows that same
-  // normalized score (0–100% → 0–5 blocks), so the bar and the +points agree.
-  const rows = live.map((s) => ({
-    label: PLAIN_LABEL[s.key] || s.label,
-    detail: s.detail,
-    pts: Math.round((s.score * s.weight) / totalWeight),
-    score: s.score,
-  }));
-  // Reconcile to the headline: any gap between the signal points and the final
-  // score is the F3 protection floor (e.g. linear-thinker) or rounding. Show it so
-  // the visible numbers always add up to the Process Score.
-  const sum = rows.reduce((a, r) => a + r.pts, 0);
-  const adjustment = authorship.score - sum;
-  const adjLabel = authorship.protections.length > 0 ? 'Protection floor' : 'Rounding';
+  // The score is a weighted blend of three dimensions, so the breakdown is that
+  // blend shown in full: each dimension's own 0–100, the weight it carries, and
+  // the points it therefore contributed — then the total.
+  const tone = (s: number) => (s >= 80 ? '#6ee7b7' : s >= 60 ? '#fbbf24' : '#f87171');
   return (
     <div style={styles.card}>
       <div style={styles.signalHead}>How the {scoreLabel} is built</div>
       <div style={styles.flagList}>
-        {rows.map((c, i) => (
-          <div key={i} style={{ ...styles.row, padding: '6px 0', alignItems: 'center' }}>
-            <span style={{ display: 'flex', alignItems: 'center', gap: 10, minWidth: 0 }}>
-              <span style={{ color: c.score < 50 ? '#fbbf24' : '#6ee7b7', fontWeight: 700, width: 34, flexShrink: 0 }}>+{c.pts}</span>
-              <span style={{ minWidth: 0 }}>
-                <span style={{ fontSize: 13, fontWeight: 600, display: 'block' }}>{c.label}</span>
-                <span style={{ fontSize: 11, opacity: 0.6 }}>{c.detail}</span>
+        {authorship.dimensions.map((d) => (
+          <div key={d.key} style={{ padding: '8px 0', borderBottom: '1px solid rgba(127,127,127,0.12)' }}>
+            <div style={{ ...styles.row, alignItems: 'center' }}>
+              <span style={{ display: 'flex', alignItems: 'center', gap: 10, minWidth: 0 }}>
+                <span style={{ color: tone(d.score), fontWeight: 700, width: 52, flexShrink: 0 }}>
+                  {d.points.toFixed(1)}
+                  <span style={{ opacity: 0.45, fontWeight: 500 }}>/{d.max}</span>
+                </span>
+                <span style={{ minWidth: 0 }}>
+                  <span style={{ fontSize: 13, fontWeight: 600, display: 'block' }}>
+                    {d.label}
+                    <span style={{ opacity: 0.5, fontWeight: 500 }}> · {Math.round(d.weight * 100)}% of the score</span>
+                  </span>
+                  <span style={{ fontSize: 11, opacity: 0.6 }}>{d.detail}</span>
+                </span>
               </span>
-            </span>
-            <Blocks score={c.score} total={5} />
+              <span style={{ fontSize: 12, fontWeight: 700, color: tone(d.score), flexShrink: 0 }}>{d.score}/100</span>
+            </div>
+            {d.parts.map((p, i) => (
+              <div key={i} style={{ fontSize: 11, opacity: 0.62, margin: '5px 0 0 62px' }}>
+                <b style={{ fontWeight: 600, opacity: 0.85 }}>{p.label}:</b> {p.detail}
+              </div>
+            ))}
           </div>
         ))}
-        {adjustment !== 0 && (
-          <div style={{ ...styles.row, padding: '6px 0', alignItems: 'center' }}>
-            <span style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-              <span style={{ color: '#6ee7b7', fontWeight: 700, width: 34, flexShrink: 0 }}>{adjustment > 0 ? `+${adjustment}` : adjustment}</span>
-              <span style={{ fontSize: 13, fontWeight: 600 }}>{adjLabel}</span>
-            </span>
-          </div>
-        )}
-        <div style={{ ...styles.row, padding: '8px 0 0', marginTop: 4, borderTop: '1px solid rgba(127,127,127,0.25)', fontWeight: 700 }}>
+        <div style={{ ...styles.row, padding: '10px 0 0', marginTop: 4, fontWeight: 700 }}>
           <span>{scoreLabel}</span>
           <span>{authorship.score} / 100</span>
         </div>
@@ -1219,6 +1170,14 @@ function RevisionCharts({ proof, pasteEvents }: { proof: ExtensionProof; pasteEv
   // Both lists are chronological, so within an origin group we can pair them in
   // order; internal moves are never persisted, so they simply have no text.
   const pasteText = useMemo(() => matchPasteText(rev?.timeline, pasteEvents), [rev, pasteEvents]);
+  // Internal moves read as ordinary writing everywhere else on this page, so the
+  // counts here must agree: a repositioned sentence is a typing run, not a paste.
+  const counts = useMemo(() => {
+    const tl = rev?.timeline || [];
+    const moves = tl.filter((e) => e.type === 'paste' && e.origin === 'internal_move').length;
+    const pastes = tl.filter((e) => e.type === 'paste').length - moves;
+    return { typed: (rev?.typedEdits || 0) + moves, pastes };
+  }, [rev]);
   if (!rev || rev.editCount === 0 || !rev.timeline || rev.timeline.length === 0) return null;
   return (
     <div style={styles.card}>
@@ -1232,13 +1191,13 @@ function RevisionCharts({ proof, pasteEvents }: { proof: ExtensionProof; pasteEv
 
       <div style={{ marginTop: 22 }}>
         <div style={styles.chartTitle}>When the bursts happened</div>
-        <p style={styles.chartCaption}>Each writing burst (one unbroken run of typing; a pause &gt; 2s starts a new one) on a real time axis across every session — empty gaps are time away from the document, tall amber bars are pasted blocks.</p>
+        <p style={styles.chartCaption}>Each run of typing on a real time axis. Gaps are time away from the document.</p>
         <BurstChart timeline={rev.timeline} byTime pasteText={pasteText} />
       </div>
 
       <div style={{ marginTop: 16 }}>
-        <Row k="Typing bursts" v={`${rev.typedEdits} runs of continuous typing`} />
-        {rev.pasteEdits > 0 && <Row k="Paste insertions" v={`${rev.pasteEdits} pasted in from elsewhere`} />}
+        <Row k="Typing bursts" v={`${counts.typed} runs of continuous typing`} />
+        {counts.pastes > 0 && <Row k="Paste insertions" v={`${counts.pastes} pasted in from elsewhere`} />}
       </div>
 
       {pasteEvents && pasteEvents.length > 0 && <PastedContentList events={pasteEvents} />}
@@ -1288,15 +1247,18 @@ function pasteSnippet(text: string, max = 160): string {
  * dropped in wholesale. Amber = external, purple = quoted source (same palette as
  * the charts). Long/truncated pastes scroll inside their own box.
  */
-function PastedContentList({ events }: { events: PasteEvent[] }) {
+function PastedContentList({ events: allEvents }: { events: PasteEvent[] }) {
+  // The writer's own text, cut and repositioned, is not "pasted in" content.
+  const events = allEvents.filter((e) => e.origin !== 'internal_move');
+  if (events.length === 0) return null;
   return (
     <div style={{ marginTop: 20 }}>
       <div style={styles.chartTitle}>What was pasted in</div>
-      <p style={styles.chartCaption}>The exact text behind each amber block above — visible to you as the professor only. {events.length} {events.length === 1 ? 'paste' : 'pastes'} captured.</p>
+      <p style={styles.chartCaption}>The exact text behind each amber block above, visible to you as the professor only. {events.length} {events.length === 1 ? 'paste' : 'pastes'} captured.</p>
       <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginTop: 6 }}>
         {events.map((e, i) => {
-          const color = e.origin === 'cited_source' ? CHART_CITED : e.origin === 'internal_move' ? CHART_MOVE : CHART_EXTERNAL;
-          const label = e.origin === 'cited_source' ? 'quoted source' : e.origin === 'internal_move' ? 'moved within doc' : 'pasted in';
+          const color = e.origin === 'cited_source' ? CHART_CITED : CHART_EXTERNAL;
+          const label = e.origin === 'cited_source' ? 'quoted source' : 'pasted in';
           const when = fmtTipDate(e.pastedAt);
           return (
             <div key={i} style={{ border: '1px solid rgba(255,255,255,0.12)', borderLeft: `3px solid ${color}`, borderRadius: 8, padding: '8px 10px', background: 'rgba(255,255,255,0.02)' }}>
@@ -1356,17 +1318,17 @@ function useMeasuredWidth(fallback = 320) {
   return [ref, w] as const;
 }
 
-// Provenance palette + labels, shared by both revision charts.
-const CHART_TYPE = '#6ee7b7', CHART_EXTERNAL = '#fbbf24', CHART_MOVE = '#60a5fa', CHART_CITED = '#a78bfa';
+// Provenance palette + labels, shared by both revision charts. Text the writer
+// cut and repositioned inside their own document reads as ordinary writing: it
+// is their own words either way, so it is not singled out as a paste.
+const CHART_TYPE = '#6ee7b7', CHART_EXTERNAL = '#fbbf24', CHART_CITED = '#a78bfa';
 function provColor(e: { type: string; origin?: PasteOrigin }) {
-  return e.type !== 'paste' ? CHART_TYPE
-    : e.origin === 'internal_move' ? CHART_MOVE
+  return e.type !== 'paste' || e.origin === 'internal_move' ? CHART_TYPE
     : e.origin === 'cited_source' ? CHART_CITED
     : CHART_EXTERNAL;
 }
 function provLabel(e: { type: string; origin?: PasteOrigin }) {
-  return e.type !== 'paste' ? 'typed'
-    : e.origin === 'internal_move' ? 'moved within doc'
+  return e.type !== 'paste' || e.origin === 'internal_move' ? 'typed'
     : e.origin === 'cited_source' ? 'quoted source'
     : 'pasted in';
 }
@@ -1535,7 +1497,6 @@ function WritingTimelineChart({
       <div style={{ ...styles.scoreRow, flexWrap: 'wrap', gap: 8 }}>
         <span><span style={{ color: CHART_TYPE }}>●</span> typed</span>
         <span><span style={{ color: CHART_EXTERNAL }}>●</span> pasted in (cliffs)</span>
-        {segments.some((s) => s.color === CHART_MOVE) && <span><span style={{ color: CHART_MOVE }}>●</span> moved</span>}
         {segments.some((s) => s.color === CHART_CITED) && <span><span style={{ color: CHART_CITED }}>●</span> quoted</span>}
       </div>
     </div>
@@ -1654,16 +1615,6 @@ function BurstChart({
   );
 }
 
-function alignTagStyle(a: NonNullable<RubricRow['alignment']>): React.CSSProperties {
-  const map = {
-    strong: { color: '#6ee7b7', border: '1px solid rgba(110,231,183,0.5)' },
-    partial: { color: '#a7f3d0', border: '1px solid rgba(167,243,208,0.5)' },
-    weak: { color: '#fbbf24', border: '1px solid rgba(251,191,36,0.5)' },
-    unclear: { color: '#9ca3af', border: '1px solid rgba(156,163,175,0.5)' },
-  } as const;
-  return map[a];
-}
-
 function Row({ k, v }: { k: string; v: string }) {
   return (
     <div style={styles.row}>
@@ -1699,7 +1650,6 @@ const styles: Record<string, React.CSSProperties> = {
   card: { border: '1px solid rgba(255,255,255,0.14)', borderRadius: 10, padding: 14, margin: '12px 0', background: 'rgba(255,255,255,0.03)' },
   heroCard: { border: '1.5px solid', borderRadius: 14, padding: 18, margin: '16px 0', background: 'rgba(255,255,255,0.04)' },
   heroRow: { display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: 14, margin: '16px 0' },
-  bandPill: { display: 'inline-block', marginTop: 10, fontSize: 12, fontWeight: 650, border: '1px solid', borderRadius: 999, padding: '2px 10px' },
   reasonLine: { fontSize: 12.5, opacity: 0.78, margin: '10px 0 0', lineHeight: 1.45 },
   seeWhy: { width: '100%', maxWidth: 240, margin: '2px auto 10px', display: 'block', padding: '8px 12px', borderRadius: 8, border: '1px solid rgba(255,255,255,0.18)', background: 'rgba(255,255,255,0.04)', color: 'inherit', fontSize: 13, fontWeight: 600, cursor: 'pointer' },
   heroHead: { display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 12 },
@@ -1758,8 +1708,4 @@ const styles: Record<string, React.CSSProperties> = {
   fieldLabel: { fontSize: 11, textTransform: 'uppercase', letterSpacing: 0.5, opacity: 0.6, fontWeight: 700 },
   copyBtn: { padding: '4px 12px', borderRadius: 7, border: '1px solid #6ee7b7', background: 'rgba(110,231,183,0.12)', color: '#0b7a5b', fontSize: 12, fontWeight: 700, cursor: 'pointer' },
   codeBox: { marginTop: 6, padding: 10, borderRadius: 8, background: 'rgba(0,0,0,0.05)', border: '1px solid rgba(0,0,0,0.1)', fontFamily: 'ui-monospace, Menlo, monospace', fontSize: 11, wordBreak: 'break-all', lineHeight: 1.5, userSelect: 'all' },
-  rubricRow: { padding: '8px 0', borderTop: '1px solid rgba(255,255,255,0.08)' },
-  rubricCrit: { fontSize: 13, fontWeight: 600, marginBottom: 2, display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' },
-  alignTag: { fontSize: 9, textTransform: 'uppercase', letterSpacing: 0.5, borderRadius: 4, padding: '1px 5px' },
-  rubricNote: { fontSize: 12, opacity: 0.7, lineHeight: 1.4 },
 };
