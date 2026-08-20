@@ -9,6 +9,42 @@ import {
 } from '../submissionsApi';
 
 const STUDENT_NAME_KEY = 'humanink_student_name';
+
+/**
+ * The assignment the student picked, held across a sign-in that navigates away.
+ *
+ * The name already survives (localStorage, for repeat submitters), but the
+ * school/professor/assignment pick lived only in component state — so if the
+ * publish flow ever unmounted this page, the student came back to an empty picker
+ * and their work published unattached, which reads to them as "it didn't work".
+ * sessionStorage: this tab, this submission, cleared once it's attached.
+ */
+const TARGET_KEY = 'humanink_submit_target';
+type SavedTarget = { schoolId?: string; profId?: string; asgId?: string; code?: string };
+
+function readTarget(): SavedTarget {
+  try {
+    return JSON.parse(sessionStorage.getItem(TARGET_KEY) || '{}') as SavedTarget;
+  } catch {
+    return {};
+  }
+}
+function writeTarget(t: SavedTarget): void {
+  try {
+    const empty = !t.schoolId && !t.profId && !t.asgId && !t.code;
+    if (empty) sessionStorage.removeItem(TARGET_KEY);
+    else sessionStorage.setItem(TARGET_KEY, JSON.stringify(t));
+  } catch {
+    /* storage blocked — non-fatal */
+  }
+}
+function clearTarget(): void {
+  try {
+    sessionStorage.removeItem(TARGET_KEY);
+  } catch {
+    /* storage blocked — non-fatal */
+  }
+}
 /** Remember the student's name so repeat submitters don't retype it. */
 function rememberedStudentName(): string {
   try {
@@ -63,10 +99,15 @@ export default function StudentSubmitPanel({
   // ---- Collected before publish ----
   const [name, setName] = useState<string>(() => rememberedStudentName());
   const [tree, setTree] = useState<DirectoryTree | null>(null);
-  const [schoolId, setSchoolId] = useState('');
-  const [profId, setProfId] = useState('');
-  const [asgId, setAsgId] = useState('');
-  const [code, setCode] = useState('');
+  const [schoolId, setSchoolId] = useState(() => readTarget().schoolId || '');
+  const [profId, setProfId] = useState(() => readTarget().profId || '');
+  const [asgId, setAsgId] = useState(() => readTarget().asgId || '');
+  const [code, setCode] = useState(() => readTarget().code || '');
+
+  // Keep the pick recoverable for as long as it hasn't been attached yet.
+  useEffect(() => {
+    writeTarget({ schoolId, profId, asgId, code });
+  }, [schoolId, profId, asgId, code]);
 
   // ---- Finalization (after publish) ----
   const [slug, setSlug] = useState<string | null>(null);
@@ -123,9 +164,12 @@ export default function StudentSubmitPanel({
         try {
           const a = await attachSubmission({ slug: r.share_slug, ...target });
           setAttachedTitle(a.assignment.title);
+          clearTarget(); // attached — nothing left to recover
         } catch (e) {
           setAttachErr(e instanceof Error ? e.message : 'Could not add it to that assignment.');
         }
+      } else {
+        clearTarget();
       }
     } catch (e) {
       setSaveErr(e instanceof Error ? e.message : 'Could not save your submission.');

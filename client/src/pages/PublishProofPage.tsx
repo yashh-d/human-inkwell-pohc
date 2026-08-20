@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { useLoginWithOAuth, useWallets, usePrivy } from '@privy-io/react-auth';
+import { useLogin, useWallets, usePrivy, useCreateWallet } from '@privy-io/react-auth';
 import { ethers } from 'ethers';
 import { blockchainService } from '../blockchain';
 import { pushLedgerIndexAfterOnChainSuccess } from '../ledgerSupabase';
@@ -10,7 +10,7 @@ import {
   ExtensionProof, PasteOrigin, ScoreBands,
   DEFAULT_BANDS, PROOF_KEY, loadProof, short, fmtMs,
   computeAiScore, pasteBreakdown, computeAuthorshipScore,
-  processBand, reasonLine, computeIntegrity,
+  processBand, reasonLine, computeIntegrity, INTEGRITY_INFO,
 } from "../lib/authorship";
 import { detectAi, AiResult } from '../lib/aiDetector';
 import type { PasteEvent } from '../submissionsApi';
@@ -38,6 +38,36 @@ const SIMULATE = false;
 // known World Chain Sepolia deployment).
 const CONTRACT_ADDRESS = process.env.REACT_APP_CONTRACT_ADDRESS || '0x08A70Fed4d80893fC03Bd3E1D8cfb36E58a9E95d';
 const EXPLORER_BASE = (process.env.REACT_APP_BLOCKCHAIN_EXPLORER_URL || 'https://sepolia.worldscan.org').replace(/\/+$/, '');
+
+/** Publish intent, held across a sign-in that navigates the page away and back. */
+const PENDING_PUBLISH_KEY = 'humanink_pending_publish';
+/** Long enough to cover a Google round trip, short enough that a forgotten tab
+ *  can never resume a publish the student has moved on from. */
+const PENDING_PUBLISH_TTL_MS = 10 * 60 * 1000;
+
+function readPendingPublish(): boolean {
+  try {
+    const raw = sessionStorage.getItem(PENDING_PUBLISH_KEY);
+    if (!raw) return false;
+    const at = Number(raw);
+    if (!Number.isFinite(at) || Date.now() - at > PENDING_PUBLISH_TTL_MS) {
+      sessionStorage.removeItem(PENDING_PUBLISH_KEY);
+      return false;
+    }
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function writePendingPublish(pending: boolean): void {
+  try {
+    if (pending) sessionStorage.setItem(PENDING_PUBLISH_KEY, String(Date.now()));
+    else sessionStorage.removeItem(PENDING_PUBLISH_KEY);
+  } catch {
+    /* private mode — the in-page flow still works, only the resume is lost */
+  }
+}
 
 type SubmitState =
   | { phase: 'idle' }
@@ -88,7 +118,14 @@ export default function PublishProofPage(
   const { wallets } = useWallets();
   const [submit, setSubmit] = useState<SubmitState>({ phase: 'idle' });
   const [authError, setAuthError] = useState<string | null>(null);
-  const [pendingPublish, setPendingPublish] = useState(false);
+  // "I pressed Publish" survives a full page navigation. Privy's OAuth path can
+  // hand the browser to Google and back, which unmounts this page and would
+  // otherwise drop the intent — the student returned signed in, to a button they
+  // had to press a second time. Restored on mount so the publish just continues.
+  // sessionStorage (per tab) plus a short expiry, so a stale flag can never make
+  // a later visit publish something on its own.
+  const [pendingPublish, setPendingPublish] = useState<boolean>(() => readPendingPublish());
+  useEffect(() => { writePendingPublish(pendingPublish); }, [pendingPublish]);
   // Students name themselves (and optionally pick an assignment) BEFORE publishing;
   // the publish button stays disabled until the required name is filled in.
   const [studentReady, setStudentReady] = useState(false);
@@ -102,12 +139,21 @@ export default function PublishProofPage(
   // and the feed post happen from one action (the feed post fires automatically
   // once the tx confirms). Identity comes from the signed-in Google account — no
   // username to type.
-  const { user } = usePrivy();
+  const { user, authenticated } = usePrivy();
+  const { createWallet } = useCreateWallet();
+  const creatingWalletRef = useRef(false);
   const [feedOptIn, setFeedOptIn] = useState(true);
   const [feedState, setFeedState] = useState<'idle' | 'saving' | 'done' | 'error'>('idle');
   const [feedMsg, setFeedMsg] = useState('');
 
-  const { initOAuth } = useLoginWithOAuth({
+  // Sign-in for publishing runs through Privy's in-page modal, NOT the headless
+  // OAuth redirect. The redirect handed the browser to Google and back, which
+  // unmounted this page and took the student's typed name and assignment pick with
+  // it — so the publish that resumed would have been an unattached one. The modal
+  // keeps the page mounted: the student signs in, the effects below see identity
+  // go ready, and the publish they already asked for finishes on its own.
+  const { login } = useLogin({
+    onComplete: () => { /* pendingPublish + the wallet effect carry it from here */ },
     onError: (err) => {
       setPendingPublish(false);
       setAuthError(typeof err === 'string' ? err : 'Google sign-in failed.');
@@ -231,17 +277,54 @@ export default function PublishProofPage(
     }
   }, [pendingPublish, identity.status, submit.phase, doPublish]);
 
+  // Signed in with Google, but with no embedded wallet yet ('no-wallet').
+  //
+  // This is the state that used to bounce the user through Google sign-in over and
+  // over: they were ALREADY authenticated, so each OAuth round trip returned almost
+  // instantly and changed nothing, while the thing actually missing was the WALLET.
+  // (An account can end up here whenever Privy's create-on-login didn't run for it —
+  // it can't prompt while `showWalletUIs: false`, and accounts that predate the
+  // config never had it run at all.) Create the wallet once; the effect above then
+  // publishes on its own as soon as `wallets` populates. The ref guard matters:
+  // without it every re-render while pending would fire another createWallet.
+  useEffect(() => {
+    if (SIMULATE || !pendingPublish) return;
+    if (identity.status !== 'no-wallet' || !authenticated) return;
+    if (creatingWalletRef.current) return;
+    // The account may already OWN an embedded wallet that just hasn't connected in
+    // this session yet — useWallets() is empty for a moment after a cold load.
+    // Creating a second one throws "user already has a wallet", so wait instead:
+    // when it connects, the publish effect above fires on its own.
+    const ownsEmbedded = (user?.linkedAccounts || []).some(
+      (a: any) => a?.type === 'wallet' && a?.walletClientType === 'privy'
+    );
+    if (ownsEmbedded) return;
+    creatingWalletRef.current = true;
+    createWallet()
+      .catch((e) => {
+        setPendingPublish(false);
+        setAuthError(e instanceof Error ? e.message : 'Could not create your signing wallet.');
+      })
+      .finally(() => { creatingWalletRef.current = false; });
+  }, [pendingPublish, identity.status, authenticated, user, createWallet]);
+
   const handlePrimary = useCallback(() => {
     setAuthError(null);
     if (SIMULATE) { simulatePublish(); return; }
     if (identity.status === 'ready') doPublish();
     else if (identity.status === 'needs-auth') { setPendingPublish(true); identity.authenticate(); }
-    else {
+    else if (identity.status === 'loading' || authenticated) {
+      // Either Privy is still booting, or we're already signed in and only the
+      // wallet is missing. Another Google round trip fixes neither — sending one
+      // is exactly the redirect loop. Just mark the publish pending and let the
+      // effects above finish the job.
       setPendingPublish(true);
-      try { initOAuth({ provider: 'google' }); }
-      catch (e) { setPendingPublish(false); setAuthError(e instanceof Error ? e.message : 'Could not start Google sign-in.'); }
+    } else {
+      setPendingPublish(true);
+      try { login(); }
+      catch (e) { setPendingPublish(false); setAuthError(e instanceof Error ? e.message : 'Could not start sign-in.'); }
     }
-  }, [identity, doPublish, initOAuth, simulatePublish]);
+  }, [identity, authenticated, doPublish, login, simulatePublish]);
 
   // Identity for the feed, from the signed-in Google account (Privy) → the proof.
   const feedEmail: string = (user?.email?.address as string)
@@ -312,6 +395,13 @@ export default function PublishProofPage(
   const m = proof.metrics || {};
   const success = submit.phase === 'success';
   const busy = submit.phase === 'submitting' || (!SIMULATE && pendingPublish);
+  // "Publishing…" was shown for BOTH the on-chain write and the wait for an
+  // identity, so a publish stuck waiting for a wallet looked like a publish in
+  // progress and gave the user nothing to act on. Name the real stage.
+  const busyLabel =
+    submit.phase !== 'submitting' && !SIMULATE && pendingPublish && identity.status !== 'ready'
+      ? 'Preparing your wallet…'
+      : 'Publishing…';
   const band = processBand(authorship.score, bands);
   const reason = reasonLine(proof, authorship.score);
   const authorAddress = submit.phase === 'success'
@@ -325,7 +415,7 @@ export default function PublishProofPage(
     return (
       <PublishVersionB
         proof={proof} ai={ai} authorship={authorship} integrity={integrity} bands={bands}
-        success={success} busy={busy} submit={submit} onPublish={handlePrimary}
+        success={success} busy={busy} busyLabel={busyLabel} submit={submit} onPublish={handlePrimary}
         authError={authError} identityAuthError={identity.authError}
         isCreator={isCreator} authorAddress={authorAddress}
       />
@@ -390,10 +480,16 @@ export default function PublishProofPage(
       {/* On desktop these informational cards flow into 2–3 columns; on mobile
           they stack. Auto-fit grid → responsive without media queries. */}
       <div style={styles.bodyGrid}>
-      {/* Revision authenticity, the anti-gaming check (real, always on) */}
+      {/* Revision authenticity, the anti-gaming check (real, always on). It reads
+          the same pace/length signals the Process Score does but through a
+          deduction formula, so the InfoDot is not optional: without it a reader
+          has two numbers on one page and no way to tell what separates them. */}
       <div style={{ ...styles.card, borderColor: integrity.color }}>
         <div style={styles.scoreHead}>
-          <span style={styles.muted}>Revision authenticity</span>
+          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, ...styles.muted }}>
+            Revision authenticity
+            <InfoDot text={INTEGRITY_INFO} />
+          </span>
           <span style={{ ...styles.verdict, color: integrity.color }}>{integrity.score}</span>
         </div>
         <div style={styles.flagList}>
@@ -450,7 +546,7 @@ export default function PublishProofPage(
           {proof.docsRevision.firstModified && (
             <Row
               k="Date range"
-              v={`${new Date(proof.docsRevision.firstModified).toLocaleDateString()} → ${new Date(proof.docsRevision.lastModified!).toLocaleDateString()}`}
+              v={`${fmtTipDate(proof.docsRevision.firstModified) ?? '—'} → ${fmtTipDate(proof.docsRevision.lastModified) ?? '—'}`}
             />
           )}
           <Row k="Editors" v={proof.docsRevision.authors.length ? proof.docsRevision.authors.join(', ') : '-'} />
@@ -514,7 +610,7 @@ export default function PublishProofPage(
           <>
             <HIFeedToggle optIn={feedOptIn} setOptIn={setFeedOptIn} username={feedUsername} />
             <button style={{ ...styles.primary, opacity: busy ? 0.6 : 1 }} disabled={busy} onClick={handlePrimary}>
-              {busy ? 'Publishing…' : SIMULATE ? 'Publish proof on-chain' : feedOptIn ? 'Continue with Google & publish to HI Feed' : 'Continue with Google & publish'}
+              {busy ? busyLabel : SIMULATE ? 'Publish proof on-chain' : feedOptIn ? 'Continue with Google & publish to HI Feed' : 'Continue with Google & publish'}
             </button>
             {(authError || identity.authError) && <p style={styles.error}>{authError || identity.authError}</p>}
             {submit.phase === 'error' && <p style={styles.error}>{submit.message}</p>}
@@ -554,7 +650,7 @@ export default function PublishProofPage(
                 disabled={busy || !studentReady}
                 onClick={handlePrimary}
               >
-                {busy ? 'Publishing…' : 'Publish'}
+                {busy ? busyLabel : 'Publish'}
               </button>
               {!studentReady && (
                 <p style={{ ...styles.muted, textAlign: 'center', marginTop: 8 }}>Add your name above to continue.</p>
@@ -591,7 +687,7 @@ function Blocks({ score, total = 5 }: { score: number; total?: number }) {
  */
 function PublishVersionB({
   proof, ai, authorship, integrity, bands,
-  success, busy, submit, onPublish, authError, identityAuthError,
+  success, busy, busyLabel, submit, onPublish, authError, identityAuthError,
   isCreator, authorAddress,
 }: {
   proof: ExtensionProof;
@@ -601,6 +697,7 @@ function PublishVersionB({
   bands: ScoreBands;
   success: boolean;
   busy: boolean;
+  busyLabel: string;
   submit: SubmitState;
   onPublish: () => void;
   authError: string | null;
@@ -679,8 +776,9 @@ function PublishVersionB({
 
       {/* AUTHENTIC REVISION, one of the strongest trust signals, placed up high. */}
       <div style={{ ...styles.card, borderColor: integrity.color }}>
-        <div style={{ fontSize: 14, fontWeight: 700, color: integrity.color, marginBottom: 8 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 14, fontWeight: 700, color: integrity.color, marginBottom: 8 }}>
           Revision authenticity {integrity.score}
+          <InfoDot text={INTEGRITY_INFO} />
         </div>
         <div style={styles.flagList}>
           {integrity.flags.slice(0, 4).map((f, i) => (
@@ -741,7 +839,7 @@ function PublishVersionB({
       ) : (
         <>
           <button style={{ ...styles.primary, opacity: busy ? 0.6 : 1 }} disabled={busy} onClick={onPublish}>
-            {busy ? 'Publishing…' : SIMULATE ? 'Publish proof on-chain' : 'Continue with Google & publish'}
+            {busy ? busyLabel : SIMULATE ? 'Publish proof on-chain' : 'Continue with Google & publish'}
           </button>
           {(authError || identityAuthError) && <p style={styles.error}>{authError || identityAuthError}</p>}
           {submit.phase === 'error' && <p style={styles.error}>{submit.message}</p>}
@@ -1332,8 +1430,16 @@ function provLabel(e: { type: string; origin?: PasteOrigin }) {
     : e.origin === 'cited_source' ? 'quoted source'
     : 'pasted in';
 }
+/** Exact clock time, to the minute, in the READER's timezone with the zone named.
+ *  Used everywhere a professor reads "when did this happen" — a paste at 11:58pm
+ *  the night a paper was due is a different fact from a paste on that date, and
+ *  the zone has to be explicit because reader and writer may not share one.
+ *  (We render the reader's zone: the writer's own timezone is not captured — the
+ *  extension stores UTC only. Capturing it would need a session-row column.) */
 const fmtTipDate = (ms?: number | null) =>
-  ms ? new Date(ms).toLocaleString(undefined, { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }) : null;
+  ms ? new Date(ms).toLocaleString(undefined, {
+    month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit', timeZoneName: 'short',
+  }) : null;
 
 /** Floating HTML tooltip for the inline-SVG charts. Positioned by mapping a viewBox
  *  coordinate to a percentage of the container (the SVG scales to 100% width). */

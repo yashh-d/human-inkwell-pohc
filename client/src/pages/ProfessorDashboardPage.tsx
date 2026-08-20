@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
+import { INTEGRITY_INFO } from '../lib/authorship';
 import {
   professorAuthConfigured,
   getSession,
@@ -416,7 +417,7 @@ function AssignmentCard({
                   <th style={th}>Student</th>
                   <th style={thc}>Process</th>
                   <th style={thc}>AI</th>
-                  <th style={thc}>Integrity</th>
+                  <th style={thc} title={INTEGRITY_INFO}>Integrity</th>
                   <th style={thr}>Submitted</th>
                 </tr>
               </thead>
@@ -430,8 +431,8 @@ function AssignmentCard({
                     </td>
                     <td style={tdc}><ScorePill v={r.authorship_score} band={r.band} /></td>
                     <td style={tdc}><AiPill v={r.ai_score} /></td>
-                    <td style={tdc}>{r.integrity_score ?? '—'}</td>
-                    <td style={tdr}>{new Date(r.published_at).toLocaleDateString()}</td>
+                    <td style={tdc} title={INTEGRITY_INFO}>{r.integrity_score ?? '—'}</td>
+                    <td style={tdr}>{fmtSubmitted(r.published_at)}</td>
                   </tr>
                 ))}
               </tbody>
@@ -441,6 +442,25 @@ function AssignmentCard({
       )}
     </div>
   );
+}
+
+/**
+ * Submission time to the minute, in the READER's timezone, with the zone named.
+ *
+ * A date alone can't settle a deadline question ("was this in before midnight?"),
+ * and a professor grading from a different timezone than the student is reading a
+ * different clock than the one the student wrote against — so the zone is printed
+ * rather than left implicit. Timestamps are stored in UTC, so the browser does the
+ * conversion; we never store the writer's own timezone (see the note in the report).
+ */
+function fmtSubmitted(iso?: string | null) {
+  if (!iso) return '—';
+  const d = new Date(iso);
+  if (isNaN(d.getTime())) return '—';
+  return d.toLocaleString(undefined, {
+    month: 'short', day: 'numeric', year: 'numeric',
+    hour: 'numeric', minute: '2-digit', timeZoneName: 'short',
+  });
 }
 
 function ScorePill({ v, band }: { v: number | null; band: RosterSubmission['band'] }) {

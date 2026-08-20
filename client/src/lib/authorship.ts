@@ -204,8 +204,8 @@ export function pasteBreakdown(proof: ExtensionProof) {
  * PROCESS SCORE — the one number a professor takes in at a glance.
  *
  * Reads on a traditional 100-point grading scale, because that is the scale
- * professors already have instincts for: the 80s and 90s are where honest work
- * lands, and anything below 70 genuinely warrants a conversation.
+ * professors already have instincts for: anything above 70 is where honest work
+ * lands, and below 60 genuinely warrants a conversation.
  *
  * The model scores the WRITING PROCESS across three weighted dimensions. Each
  * dimension is judged 0–100 on its own, then blended:
@@ -214,7 +214,7 @@ export function pasteBreakdown(proof: ExtensionProof) {
  *                   + 0.30 · Generative velocity
  *                   + 0.20 · Temporal distribution
  *
- * Honest work lands 80–100. 70–79 is worth a glance. Below 70 is a real flag.
+ * Honest work lands above 70. 60–70 is worth a glance. Below 60 is a real flag.
  *
  * Each dimension is calibrated so that ORDINARY behaviour scores well and only
  * genuinely anomalous behaviour scores badly. Writing in one sitting is normal,
@@ -761,17 +761,17 @@ export function computeAuthorshipScore(proof: ExtensionProof) {
 
 /**
  * The traffic-light band. Thresholds are server-tunable (see /api/scoring-config)
- * with these defaults, and they read like grades: honest work lands 80–100 and is
- * green, 70–79 sits in the middle, and below 70 is a genuine flag. Deliberately
- * biased toward YELLOW — a false green is a missed catch, but a false red is a
- * wrongful accusation.
+ * with these defaults: above 70 is green, 60–70 is yellow, and below 60 is a
+ * genuine flag. The score is a rounded integer, so green starting at 71 is
+ * exactly "above 70". A false green is a missed catch, but a false red is a
+ * wrongful accusation — so red is reserved for scores well clear of the middle.
  *
  * Colour and tone only. The band deliberately carries no wording: a number on a
  * 100-point scale is a measurement the reader can argue with, and a word next to
  * it ("Authentic", "Investigate") is a conclusion drawn on their behalf.
  */
 export type ScoreBands = { green: number; red: number };
-export const DEFAULT_BANDS: ScoreBands = { green: 80, red: 70 };
+export const DEFAULT_BANDS: ScoreBands = { green: 71, red: 60 };
 export function processBand(score: number, bands: ScoreBands) {
   if (score >= bands.green) return { color: '#6ee7b7', tone: 'green' as const };
   if (score >= bands.red) return { color: '#fbbf24', tone: 'yellow' as const };
@@ -822,6 +822,15 @@ export function reasonLine(proof: ExtensionProof, score: number): string {
  * revisions look the opposite, big pastes, monotonic growth, all in one go.
  */
 export type IntegrityFlag = { level: 'ok' | 'warn' | 'bad'; text: string };
+
+/**
+ * The one-line explanation shown behind the ⓘ next to Revision authenticity, in
+ * the report and on the professor dashboard. Lives here, beside the function it
+ * describes, so the two can never drift apart. Keep it to a single sentence: it
+ * has to fit a tooltip and a table header alike.
+ */
+export const INTEGRITY_INFO =
+  'Starts at 100 and deducts for text that arrived faster than it could have been written, for revisions crammed into a single sitting, and for edits that never delete anything.';
 
 export function computeIntegrity(proof: ExtensionProof) {
   const m = proof.metrics || {};
