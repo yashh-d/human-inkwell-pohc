@@ -53,6 +53,13 @@ export interface BlockchainResponse {
   /** Non-fatal: e.g. we have a tx hash but could not read receipt in time. */
   statusNote?: string;
   /**
+   * This exact proof was already on the ledger, so no new transaction was sent and
+   * `entryId` points at the entry that was already there. Not an error: the ledger
+   * is deliberately one-entry-per-content-hash, and the caller wants the existing
+   * record (share link, assignment attach), not a failure.
+   */
+  alreadyPublished?: boolean;
+  /**
    * When set, the UI should show a short `error` only and skip the large explorer /
    * gas help block (funds were likely fine; the chain or wallet was just slow).
    */
@@ -578,16 +585,42 @@ class BlockchainService {
       console.log('User Address:', walletAtSubmit);
       console.log('Submission Data:', data);
 
-      // Check if content already exists (can be done with read-only provider)
+      // Already on the ledger? Then this is NOT a failure. The contract is
+      // deliberately one-entry-per-content-hash / per-biometric-signature, so a
+      // repeat publish of the same proof can never be a new entry — and the thing
+      // the caller actually needs is the entry that is already there, so the
+      // student still gets their share link and assignment attach.
+      //
+      // This is the common path after any interruption: a publish whose tx landed
+      // while the page lost the result (a refresh, a sign-in that navigated away),
+      // or simply pressing Publish twice. It used to throw
+      // "This biometric signature has already been used", which reads to a student
+      // as "your work was rejected" when in fact it was already recorded.
+      const [existingBySig, existingByContent] = await Promise.all([
+        (this.contract as any).getEntryIdBySignatureHash(data.humanSignatureHash),
+        (this.contract as any).getEntryIdByContentHash(data.contentHash),
+      ]);
+      const existingId = Number(existingBySig) > 0 ? Number(existingBySig) : Number(existingByContent);
+      if (existingId > 0) {
+        console.log('ℹ️ Proof already on-chain, returning existing entry', existingId);
+        return {
+          success: true,
+          alreadyPublished: true,
+          entryId: existingId,
+          statusNote: 'This proof was already recorded on-chain, so no new transaction was sent.',
+          explorerContractUrl: `${BLOCK_EXPLORER.replace(/\/$/, '')}/address/${CONTRACT_ADDRESS}`,
+          walletAddress: walletAtSubmit,
+          explorerAddressUrl: walletAtSubmit
+            ? `${BLOCK_EXPLORER.replace(/\/$/, '')}/address/${walletAtSubmit}`
+            : undefined,
+        };
+      }
+
+      // Content hash present but no readable entry id: the write would revert, and
+      // we have nothing to show instead, so this one stays an error.
       const contentExists = await (this.contract as any).contentExists(data.contentHash);
       if (contentExists) {
         throw new Error('Content with this hash already exists on the blockchain');
-      }
-
-      // Check if human signature already exists
-      const entryId = await (this.contract as any).getEntryIdBySignatureHash(data.humanSignatureHash);
-      if (entryId > 0) {
-        throw new Error('This biometric signature has already been used');
       }
 
       console.log('⛓️ Submitting to blockchain...');

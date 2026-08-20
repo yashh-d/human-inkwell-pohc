@@ -459,7 +459,11 @@ export default function PublishProofPage(
           <div style={styles.barWrap}>
             <div style={{ ...styles.barFill, width: `${ai.ai}%`, background: ai.color }} />
           </div>
-          <p style={styles.reasonLine}>Independent post-hoc detector, a parallel reference, not part of the {scoreLabel}.</p>
+          <p style={styles.reasonLine}>
+            {ai.source === 'model'
+              ? `Independent post-hoc detector, a parallel reference, not part of the ${scoreLabel}.`
+              : `Detector unavailable, so this is a rough heuristic estimate, not a model result. A parallel reference, not part of the ${scoreLabel}.`}
+          </p>
         </div>
       </div>
       )}
@@ -804,7 +808,9 @@ function PublishVersionB({
           <span style={{ fontSize: 18, fontWeight: 700, color: ai.color }}>{ai.ai}%</span>
         </div>
         <p style={{ ...styles.muted, margin: '4px 0 0' }}>
-          Independent post-hoc detector, a parallel reference, not part of the {scoreLabel}.
+          {ai.source === 'model'
+            ? `Independent post-hoc detector, a parallel reference, not part of the ${scoreLabel}.`
+            : `Detector unavailable, so this is a rough heuristic estimate, not a model result. A parallel reference, not part of the ${scoreLabel}.`}
         </p>
       </div>
 
@@ -1094,6 +1100,9 @@ function Receipt({ result }: { result: any }) {
   return (
     <div style={{ marginTop: 10 }}>
       <p style={styles.muted}>{result?.simulated ? 'Simulated write · World Chain (demo)' : 'Recorded on-chain in HumanContentLedger.'}</p>
+      {/* e.g. "already recorded on-chain, so no new transaction was sent" — the
+          student needs to know why there is an entry but no transaction hash. */}
+      {result?.statusNote && <p style={styles.muted}>{result.statusNote}</p>}
 
       {typeof result?.entryId === 'number' && (
         <div style={styles.row}><span style={styles.rowK}>Ledger entry</span><span style={styles.rowV}>#{result.entryId}</span></div>
