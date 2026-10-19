@@ -491,21 +491,30 @@ export default function PublishProofPage(
           (() => {
             const status = proof.aiCheck;
             const running = status === 'queued' && aiCheckStillRunning(publishedAt);
-            const tag = running ? 'pending' : status === 'queued' ? 'incomplete' : 'not run';
-            const copy = running
-              ? `The AI check is still running. It appears here as soon as it finishes — a parallel reference, not part of the ${scoreLabel}.`
+            // Every submission still gets a number: while a model result is absent the
+            // card shows the metrics-based heuristic (the same estimate the roster
+            // stores), labeled as exactly that. Only a check still in flight shows a
+            // dash, so the number never flips under the professor mid-read.
+            const tag = running ? 'pending' : 'heuristic';
+            const why = running
+              ? 'The AI check is still running and will replace this when it finishes.'
               : status === 'queued'
-              ? `The AI check was started but did not finish, so there is no result for this submission. A parallel reference, not part of the ${scoreLabel}.`
+              ? 'The AI check was started but did not finish, so this is the estimate from the writing metrics, not a model result.'
               : status === 'unavailable'
-              ? `No text was captured with this submission, so the AI check could not run. A parallel reference, not part of the ${scoreLabel}.`
-              : `This was published before the AI check existed, so it was not run. A parallel reference, not part of the ${scoreLabel}.`;
+              ? 'No text was captured with this submission, so the model could not run; this is the estimate from the writing metrics.'
+              : 'Published before the model check existed, so this is the estimate from the writing metrics, not a model result.';
             return (
-              <div style={{ ...styles.heroCard, borderColor: NEUTRAL, margin: 0 }}>
+              <div style={{ ...styles.heroCard, borderColor: running ? NEUTRAL : ai.color, margin: 0 }}>
                 <div style={styles.heroHead}>
                   <span style={styles.heroLabel}>{aiLabel}<span style={styles.tag}>{tag}</span></span>
-                  <span style={{ ...styles.heroNum, color: NEUTRAL }}>—</span>
+                  <span style={{ ...styles.heroNum, color: running ? NEUTRAL : ai.color }}>{running ? '—' : `${ai.ai}%`}</span>
                 </div>
-                <p style={styles.reasonLine}>{copy}</p>
+                {!running && (
+                  <div style={styles.barWrap}>
+                    <div style={{ ...styles.barFill, width: `${ai.ai}%`, background: ai.color }} />
+                  </div>
+                )}
+                <p style={styles.reasonLine}>{why} A parallel reference, not part of the {scoreLabel}.</p>
               </div>
             );
           })()
