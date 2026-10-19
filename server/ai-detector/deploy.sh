@@ -25,6 +25,16 @@ case "$cmd" in
   cold|up|on)
     DETECTOR_MIN_CONTAINERS=0 DETECTOR_SCALEDOWN_WINDOW="${SCALEDOWN:-60}" "$MODAL" deploy modal_app.py ;;
   warm)
+    # GUARDED: one L4 billed 24/7 is ~$0.80/hr ≈ $575/mo and will burn a credit
+    # budget in days. This is how the workspace got disabled once. Require an
+    # explicit opt-in so it can't be run by muscle memory.
+    if [ "${I_UNDERSTAND_THIS_BILLS_24_7:-}" != "yes" ]; then
+      echo "REFUSING: 'warm' keeps a GPU on 24/7 (~\$0.80/hr, ~\$575/mo)." >&2
+      echo "Use './deploy.sh cold' (scale-to-zero, ~\$0 idle) for normal use." >&2
+      echo "To really run warm:  I_UNDERSTAND_THIS_BILLS_24_7=yes ./deploy.sh warm" >&2
+      echo "…and run './deploy.sh cold' or './deploy.sh off' when the demo is over." >&2
+      exit 1
+    fi
     DETECTOR_MIN_CONTAINERS=1 "$MODAL" deploy modal_app.py ;;
   off|down|stop)
     "$MODAL" app stop "$APP" ;;

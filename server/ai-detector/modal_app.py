@@ -41,8 +41,14 @@ APP_DIR = Path(__file__).parent
 #                            1 = one always-warm GPU (no cold starts, billed 24/7)
 #   DETECTOR_SCALEDOWN_WINDOW seconds a used worker stays warm after the last request
 #                            (the cost/speed tuner within the cheap path)
+#   DETECTOR_MAX_CONTAINERS  HARD CAP on concurrent GPU containers. Default 1: a traffic
+#                            burst can never fan out into N GPUs billing in parallel —
+#                            extra load queues in the in-process batcher (or sheds 503)
+#                            instead of spawning more hardware. This is the main guard
+#                            against blowing through a credit budget.
 #   DETECTOR_GPU             GPU type (L4 is the cheapest that fits a 3B model)
 MIN_CONTAINERS = int(os.environ.get("DETECTOR_MIN_CONTAINERS", "0"))
+MAX_CONTAINERS = int(os.environ.get("DETECTOR_MAX_CONTAINERS", "1"))
 SCALEDOWN_WINDOW = int(os.environ.get("DETECTOR_SCALEDOWN_WINDOW", "60"))
 GPU = os.environ.get("DETECTOR_GPU", "L4")
 
@@ -98,10 +104,11 @@ def download_weights():
 @app.function(
     gpu=GPU,  # L4 24GB — ample for a 3B model; the cheapest GPU that fits comfortably.
     volumes={"/weights": weights},
-    secrets=web_secrets,  # HF (+ offline) always; bearer only when DETECTOR_USE_AUTH=1
+    secrets=web_secrets,  # HF + offline + bearer auth (always on)
     scaledown_window=SCALEDOWN_WINDOW,  # cost/speed tuner (env DETECTOR_SCALEDOWN_WINDOW)
     min_containers=MIN_CONTAINERS,      # 0 = scale-to-zero (cheap) | 1 = always-warm (env DETECTOR_MIN_CONTAINERS)
-    timeout=120,
+    max_containers=MAX_CONTAINERS,      # hard cap: never more than this many GPUs at once (env DETECTOR_MAX_CONTAINERS)
+    timeout=120,  # a stuck request can't pin the GPU longer than this
 )
 @modal.concurrent(max_inputs=100)  # many requests share one container -> the in-process batcher batches them
 @modal.asgi_app()
