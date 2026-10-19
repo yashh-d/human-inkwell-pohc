@@ -1,5 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import type { ExtensionProof } from '../lib/authorship';
+import type { AiResult } from '../lib/aiDetector';
+import { prepareProofForStorage } from '../lib/contentMatch';
 import {
   createSubmission,
   fetchDirectory,
@@ -84,12 +86,15 @@ type Onchain = {
 export default function StudentSubmitPanel({
   proof,
   summary,
+  ai,
   onchain,
   published,
   onReadyChange,
 }: {
   proof: ExtensionProof;
   summary: SubmissionSummary;
+  /** The detector's current result, frozen into the stored proof when it is a real model score. */
+  ai?: AiResult | null;
   onchain: Onchain;
   /** True once the on-chain publish has confirmed. */
   published: boolean;
@@ -140,8 +145,11 @@ export default function StudentSubmitPanel({
     setSaveErr(null);
     setAttachErr(null);
     try {
+      // The hand-off carries the full text for the detector; what is stored is the
+      // proof without it, plus the passage fingerprint the professor's document
+      // check needs and the numbers the Process Score read from the text.
       const r = await createSubmission({
-        proof,
+        proof: prepareProofForStorage(proof, ai),
         summary,
         student_name: fullName,
         student_email: proof.email || null,

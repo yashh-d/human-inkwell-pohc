@@ -13,6 +13,7 @@ import {
   processBand, reasonLine, computeIntegrity, INTEGRITY_INFO,
 } from "../lib/authorship";
 import { detectAi, AiResult } from '../lib/aiDetector';
+import { compareToFingerprint, storedAiResult, DocumentMatch } from '../lib/contentMatch';
 import type { PasteEvent } from '../submissionsApi';
 import { computeReceipts, fmtDuration } from '../lib/receipts';
 import { publishCreatorPost } from '../creatorSupabase';
@@ -163,8 +164,11 @@ export default function PublishProofPage(
   // AI probability. Starts from the instant heuristic so the card never blocks,
   // then upgrades in place to the real detector's result (source: 'model') once
   // the worker responds. Falls back to the heuristic if the detector is down.
+  // A stored proof carries the detector's publish-time result and no text, so it
+  // shows that result rather than re-scoring (storedAiResult). A fresh hand-off
+  // starts from the heuristic and upgrades below once the detector answers.
   const baseAi = useMemo<AiResult | null>(
-    () => (proof ? { ...computeAiScore(proof.metrics || {}), source: 'simulated' } : null),
+    () => (proof ? (storedAiResult(proof) ?? { ...computeAiScore(proof.metrics || {}), source: 'simulated' }) : null),
     [proof],
   );
   const [ai, setAi] = useState<AiResult | null>(baseAi);
@@ -476,6 +480,10 @@ export default function PublishProofPage(
 
       {showDetail && showEvidence && (
       <>
+      {/* Professor-only: paste what the student handed in, see how much of the
+          proven document it contains. Nothing pasted here leaves the browser. */}
+      {reportOnly && <DocumentCheck proof={proof} />}
+
       {/* Evidence cards, then a drop-down with the per-signal breakdown (shared with B).
           The composite-score breakdown is hidden for creators (receipts, not scores). */}
       <EvidenceCards proof={proof} authorship={authorship} />
@@ -633,6 +641,7 @@ export default function PublishProofPage(
             published={success}
             onReadyChange={setStudentReady}
             proof={proof}
+            ai={ai}
             summary={{
               authorship_score: authorship.score,
               ai_score: ai ? ai.ai : null,
@@ -1224,6 +1233,101 @@ function ScoreCalcDetails({ authorship, scoreLabel = 'Process Score' }: { author
 }
 
 /** Small hover "ⓘ" that reveals a one-paragraph explanation of an evidence signal. */
+/**
+ * The document check. The professor pastes the text they were handed; it is cut
+ * into passages, hashed, and compared with the passage fingerprint stored in the
+ * proof, all in this browser. The number is how much of the proven document the
+ * pasted text contains. Passages the pasted text has that the proof does not are
+ * shown back (they are the professor's own paste); passages the proof has that the
+ * text lacks can only be counted, since their text was never stored.
+ */
+function DocumentCheck({ proof }: { proof: ExtensionProof }) {
+  const [text, setText] = useState('');
+  const [result, setResult] = useState<DocumentMatch | null>(null);
+  const fp = proof.contentFingerprint;
+  const pct = (x: number) => (Number.isInteger(x) ? `${x}%` : `${x.toFixed(1)}%`);
+  const plural = (n: number, one: string, many: string) => `${n} ${n === 1 ? one : many}`;
+
+  return (
+    <div style={styles.card}>
+      <div style={styles.sec}>Check the submitted document</div>
+      {!fp ? (
+        <p style={styles.muted}>
+          Not available for this submission. It was published before passage fingerprints
+          were recorded, so there is nothing here to compare a text against.
+        </p>
+      ) : (
+        <>
+          <p style={styles.muted}>
+            Paste the text the student handed in. It is compared, in your browser only, with
+            a fingerprint of the document this proof was made from. Spacing, formatting and
+            the Human Ink link are ignored.
+          </p>
+          <textarea
+            style={{ ...styles.textarea, minHeight: 120 }}
+            value={text}
+            placeholder="Paste the submitted essay here"
+            onChange={(e) => { setText(e.target.value); setResult(null); }}
+          />
+          <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
+            <button
+              style={{ ...styles.seeWhy, margin: 0, maxWidth: 160, opacity: text.trim() ? 1 : 0.5 }}
+              disabled={!text.trim()}
+              onClick={() => setResult(compareToFingerprint(text, proof))}
+            >
+              Compare
+            </button>
+            {result && (
+              <button style={{ ...styles.seeWhy, margin: 0, maxWidth: 120 }} onClick={() => { setText(''); setResult(null); }}>
+                Clear
+              </button>
+            )}
+          </div>
+
+          {result && !result.available && (
+            <p style={styles.muted}>
+              This fingerprint was recorded under a different normalisation and cannot be compared here.
+            </p>
+          )}
+
+          {result && result.available && (
+            <div style={{ marginTop: 12 }}>
+              <div style={{ display: 'flex', alignItems: 'baseline', gap: 10, flexWrap: 'wrap' }}>
+                <span style={{ fontSize: 34, fontWeight: 800, lineHeight: 1, color: result.color }}>{pct(result.coverage)}</span>
+                <span style={styles.muted}>of the proven document appears in this text</span>
+              </div>
+              <div style={{ marginTop: 8 }}>
+                <Row k="Passages in the proof" v={`${result.proofPassages}: ${result.matchedPassages} found, ${result.missingPassages} missing`} />
+                <Row
+                  k="Not in the proof"
+                  v={result.unmatched.length === 0
+                    ? 'nothing in this text'
+                    : `${plural(result.unmatched.length, 'passage', 'passages')} in this text, ${pct(result.extra)} of it`}
+                />
+                {result.removedLinks > 0 && <Row k="Ignored" v={plural(result.removedLinks, 'Human Ink link', 'Human Ink links')} />}
+                {result.exact && <Row k="Content hash" v="identical to the proof, byte for byte" />}
+              </div>
+              {result.unmatched.length > 0 && (
+                <div style={{ marginTop: 10 }}>
+                  <div style={styles.fieldLabel}>In this text, not in the proven document</div>
+                  {result.unmatched.slice(0, 12).map((u, i) => (
+                    <p key={i} style={{ ...styles.muted, opacity: 0.9, borderLeft: '2px solid #fbbf24', paddingLeft: 8, margin: '6px 0' }}>
+                      {u.text.length > 220 ? `${u.text.slice(0, 220)}…` : u.text}
+                    </p>
+                  ))}
+                  {result.unmatched.length > 12 && (
+                    <p style={styles.muted}>and {result.unmatched.length - 12} more</p>
+                  )}
+                </div>
+              )}
+            </div>
+          )}
+        </>
+      )}
+    </div>
+  );
+}
+
 function InfoDot({ text }: { text: string }) {
   const [show, setShow] = useState(false);
   return (

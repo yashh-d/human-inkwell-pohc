@@ -37,6 +37,29 @@ export type ProofMetrics = {
   /** Number of separate sittings. */
   sessions?: number;
   textLength?: number;
+  /** Word count of the finished text, recorded at publish time because the text itself is not stored. */
+  wordCount?: number;
+};
+
+/**
+ * Privacy-preserving fingerprint of the finished document: one truncated SHA-256
+ * per normalised passage (a sentence, or a line with no terminator), in document
+ * order, with each passage's normalised length. It lets a professor check that
+ * the text they received is the text that was proven without the text itself
+ * ever being stored: recovering a passage from its hash means guessing the whole
+ * passage. Built and compared only in lib/contentMatch.ts, where the
+ * normalisation lives.
+ */
+export type ContentFingerprint = {
+  v: number;
+  algo: 'sha256-64';
+  unit: 'passage';
+  /** Normalisation revision. A fingerprint is only comparable under the revision that built it. */
+  norm: number;
+  count: number;
+  totalChars: number;
+  hashes: string[];
+  chars: number[];
 };
 
 export type PasteOrigin = 'internal_move' | 'cited_source' | 'external';
@@ -66,6 +89,12 @@ export type ExtensionProof = {
   v: number;
   source: string;
   contentHash: string;
+  // Passage fingerprint of the finished text, for the professor's document check.
+  // Stored in place of the text itself; absent on proofs published before it existed.
+  contentFingerprint?: ContentFingerprint | null;
+  // The AI detector's result at publish time, kept so the report shows the same
+  // number the roster stored instead of re-scoring text that is no longer carried.
+  aiDetection?: { ai: number; human: number; source: 'model'; at: string } | null;
   // Raw written text (web capture only), carried so /publish can run a real
   // AI-text detector on the same text contentHash attests. Absent for Docs and
   // for older/privacy hand-offs — the detector falls back to the metrics score.
@@ -423,9 +452,12 @@ export function computeAuthorshipScore(proof: ExtensionProof) {
   // word-equivalent, and how WPM has always been defined).
   const finalLength = (typeof proof.text === 'string' ? proof.text.length : 0) || m.textLength || 0;
   const accounted = Math.max(pb.totalChars, keystrokes);
+  // The text is not stored, so a stored proof carries the count it had at publish
+  // time instead (metrics.wordCount, set by prepareProofForStorage). Same number
+  // either way, which is what keeps the roster and the report in agreement.
   const words = typeof proof.text === 'string' && proof.text.trim()
     ? proof.text.trim().split(/\s+/).length
-    : Math.round((finalLength || accounted) / 5);
+    : (m.wordCount || Math.round((finalLength || accounted) / 5));
 
   // Short pieces are never judged on pace — a 200-word reading response written
   // briskly is not evidence of anything. Full weight only from 400 words up.
