@@ -5,6 +5,7 @@ import {
   fetchSubmission,
   listAssignments,
   attachSubmission,
+  aiCheckStillRunning,
   type SubmissionView,
   type AssignmentRow,
 } from '../submissionsApi';
@@ -35,8 +36,15 @@ export default function SubmissionReportPage() {
     // on an already-rendered report is ignored rather than blanking the page.
     const POLL_MS = [6_000, 10_000, 15_000, 20_000, 30_000, 30_000, 30_000];
     let attempt = 0;
-    const pending = (v: SubmissionView) =>
-      v.viewer === 'professor' ? v.detail?.aiDetection?.source !== 'model' : v.summary.ai_score == null;
+    // Only keep polling for a check that was actually started and is still inside
+    // its window — never for rows that have nothing to score or predate the check.
+    const pending = (v: SubmissionView) => {
+      if (!aiCheckStillRunning(v.published_at)) return false;
+      if (v.viewer === 'professor') {
+        return v.detail?.aiCheck === 'queued' && v.detail?.aiDetection?.source !== 'model';
+      }
+      return v.summary.ai_score == null;
+    };
     const load = async () => {
       try {
         const session = await getSession();
@@ -92,7 +100,12 @@ export default function SubmissionReportPage() {
             <Link to="/dashboard" style={dashLink}>Dashboard →</Link>
           </div>
         </div>
-        <PublishProofPage injectedProof={view.detail} injectedPasteEvents={view.pasteEvents ?? undefined} reportOnly />
+        <PublishProofPage
+          injectedProof={view.detail}
+          injectedPasteEvents={view.pasteEvents ?? undefined}
+          publishedAt={view.published_at}
+          reportOnly
+        />
       </div>
     );
   }
@@ -209,7 +222,9 @@ function SummaryOnly({ view }: { view: SubmissionView }) {
         <div style={{ ...hero, borderColor: aiColor }}>
           <div style={heroLabel}>AI probability</div>
           <div style={{ ...heroNum, color: aiColor }}>{s.ai_score == null ? '—' : `${s.ai_score}%`}</div>
-          <div style={{ ...pill, color: aiColor, borderColor: aiColor }}>{s.ai_score == null ? 'pending' : 'post-hoc reference'}</div>
+          <div style={{ ...pill, color: aiColor, borderColor: aiColor }}>
+            {s.ai_score != null ? 'post-hoc reference' : aiCheckStillRunning(view.published_at) ? 'pending' : 'not available'}
+          </div>
         </div>
       </div>
 

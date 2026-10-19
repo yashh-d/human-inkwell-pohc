@@ -262,6 +262,9 @@ export function prepareProofForStorage(proof: ExtensionProof, ai?: AiResult | nu
   if (ai && ai.source === 'model') {
     out.aiDetection = { ai: ai.ai, human: ai.human, source: 'model', at: new Date().toISOString() };
   }
+  // Record whether the server-side check can run at all, so the report never shows
+  // "pending" for a submission that has nothing to score (see ExtensionProof.aiCheck).
+  out.aiCheck = typeof text === 'string' && text.trim() ? 'queued' : 'unavailable';
   return out;
 }
 

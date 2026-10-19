@@ -100,6 +100,20 @@ export async function fetchDirectory(): Promise<DirectoryTree> {
 }
 
 /**
+ * How long after publish a queued AI check still counts as "running". The browser
+ * retries for ~1 min and the worker cold-starts in ~30s, so anything older than this
+ * without a result didn't complete — the report says so instead of pending forever.
+ */
+export const AI_CHECK_PENDING_MS = 10 * 60_000;
+
+/** Whether a submission published at `publishedAt` is still inside the pending window. */
+export function aiCheckStillRunning(publishedAt?: string | null): boolean {
+  if (!publishedAt) return false;
+  const t = Date.parse(publishedAt);
+  return Number.isFinite(t) && Date.now() - t < AI_CHECK_PENDING_MS;
+}
+
+/**
  * Run the AI-text check for a just-created submission, SERVER-side, and store it on
  * the row (professor-only artifact — the student never sees the number). Fire-and-
  * forget from the publish page: never await this for UI.

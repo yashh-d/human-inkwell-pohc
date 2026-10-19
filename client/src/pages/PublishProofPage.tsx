@@ -14,7 +14,7 @@ import {
 } from "../lib/authorship";
 import { detectAi, AiResult } from '../lib/aiDetector';
 import { compareToFingerprint, storedAiResult, DocumentMatch } from '../lib/contentMatch';
-import type { PasteEvent } from '../submissionsApi';
+import { aiCheckStillRunning, type PasteEvent } from '../submissionsApi';
 import { computeReceipts, fmtDuration } from '../lib/receipts';
 import { publishCreatorPost } from '../creatorSupabase';
 import StudentSubmitPanel from '../components/StudentSubmitPanel';
@@ -84,6 +84,7 @@ export default function PublishProofPage(
     previewOnly = false,
     onPreviewVerify,
     reportOnly = false,
+    publishedAt,
   }: {
     variant?: 'student' | 'creator';
     injectedProof?: ExtensionProof;
@@ -99,6 +100,9 @@ export default function PublishProofPage(
     // scores + evidence from an injected proof, with the detail expanded and no
     // publish/verify action. This is the gated view only professors reach.
     reportOnly?: boolean;
+    // When the submission was stored (professor view). Bounds how long a queued
+    // AI check is shown as "running" before the card says it didn't complete.
+    publishedAt?: string | null;
   } = {},
 ) {
   const isCreator = variant === 'creator';
@@ -480,17 +484,31 @@ export default function PublishProofPage(
             </p>
           </div>
         ) : reportOnly && ai.source !== 'model' ? (
-          // Professor, result not stored yet: say so plainly instead of dressing the
-          // heuristic up as a model number. The report page re-fetches until it lands.
-          <div style={{ ...styles.heroCard, borderColor: NEUTRAL, margin: 0 }}>
-            <div style={styles.heroHead}>
-              <span style={styles.heroLabel}>{aiLabel}<span style={styles.tag}>pending</span></span>
-              <span style={{ ...styles.heroNum, color: NEUTRAL }}>—</span>
-            </div>
-            <p style={styles.reasonLine}>
-              The AI check is still running. It appears here as soon as it finishes — a parallel reference, not part of the {scoreLabel}.
-            </p>
-          </div>
+          // Professor, no stored model result. Say exactly which case this is rather
+          // than dressing the heuristic up as a number or showing an eternal "pending":
+          // a check that was started and is still inside its window is pending (the
+          // report page re-fetches until it lands); everything else is final.
+          (() => {
+            const status = proof.aiCheck;
+            const running = status === 'queued' && aiCheckStillRunning(publishedAt);
+            const tag = running ? 'pending' : status === 'queued' ? 'incomplete' : 'not run';
+            const copy = running
+              ? `The AI check is still running. It appears here as soon as it finishes — a parallel reference, not part of the ${scoreLabel}.`
+              : status === 'queued'
+              ? `The AI check was started but did not finish, so there is no result for this submission. A parallel reference, not part of the ${scoreLabel}.`
+              : status === 'unavailable'
+              ? `No text was captured with this submission, so the AI check could not run. A parallel reference, not part of the ${scoreLabel}.`
+              : `This was published before the AI check existed, so it was not run. A parallel reference, not part of the ${scoreLabel}.`;
+            return (
+              <div style={{ ...styles.heroCard, borderColor: NEUTRAL, margin: 0 }}>
+                <div style={styles.heroHead}>
+                  <span style={styles.heroLabel}>{aiLabel}<span style={styles.tag}>{tag}</span></span>
+                  <span style={{ ...styles.heroNum, color: NEUTRAL }}>—</span>
+                </div>
+                <p style={styles.reasonLine}>{copy}</p>
+              </div>
+            );
+          })()
         ) : (
         <div style={{ ...styles.heroCard, borderColor: ai.color, margin: 0 }}>
           <div style={styles.heroHead}>

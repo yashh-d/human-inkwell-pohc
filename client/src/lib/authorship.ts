@@ -104,9 +104,18 @@ export type ExtensionProof = {
     hashVerified?: boolean | null;
     backend?: string | null;
   } | null;
-  // Raw written text (web capture only), carried so /publish can run a real
-  // AI-text detector on the same text contentHash attests. Absent for Docs and
-  // for older/privacy hand-offs — the detector falls back to the metrics score.
+  // Whether a server-side AI check was even started for this submission, stamped
+  // at storage time (prepareProofForStorage). Lets the professor report tell
+  // "still running" apart from "never ran" instead of showing an eternal pending:
+  //   'queued'      text was present, /api/submission-ai was fired after creation
+  //   'unavailable' no text to score (the capture carried none)
+  //   absent        published before the server-side check existed
+  aiCheck?: 'queued' | 'unavailable' | null;
+  // Raw written text, carried so the AI-text detector can score the same text
+  // contentHash attests. Web captures send the live snapshot; Google Docs sends the
+  // revision-scan plaintext (extension popup.js, docScanText). Absent only on
+  // older/privacy hand-offs or when a Docs scan yielded nothing. Never persisted:
+  // prepareProofForStorage strips it before the submission is stored.
   text?: string;
   humanSignatureHash: string;
   keystrokeCount: number;
