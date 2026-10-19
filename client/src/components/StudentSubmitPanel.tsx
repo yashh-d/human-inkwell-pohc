@@ -6,6 +6,7 @@ import {
   createSubmission,
   fetchDirectory,
   attachSubmission,
+  submitAiCheck,
   type SubmissionSummary,
   type DirectoryTree,
 } from '../submissionsApi';
@@ -161,6 +162,14 @@ export default function StudentSubmitPanel({
       });
       rememberStudentName(fullName);
       setSlug(r.share_slug);
+      // Kick off the AI check on the server, off the student's path. The text only
+      // exists here (the stored proof has none), so this is the one moment to score
+      // it. Never awaited for UI, never shown to the student — professor-side only.
+      if (typeof proof.text === 'string' && proof.text.trim()) {
+        void submitAiCheck(r.share_slug, proof.text).catch((e) => {
+          console.warn('[ai-check] could not store detector result:', e instanceof Error ? e.message : e);
+        });
+      }
       // If they pre-picked a target, attach it now. A failure here is non-fatal —
       // they still have a valid link and can retry with the picker below.
       const target = asgId

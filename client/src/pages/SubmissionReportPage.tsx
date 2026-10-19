@@ -27,17 +27,34 @@ export default function SubmissionReportPage() {
 
   useEffect(() => {
     let alive = true;
-    (async () => {
+    let hadView = false;
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    // The AI check is scored on the server shortly after a submission is created
+    // (its GPU worker may cold-start first). Re-fetch on a short backoff until the
+    // model result lands so it "just appears" here without a reload. A failed poll
+    // on an already-rendered report is ignored rather than blanking the page.
+    const POLL_MS = [6_000, 10_000, 15_000, 20_000, 30_000, 30_000, 30_000];
+    let attempt = 0;
+    const pending = (v: SubmissionView) =>
+      v.viewer === 'professor' ? v.detail?.aiDetection?.source !== 'model' : v.summary.ai_score == null;
+    const load = async () => {
       try {
         const session = await getSession();
         const data = await fetchSubmission(slug, session?.access_token);
-        if (alive) setView(data);
+        if (!alive) return;
+        setView(data);
+        hadView = true;
+        if (pending(data) && attempt < POLL_MS.length) {
+          timer = setTimeout(load, POLL_MS[attempt++]);
+        }
       } catch (e) {
-        if (alive) setError(e instanceof Error ? e.message : 'Could not load this report.');
+        if (alive && !hadView) setError(e instanceof Error ? e.message : 'Could not load this report.');
       }
-    })();
+    };
+    load();
     return () => {
       alive = false;
+      if (timer) clearTimeout(timer);
     };
   }, [slug]);
 
@@ -192,7 +209,7 @@ function SummaryOnly({ view }: { view: SubmissionView }) {
         <div style={{ ...hero, borderColor: aiColor }}>
           <div style={heroLabel}>AI probability</div>
           <div style={{ ...heroNum, color: aiColor }}>{s.ai_score == null ? '—' : `${s.ai_score}%`}</div>
-          <div style={{ ...pill, color: aiColor, borderColor: aiColor }}>post-hoc reference</div>
+          <div style={{ ...pill, color: aiColor, borderColor: aiColor }}>{s.ai_score == null ? 'pending' : 'post-hoc reference'}</div>
         </div>
       </div>
 

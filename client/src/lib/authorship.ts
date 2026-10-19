@@ -94,7 +94,16 @@ export type ExtensionProof = {
   contentFingerprint?: ContentFingerprint | null;
   // The AI detector's result at publish time, kept so the report shows the same
   // number the roster stored instead of re-scoring text that is no longer carried.
-  aiDetection?: { ai: number; human: number; source: 'model'; at: string } | null;
+  aiDetection?: {
+    ai: number;
+    human: number;
+    source: 'model';
+    at: string;
+    // Set when scored on the server (/api/submission-ai): whether SHA-256(text)
+    // matched the attested content_hash, and which worker backend produced it.
+    hashVerified?: boolean | null;
+    backend?: string | null;
+  } | null;
   // Raw written text (web capture only), carried so /publish can run a real
   // AI-text detector on the same text contentHash attests. Absent for Docs and
   // for older/privacy hand-offs — the detector falls back to the metrics score.

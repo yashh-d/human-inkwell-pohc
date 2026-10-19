@@ -99,6 +99,39 @@ export async function fetchDirectory(): Promise<DirectoryTree> {
   return jsonOrThrow(res);
 }
 
+/**
+ * Run the AI-text check for a just-created submission, SERVER-side, and store it on
+ * the row (professor-only artifact — the student never sees the number). Fire-and-
+ * forget from the publish page: never await this for UI.
+ *
+ * The GPU worker scales to zero, so the first call after an idle gap can cold-start
+ * (~30s) and time out; the server answers 503 { retry: true } and we try again on a
+ * backoff that lands on the now-warm worker. Permanent errors (4xx) stop immediately.
+ * The row is scored once — a repeat is a cheap no-op (already: true).
+ */
+export async function submitAiCheck(slug: string, text: string): Promise<{ ai: number | null }> {
+  const delays = [0, 8_000, 20_000, 35_000]; // cold start ≈ 30s → attempt 3+ hits warm
+  let lastErr: unknown = null;
+  for (let i = 0; i < delays.length; i++) {
+    if (delays[i]) await new Promise((r) => setTimeout(r, delays[i]));
+    try {
+      const res = await fetch(apiPath('/api/submission-ai'), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ slug, text }),
+      });
+      const json = await res.json().catch(() => ({}));
+      if (res.ok) return { ai: typeof json.ai === 'number' ? json.ai : null };
+      // Only transient failures are worth another try (5xx incl. a 504 timeout).
+      lastErr = new Error(json.error || `Request failed (${res.status})`);
+      if (res.status < 500) break;
+    } catch (e) {
+      lastErr = e; // network error → retry
+    }
+  }
+  throw lastErr instanceof Error ? lastErr : new Error('AI check failed');
+}
+
 export async function attachSubmission(input: {
   slug: string;
   assignment_id?: string;

@@ -174,8 +174,19 @@ export default function PublishProofPage(
   const [ai, setAi] = useState<AiResult | null>(baseAi);
   const [aiPending, setAiPending] = useState(false);
   useEffect(() => { setAi(baseAi); }, [baseAi]);
+  // Where the AI number is shown live vs. computed later on the server:
+  //  - student publish page: NO in-page detection and NO number. The check runs once
+  //    on the server at submit (StudentSubmitPanel → /api/submission-ai) and is a
+  //    professor-side artifact. That keeps the GPU cold start off the student's path
+  //    and spends a GPU call only when a submission actually exists.
+  //  - creator Slop Score and the /write preview: live detection, number shown.
+  //  - professor report: the stored proof has no text, so this is a no-op and
+  //    storedAiResult replays the server-stored number (or the card shows "pending").
+  const isStudentFlow = !isCreator && !reportOnly && !previewOnly;
+  const runLiveDetect = isCreator || previewOnly;
+  const NEUTRAL = '#94a3b8';
   useEffect(() => {
-    if (!proof) return;
+    if (!proof || !runLiveDetect) return;
     const hasText = !!(proof.text && proof.text.trim());
     if (!hasText) return; // no text to score (Docs / old payload) → keep heuristic
     let alive = true;
@@ -184,7 +195,7 @@ export default function PublishProofPage(
       .then((r) => { if (alive) setAi(r); })
       .finally(() => { if (alive) setAiPending(false); });
     return () => { alive = false; };
-  }, [proof]);
+  }, [proof, runLiveDetect]);
   const authorship = useMemo(() => (proof ? computeAuthorshipScore(proof) : null), [proof]);
   const integrity = useMemo(() => (proof ? computeIntegrity(proof) : null), [proof]);
 
@@ -455,6 +466,32 @@ export default function PublishProofPage(
           </div>
           <p style={styles.reasonLine}>{reason}</p>
         </div>
+        {isStudentFlow ? (
+          // Student: no number. The check runs on the server at submit and is shown to
+          // the professor only — privacy, and it keeps the detector's cold start off the
+          // student's path entirely.
+          <div style={{ ...styles.heroCard, borderColor: NEUTRAL, margin: 0 }}>
+            <div style={styles.heroHead}>
+              <span style={styles.heroLabel}>AI check</span>
+              <span style={{ ...styles.heroNum, color: NEUTRAL }}>✓</span>
+            </div>
+            <p style={styles.reasonLine}>
+              Runs when you submit and is shared with your professor. A separate reference, not part of the {scoreLabel}.
+            </p>
+          </div>
+        ) : reportOnly && ai.source !== 'model' ? (
+          // Professor, result not stored yet: say so plainly instead of dressing the
+          // heuristic up as a model number. The report page re-fetches until it lands.
+          <div style={{ ...styles.heroCard, borderColor: NEUTRAL, margin: 0 }}>
+            <div style={styles.heroHead}>
+              <span style={styles.heroLabel}>{aiLabel}<span style={styles.tag}>pending</span></span>
+              <span style={{ ...styles.heroNum, color: NEUTRAL }}>—</span>
+            </div>
+            <p style={styles.reasonLine}>
+              The AI check is still running. It appears here as soon as it finishes — a parallel reference, not part of the {scoreLabel}.
+            </p>
+          </div>
+        ) : (
         <div style={{ ...styles.heroCard, borderColor: ai.color, margin: 0 }}>
           <div style={styles.heroHead}>
             <span style={styles.heroLabel}>{aiLabel}{aiPending ? <span style={styles.tag}>analyzing…</span> : null}</span>
@@ -469,6 +506,7 @@ export default function PublishProofPage(
               : `Detector unavailable, so this is a rough heuristic estimate, not a model result. A parallel reference, not part of the ${scoreLabel}.`}
           </p>
         </div>
+        )}
       </div>
       )}
 
@@ -644,7 +682,9 @@ export default function PublishProofPage(
             ai={ai}
             summary={{
               authorship_score: authorship.score,
-              ai_score: ai ? ai.ai : null,
+              // Only a real model result is stored at creation — the heuristic is never
+              // persisted as if it were one. The server fills this in via /api/submission-ai.
+              ai_score: ai && ai.source === 'model' ? ai.ai : null,
               integrity_score: integrity.score,
               band: band.tone,
             }}
