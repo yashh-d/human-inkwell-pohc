@@ -14,7 +14,14 @@ function relayerAddress() {
   if (!key) return null;
   try { return new Wallet(key).address.toLowerCase(); } catch { return null; }
 }
-const { getSupabaseCreds } = require('./_supabaseEnv');
+// Service role on purpose: these are SERVER-VERIFIED writes (the route checks the
+// on-chain tx / signature before inserting), so bypassing RLS is the correct
+// design — the same pattern the submissions/accounts routes use. The previous
+// anon-preferring resolver silently failed in production with
+//   42501: new row violates row-level security policy for table "ledger_submissions"
+// once the anon insert policy was removed from the live DB (dashboard drift from
+// the migrations), dropping the ledger mirror row on every publish.
+const { getServiceRoleCreds } = require('./_supabaseEnv');
 const { parsePublicText } = require('./_contentHash');
 const humanContentArtifact = require('../src/HumanContentLedger.json');
 
@@ -121,7 +128,7 @@ module.exports = async (req, res) => {
     return send(res, 400, { error: 'Missing required fields' });
   }
 
-  const { url: supabaseUrl, key: supabaseKey, error: supaErr } = getSupabaseCreds();
+  const { url: supabaseUrl, key: supabaseKey, error: supaErr } = getServiceRoleCreds();
   if (supaErr) {
     return send(res, 500, { error: supaErr });
   }
