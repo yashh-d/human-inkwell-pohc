@@ -11,6 +11,40 @@
  * Access: writes with the service-role key (these tables deny the anon role).
  */
 const { send, readJson, lc, serviceClient } = require('./_accounts');
+const { waitUntil } = require('@vercel/functions');
+const { createHash } = require('crypto');
+const { scoreText } = require('./_detector');
+
+const MAX_TEXT_CHARS = 200_000; // matches the detector proxy / worker cap
+
+/**
+ * Runs AFTER the response has been sent (via waitUntil), so the student never waits
+ * and closing the tab cannot lose the result — the earlier browser-side fire-and-
+ * forget did exactly that. The text lives only in this function's memory for one
+ * request: it is never written to the row, and the stored proof carries none.
+ * Records whether SHA-256(text) matched the attested content_hash (a mismatch is
+ * recorded, not rejected — Docs / whitespace-normalized captures can differ).
+ */
+async function scoreAfterResponse(supabase, slug, text, contentHash) {
+  try {
+    const computed = createHash('sha256').update(text, 'utf8').digest('hex');
+    const hashVerified = contentHash ? computed.toLowerCase() === String(contentHash).toLowerCase() : null;
+    const scored = await scoreText(text, contentHash || undefined);
+    const ai = Math.max(0, Math.min(100, Math.round(scored.ai * 100)));
+    const aiDetection = {
+      ai, human: 100 - ai, source: 'model', at: new Date().toISOString(), hashVerified, backend: scored.backend,
+    };
+    const { data: cur } = await supabase.from('submissions').select('detail').eq('share_slug', slug).maybeSingle();
+    const { error } = await supabase
+      .from('submissions')
+      .update({ ai_score: ai, detail: { ...((cur && cur.detail) || {}), aiDetection } })
+      .eq('share_slug', slug);
+    if (error) console.error('post-submit AI check: update failed:', error.message);
+  } catch (e) {
+    // Never log the text. The row keeps aiCheck='queued'; the report shows it as incomplete.
+    console.error('post-submit AI check failed:', e && e.message);
+  }
+}
 
 const clampScore = (n) => {
   if (n == null || Number.isNaN(Number(n))) return null;
@@ -30,6 +64,9 @@ module.exports = async (req, res) => {
 
   const {
     proof,
+    // Raw text, top-level on purpose: NOT part of `proof` (which is what gets
+    // stored). Used once to score the submission after responding, then dropped.
+    text,
     summary = {},
     student_email,
     student_name,
@@ -108,6 +145,11 @@ module.exports = async (req, res) => {
   if (error) {
     console.error('submissions insert', error);
     return send(res, 500, { error: error.message || 'Insert failed' });
+  }
+
+  // Score on the server after the response goes out — see scoreAfterResponse.
+  if (typeof text === 'string' && text.trim() && text.length <= MAX_TEXT_CHARS) {
+    waitUntil(scoreAfterResponse(supabase, data.share_slug, text, row.content_hash));
   }
 
   return send(res, 200, {

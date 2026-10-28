@@ -3,11 +3,25 @@
   "buildCommand": "cd client && CI= npm run build",
   "outputDirectory": "client/build",
   "functions": {
-    "api/submission-ai.js": { "maxDuration": 60 }
+    "api/submission-ai.js": {
+      "maxDuration": 60
+    },
+    "api/submissions.js": {
+      "maxDuration": 60
+    }
   },
   "rewrites": [
-    { "source": "/api/(.*)", "destination": "/api/$1" },
-    { "source": "/privacy", "destination": "/privacy.html" },
-    { "source": "/(.*)", "destination": "/index.html" }
+    {
+      "source": "/api/(.*)",
+      "destination": "/api/$1"
+    },
+    {
+      "source": "/privacy",
+      "destination": "/privacy.html"
+    },
+    {
+      "source": "/(.*)",
+      "destination": "/index.html"
+    }
   ]
 }

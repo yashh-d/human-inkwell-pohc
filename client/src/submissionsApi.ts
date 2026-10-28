@@ -23,6 +23,9 @@ export type SubmissionSummary = {
 
 export type CreateSubmissionInput = {
   proof: ExtensionProof;
+  // The raw text, sent once alongside (never inside) the proof so the server can
+  // run the AI check after it responds. It is never stored — the proof has none.
+  text?: string;
   summary: SubmissionSummary;
   student_email?: string | null;
   student_name?: string | null;
