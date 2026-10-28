@@ -14,7 +14,8 @@ import {
 } from "../lib/authorship";
 import { detectAi, AiResult } from '../lib/aiDetector';
 import { compareToFingerprint, storedAiResult, DocumentMatch } from '../lib/contentMatch';
-import { aiCheckStillRunning, type PasteEvent } from '../submissionsApi';
+import { aiCheckStillRunning, scoreSubmissionText, type PasteEvent } from '../submissionsApi';
+import { getSession } from '../professorAuth';
 import { computeReceipts, fmtDuration } from '../lib/receipts';
 import { publishCreatorPost } from '../creatorSupabase';
 import StudentSubmitPanel from '../components/StudentSubmitPanel';
@@ -85,6 +86,7 @@ export default function PublishProofPage(
     onPreviewVerify,
     reportOnly = false,
     publishedAt,
+    submissionSlug,
   }: {
     variant?: 'student' | 'creator';
     injectedProof?: ExtensionProof;
@@ -103,6 +105,9 @@ export default function PublishProofPage(
     // When the submission was stored (professor view). Bounds how long a queued
     // AI check is shown as "running" before the card says it didn't complete.
     publishedAt?: string | null;
+    // The /s/<slug> this report is for (professor view). Lets the document-check box
+    // run a retroactive AI score on the text the professor pastes.
+    submissionSlug?: string;
   } = {},
 ) {
   const isCreator = variant === 'creator';
@@ -547,7 +552,7 @@ export default function PublishProofPage(
       <>
       {/* Professor-only: paste what the student handed in, see how much of the
           proven document it contains. Nothing pasted here leaves the browser. */}
-      {reportOnly && <DocumentCheck proof={proof} />}
+      {reportOnly && <DocumentCheck proof={proof} slug={submissionSlug} hasModelScore={ai?.source === 'model'} />}
 
       {/* Evidence cards, then a drop-down with the per-signal breakdown (shared with B).
           The composite-score breakdown is hidden for creators (receipts, not scores). */}
@@ -1308,9 +1313,27 @@ function ScoreCalcDetails({ authorship, scoreLabel = 'Process Score' }: { author
  * shown back (they are the professor's own paste); passages the proof has that the
  * text lacks can only be counted, since their text was never stored.
  */
-function DocumentCheck({ proof }: { proof: ExtensionProof }) {
+function DocumentCheck({ proof, slug, hasModelScore }: { proof: ExtensionProof; slug?: string; hasModelScore?: boolean }) {
   const [text, setText] = useState('');
   const [result, setResult] = useState<DocumentMatch | null>(null);
+  // Retroactive AI scoring: the professor holds the essay the student handed in;
+  // scoring it here stores a real model result for a submission that never got one
+  // (published before server-side scoring, or its captured text was purged).
+  const [aiBusy, setAiBusy] = useState(false);
+  const [aiErr, setAiErr] = useState<string | null>(null);
+  const [aiDone, setAiDone] = useState<{ ai: number | null; hashVerified: boolean | null } | null>(null);
+  const runAiCheck = async () => {
+    if (!slug || !text.trim()) return;
+    setAiBusy(true); setAiErr(null);
+    try {
+      const session = await getSession();
+      if (!session?.access_token) throw new Error('Sign in as the professor to run the AI check.');
+      const r = await scoreSubmissionText(slug, text, session.access_token);
+      setAiDone({ ai: r.ai, hashVerified: r.hashVerified });
+    } catch (e) {
+      setAiErr(e instanceof Error ? e.message : 'Could not run the AI check.');
+    } finally { setAiBusy(false); }
+  };
   const fp = proof.contentFingerprint;
   const pct = (x: number) => (Number.isInteger(x) ? `${x}%` : `${x.toFixed(1)}%`);
   const plural = (n: number, one: string, many: string) => `${n} ${n === 1 ? one : many}`;
@@ -1350,6 +1373,35 @@ function DocumentCheck({ proof }: { proof: ExtensionProof }) {
               </button>
             )}
           </div>
+
+          {slug && !hasModelScore && (
+            <div style={{ marginTop: 10, borderTop: '1px dashed rgba(255,255,255,0.14)', paddingTop: 10 }}>
+              <div style={styles.fieldLabel}>AI check</div>
+              <p style={{ ...styles.muted, margin: '4px 0 8px' }}>
+                This submission has no model AI score (it was published before the check existed, or its
+                captured text was purged). Run the detector on the text you pasted above to store one.
+              </p>
+              <button
+                style={{ ...styles.seeWhy, margin: 0, maxWidth: 220, opacity: text.trim() && !aiBusy ? 1 : 0.5 }}
+                disabled={!text.trim() || aiBusy}
+                onClick={runAiCheck}
+              >
+                {aiBusy ? 'Scoring…' : 'Run AI check on this text'}
+              </button>
+              {aiErr && <p style={{ ...styles.muted, color: '#f87171' }}>{aiErr}</p>}
+              {aiDone && (
+                <p style={{ ...styles.muted, marginTop: 8 }}>
+                  AI probability: <strong style={{ color: aiDone.ai == null ? '#94a3b8' : aiDone.ai < 30 ? '#6ee7b7' : aiDone.ai <= 70 ? '#fbbf24' : '#f87171' }}>{aiDone.ai == null ? '—' : `${aiDone.ai}%`}</strong>
+                  {aiDone.hashVerified === true
+                    ? ' · scored the exact attested document (hash matches) · saved to this report.'
+                    : aiDone.hashVerified === false
+                    ? ' · note: this text does not hash-match the attested document (edited or reformatted) · saved to this report.'
+                    : ' · saved to this report.'}
+                  {' '}Reload to see it on the score card.
+                </p>
+              )}
+            </div>
+          )}
 
           {result && !result.available && (
             <p style={styles.muted}>

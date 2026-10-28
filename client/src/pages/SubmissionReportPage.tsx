@@ -104,6 +104,7 @@ export default function SubmissionReportPage() {
           injectedProof={view.detail}
           injectedPasteEvents={view.pasteEvents ?? undefined}
           publishedAt={view.published_at}
+          submissionSlug={slug}
           reportOnly
         />
       </div>

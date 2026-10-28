@@ -117,6 +117,27 @@ export function aiCheckStillRunning(publishedAt?: string | null): boolean {
   return Number.isFinite(t) && Date.now() - t < AI_CHECK_PENDING_MS;
 }
 
+/**
+ * Professor-only: score the text the professor pastes (the essay the student handed
+ * in) with the AI detector and store it on the submission. This is how a submission
+ * published before server-side scoring — or whose captured text was purged — gets a
+ * real model score: the professor supplies the text the system no longer holds.
+ * The server hash-checks it against the on-chain attestation and returns that too.
+ */
+export async function scoreSubmissionText(
+  slug: string,
+  text: string,
+  token: string,
+): Promise<{ ai: number | null; hashVerified: boolean | null; already?: boolean }> {
+  const res = await fetch(apiPath('/api/submission-ai'), {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+    body: JSON.stringify({ slug, text }),
+  });
+  const json = await jsonOrThrow(res);
+  return { ai: typeof json.ai === 'number' ? json.ai : null, hashVerified: json.hashVerified ?? null, already: json.already };
+}
+
 export async function attachSubmission(input: {
   slug: string;
   assignment_id?: string;
