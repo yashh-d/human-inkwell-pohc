@@ -12,39 +12,7 @@
  */
 const { send, readJson, lc, serviceClient } = require('./_accounts');
 const { waitUntil } = require('@vercel/functions');
-const { createHash } = require('crypto');
-const { scoreText } = require('./_detector');
-
-const MAX_TEXT_CHARS = 200_000; // matches the detector proxy / worker cap
-
-/**
- * Runs AFTER the response has been sent (via waitUntil), so the student never waits
- * and closing the tab cannot lose the result — the earlier browser-side fire-and-
- * forget did exactly that. The text lives only in this function's memory for one
- * request: it is never written to the row, and the stored proof carries none.
- * Records whether SHA-256(text) matched the attested content_hash (a mismatch is
- * recorded, not rejected — Docs / whitespace-normalized captures can differ).
- */
-async function scoreAfterResponse(supabase, slug, text, contentHash) {
-  try {
-    const computed = createHash('sha256').update(text, 'utf8').digest('hex');
-    const hashVerified = contentHash ? computed.toLowerCase() === String(contentHash).toLowerCase() : null;
-    const scored = await scoreText(text, contentHash || undefined);
-    const ai = Math.max(0, Math.min(100, Math.round(scored.ai * 100)));
-    const aiDetection = {
-      ai, human: 100 - ai, source: 'model', at: new Date().toISOString(), hashVerified, backend: scored.backend,
-    };
-    const { data: cur } = await supabase.from('submissions').select('detail').eq('share_slug', slug).maybeSingle();
-    const { error } = await supabase
-      .from('submissions')
-      .update({ ai_score: ai, detail: { ...((cur && cur.detail) || {}), aiDetection } })
-      .eq('share_slug', slug);
-    if (error) console.error('post-submit AI check: update failed:', error.message);
-  } catch (e) {
-    // Never log the text. The row keeps aiCheck='queued'; the report shows it as incomplete.
-    console.error('post-submit AI check failed:', e && e.message);
-  }
-}
+const { scorePendingBySlug, MAX_TEXT_CHARS } = require('./_scoreSubmission');
 
 const clampScore = (n) => {
   if (n == null || Number.isNaN(Number(n))) return null;
@@ -134,6 +102,12 @@ module.exports = async (req, res) => {
     entry_id: entry_id != null ? Number(entry_id) : null,
     content_hash: content_hash || proof.contentHash || null,
     transaction_hash: transaction_hash ? lc(transaction_hash) : null,
+    // Retain the raw text ONLY until it has a model AI score; every scoring path
+    // clears it the moment a result lands (client/api/_scoreSubmission.js). This is
+    // what makes a failed/cold detector retryable instead of a permanent loss. Never
+    // part of `proof`/`detail`, never returned by any API.
+    pending_text:
+      typeof text === 'string' && text.trim() && text.length <= MAX_TEXT_CHARS ? text : null,
   };
 
   const { data, error } = await supabase
@@ -147,9 +121,11 @@ module.exports = async (req, res) => {
     return send(res, 500, { error: error.message || 'Insert failed' });
   }
 
-  // Score on the server after the response goes out — see scoreAfterResponse.
-  if (typeof text === 'string' && text.trim() && text.length <= MAX_TEXT_CHARS) {
-    waitUntil(scoreAfterResponse(supabase, data.share_slug, text, row.content_hash));
+  // Score after the response goes out, from the text we just retained. If the GPU is
+  // cold/down this throws and pending_text stays put, so opening the report later (or
+  // the sweep) retries — the student's work is never discarded before it is scored.
+  if (row.pending_text) {
+    waitUntil(scorePendingBySlug(supabase, data.share_slug));
   }
 
   return send(res, 200, {

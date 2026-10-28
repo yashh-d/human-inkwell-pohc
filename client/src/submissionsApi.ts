@@ -75,6 +75,9 @@ export type SubmissionView = {
     transaction_hash: string | null;
   };
   viewer: 'professor' | 'public';
+  // True while a model AI score is still coming (text retained, not yet scored).
+  // Authoritative signal for the report to keep polling.
+  aiScorePending?: boolean;
   detail?: ExtensionProof | null;
   student?: { email: string | null; name: string | null };
   assignment?: { id: string; title: string; join_code: string } | null;

@@ -38,7 +38,11 @@ export default function SubmissionReportPage() {
     let attempt = 0;
     // Only keep polling for a check that was actually started and is still inside
     // its window — never for rows that have nothing to score or predate the check.
+    // The server tells us authoritatively whether a score is still coming (text is
+    // retained and unscored). Poll on that; fall back to the time window for rows
+    // that predate the flag.
     const pending = (v: SubmissionView) => {
+      if (v.aiScorePending) return true;
       if (!aiCheckStillRunning(v.published_at)) return false;
       if (v.viewer === 'professor') {
         return v.detail?.aiCheck === 'queued' && v.detail?.aiDetection?.source !== 'model';
@@ -105,6 +109,7 @@ export default function SubmissionReportPage() {
           injectedPasteEvents={view.pasteEvents ?? undefined}
           publishedAt={view.published_at}
           submissionSlug={slug}
+          aiScorePending={view.aiScorePending}
           reportOnly
         />
       </div>

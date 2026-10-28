@@ -24,12 +24,8 @@
  *
  * Body: { slug, text }   Auth: Bearer <professor Supabase access token>
  */
-const { createHash } = require('crypto');
 const { send, readJson, serviceClient, resolveProfessor } = require('./_accounts');
-const { scoreText } = require('./_detector');
-
-const MAX_TEXT_CHARS = 200_000; // matches the proxy / worker cap
-const pct = (ai01) => Math.max(0, Math.min(100, Math.round(ai01 * 100)));
+const { scoreAndStore, MAX_TEXT_CHARS } = require('./_scoreSubmission');
 
 const handler = async (req, res) => {
   if (req.method === 'OPTIONS') return send(res, 204, {});
@@ -57,49 +53,22 @@ const handler = async (req, res) => {
 
   const { data: row, error: readErr } = await supabase
     .from('submissions')
-    .select('id, ai_score, content_hash, detail')
+    .select('id, ai_score, content_hash, detail, pending_text')
     .eq('share_slug', slug)
     .maybeSingle();
   if (readErr) return send(res, 500, { error: readErr.message || 'Lookup failed' });
   if (!row) return send(res, 404, { error: 'Submission not found' });
 
-  // Already scored by the model → return it; never re-spend GPU on the same row.
-  const prior = row.detail && row.detail.aiDetection;
-  if (prior && prior.source === 'model' && typeof prior.ai === 'number') {
-    return send(res, 200, { ok: true, ai: prior.ai, hashVerified: prior.hashVerified ?? null, already: true });
-  }
-
-  const computed = createHash('sha256').update(text, 'utf8').digest('hex');
-  const hashVerified = row.content_hash
-    ? computed.toLowerCase() === String(row.content_hash).toLowerCase()
-    : null;
-
-  let scored;
+  // scoreAndStore handles the model result, the hash check, clearing any retained
+  // pending_text, and the idempotent "already scored" case in one place.
+  let result;
   try {
-    scored = await scoreText(text, row.content_hash || undefined);
+    result = await scoreAndStore(supabase, row, text);
   } catch (e) {
     console.error('submission-ai detector failed:', e && e.message);
     return send(res, 503, { error: 'Detector unavailable, retry', retry: true });
   }
-
-  const ai = pct(scored.ai);
-  const aiDetection = {
-    ai,
-    human: 100 - ai,
-    source: 'model',
-    at: new Date().toISOString(),
-    hashVerified,
-    backend: scored.backend,
-    scoredBy: 'professor', // retroactive: text supplied by the professor, not captured
-  };
-
-  const { error: upErr } = await supabase
-    .from('submissions')
-    .update({ ai_score: ai, detail: { ...(row.detail || {}), aiDetection, aiCheck: 'queued' } })
-    .eq('id', row.id);
-  if (upErr) return send(res, 500, { error: upErr.message || 'Update failed' });
-
-  return send(res, 200, { ok: true, ai, hashVerified });
+  return send(res, 200, { ok: true, ai: result.ai ?? null, hashVerified: result.hashVerified ?? null, already: !!result.already });
 };
 
 // Sized for one cold start of the scale-to-zero GPU worker (mirrors vercel.json).

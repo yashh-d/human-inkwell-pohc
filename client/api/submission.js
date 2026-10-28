@@ -12,6 +12,8 @@
  * Students never see the detail — even for their own submission.
  */
 const { send, lc, serviceClient, resolveProfessor } = require('./_accounts');
+const { waitUntil } = require('@vercel/functions');
+const { scorePendingBySlug } = require('./_scoreSubmission');
 
 /** Pull the Google Docs document id out of the captured proof URL (…/d/<id>/…). */
 function docIdFromUrl(url) {
@@ -36,7 +38,7 @@ module.exports = async (req, res) => {
     .select(
       'id, share_slug, authorship_score, ai_score, integrity_score, band, ' +
         'assignment_id, published_at, chain_id, contract_address, entry_id, ' +
-        'content_hash, transaction_hash, student_email, student_name, detail',
+        'content_hash, transaction_hash, student_email, student_name, detail, pending_text',
     )
     .eq('share_slug', slug)
     .maybeSingle();
@@ -67,6 +69,9 @@ module.exports = async (req, res) => {
       transaction_hash: sub.transaction_hash,
     },
     viewer: professor ? 'professor' : 'public',
+    // True while the model score is still coming: text is retained and no model
+    // result yet. The report polls on this (authoritative, unlike a time window).
+    aiScorePending: !!sub.pending_text && (sub.detail && sub.detail.aiDetection && sub.detail.aiDetection.source === 'model' ? false : true),
   };
 
   if (professor) {
@@ -109,6 +114,13 @@ module.exports = async (req, res) => {
         truncated: !!p.truncated,
       }));
     }
+  }
+
+  // Self-healing: a submission whose score failed at publish still holds its text.
+  // Opening the report retries from that retained text (fire-and-forget); the page
+  // polls aiScorePending and shows the number as soon as it lands.
+  if (payload.aiScorePending) {
+    waitUntil(scorePendingBySlug(supabase, slug));
   }
 
   return send(res, 200, payload);

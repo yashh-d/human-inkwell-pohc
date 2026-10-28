@@ -87,6 +87,7 @@ export default function PublishProofPage(
     reportOnly = false,
     publishedAt,
     submissionSlug,
+    aiScorePending,
   }: {
     variant?: 'student' | 'creator';
     injectedProof?: ExtensionProof;
@@ -108,6 +109,9 @@ export default function PublishProofPage(
     // The /s/<slug> this report is for (professor view). Lets the document-check box
     // run a retroactive AI score on the text the professor pastes.
     submissionSlug?: string;
+    // Server says a model score is still coming (text retained, not yet scored).
+    // Authoritative over the time window: show "pending" and let the page poll.
+    aiScorePending?: boolean;
   } = {},
 ) {
   const isCreator = variant === 'creator';
@@ -495,7 +499,7 @@ export default function PublishProofPage(
           // report page re-fetches until it lands); everything else is final.
           (() => {
             const status = proof.aiCheck;
-            const running = status === 'queued' && aiCheckStillRunning(publishedAt);
+            const running = aiScorePending === true || (status === 'queued' && aiCheckStillRunning(publishedAt));
             // Every submission still gets a number: while a model result is absent the
             // card shows the metrics-based heuristic (the same estimate the roster
             // stores), labeled as exactly that. Only a check still in flight shows a
